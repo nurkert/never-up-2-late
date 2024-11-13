@@ -20,4 +20,6 @@ filenames:
   paper: "paper.jar"
 # Check interval in minutes
 updateInterval: 30
+# Ignore unstable builds
+ignoreUnstable: true
 ```
