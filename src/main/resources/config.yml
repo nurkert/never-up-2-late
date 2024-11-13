@@ -1,0 +1,6 @@
+# The names of the jars as they are in the server directory
+filenames:
+  geyser: "[PP] Geyser (MODRINTH).jar"
+  paper: "paper.jar"
+# Check interval in minutes
+updateInterval: 30
