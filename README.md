@@ -1,4 +1,4 @@
-# NeverUp2Late
+![Alt text](https://raw.githubusercontent.com/nurkert/never-up-2-late/master/images/banner.png)
 
 NeverUp2Late is a Minecraft plugin designed to automatically check for updates and download the latest versions of specified jars (Paper + Geyser). This ensures that your server is always up-to-date with the latest features and security patches.
 
