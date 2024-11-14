@@ -4,7 +4,7 @@ NeverUp2Late is a Minecraft plugin designed to automatically check for updates a
 
 ## Installation
 
-1. Download the latest release of NeverUp2Late from the [releases page](https://github.com/nurkert/NeverUp2Late/releases).
+1. Download the latest release of NeverUp2Late from the [releases page](https://www.spigotmc.org/resources/neverup2late-automatically-keeps-paper-geyser-up-to-date.120768/history).
 2. Place the `NeverUp2Late.jar` file in your server's `plugins` directory.
 3. Start your server to generate the default configuration files.
 4. Configure the plugin as needed in the `config.yml` file located in the `plugins/NeverUp2Late` directory.
