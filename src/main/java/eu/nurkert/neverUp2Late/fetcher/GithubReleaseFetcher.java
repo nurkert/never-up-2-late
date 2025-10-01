@@ -1,7 +1,6 @@
 package eu.nurkert.neverUp2Late.fetcher;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.type.TypeReference;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
@@ -46,8 +45,9 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
     @Override
     public void loadLatestBuildInfo() throws Exception {
-        List<Release> releases = getJson(buildUrl(), new TypeReference<>() {});
-        if (releases == null || releases.isEmpty()) {
+        Release[] releaseArray = getJson(buildUrl(), Release[].class);
+        List<Release> releases = releaseArray != null ? List.of(releaseArray) : List.of();
+        if (releases.isEmpty()) {
             throw new IOException("No releases returned for " + owner + "/" + repository);
         }
 
