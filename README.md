@@ -11,15 +11,39 @@ NeverUp2Late is a Minecraft plugin designed to automatically check for updates a
 
 ## Configuration
 
-The `config.yml` file allows you to configure the update interval and the filenames of the plugins to be updated. Below is an example configuration:
+The `config.yml` file allows you to configure the update interval, filenames and the list of update sources. Below is the default configuration with Paper and Geyser already set up:
 
 ```yaml
 # The names of the jars as they are in the server directory
 filenames:
-  geyser: "[PP] Geyser (MODRINTH).jar"
+  geyser: "Geyser-Spigot.jar"
   paper: "paper.jar"
+
 # Check interval in minutes
 updateInterval: 30
-# Ignore unstable builds
+
+# Ignore unstable builds (legacy location, still respected if updates.ignoreUnstable is absent)
 ignoreUnstable: true
+
+updates:
+  # Ignore unstable builds for fetchers that support filtering (e.g. Paper)
+  ignoreUnstable: true
+
+  # Configure the update sources that should be checked.
+  # - name: identifier used for persistence and filename lookups
+  # - type: either a simple alias (e.g. "paper") or the fully qualified UpdateFetcher class name
+  # - target: "server" to place the jar next to the server executable or "plugins" for the plugins directory
+  # - filename: optional override for the downloaded jar name (defaults to entries under filenames.<name>)
+  sources:
+    - name: paper
+      type: paper
+      target: server
+      filename: "paper.jar"
+
+    - name: geyser
+      type: geyser
+      target: plugins
+      filename: "Geyser-Spigot.jar"
 ```
+
+Additional sources can be registered by adding new entries to `updates.sources`. Point `type` to either the short alias (which resolves to a fetcher within this plugin) or the fully qualified class name of a custom `UpdateFetcher` implementation.
