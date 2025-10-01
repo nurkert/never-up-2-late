@@ -1,34 +1,22 @@
 package eu.nurkert.neverUp2Late.handlers;
 
-import org.bukkit.Bukkit;
+import org.bukkit.Server;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 
-import java.util.List;
-
 public class InstallationHandler implements Listener {
 
+        private final Server server;
         private boolean updateAvailable;
 
-        // Step 1: Create a private static instance of the class
-        private static InstallationHandler instance;
-
-        // Step 2: Make the constructor private to prevent instantiation
-        private InstallationHandler() {
-            updateAvailable  = false;
-        }
-
-        // Step 3: Provide a public static method to get the instance of the class
-        public static InstallationHandler getInstance() {
-            if (instance == null) {
-                instance = new InstallationHandler();
-            }
-            return instance;
+        public InstallationHandler(Server server) {
+            this.server = server;
+            this.updateAvailable  = false;
         }
 
         public void updateAvailable() {
-            if(Bukkit.getOnlinePlayers().size() > 0) {
+            if (!server.getOnlinePlayers().isEmpty()) {
                 updateAvailable = true;
             } else {
                 restartServer();
@@ -37,14 +25,12 @@ public class InstallationHandler implements Listener {
 
         @EventHandler
         public void onPlayerLeave(PlayerQuitEvent event) {
-            if(updateAvailable) {
-                if(Bukkit.getOnlinePlayers().size() - 1 == 0) {
-                    restartServer();
-                }
+            if (updateAvailable && server.getOnlinePlayers().size() <= 1) {
+                restartServer();
             }
         }
 
         private void restartServer() {
-            Bukkit.shutdown();
+            server.shutdown();
         }
 }

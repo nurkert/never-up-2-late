@@ -1,11 +1,10 @@
 package eu.nurkert.neverUp2Late.handlers;
 
-import eu.nurkert.neverUp2Late.NeverUp2Late;
-import eu.nurkert.neverUp2Late.fetcher.GeyserFetcher;
-import eu.nurkert.neverUp2Late.fetcher.PaperFetcher;
 import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
-import org.bukkit.Bukkit;
-import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.Server;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitScheduler;
 
 import java.io.File;
 import java.io.IOException;
@@ -16,87 +15,89 @@ import java.util.logging.Logger;
 
 public class UpdateHandler {
 
-    // Step 1: Create a private static instance of the class
-    private static UpdateHandler instance;
+    private final JavaPlugin plugin;
+    private final Server server;
+    private final BukkitScheduler scheduler;
+    private final FileConfiguration configuration;
+    private final PersistentPluginHandler persistentPluginHandler;
+    private final InstallationHandler installationHandler;
+    private final Map<String, UpdateFetcher> fetchers;
+    private final Logger logger;
 
-    // Step 2: Make the constructor private to prevent instantiation
-    private UpdateHandler() {
-        // Initialization code here
-        checkForUpdates();
+    private boolean networkWarningShown;
+
+    public UpdateHandler(JavaPlugin plugin,
+                         BukkitScheduler scheduler,
+                         FileConfiguration configuration,
+                         PersistentPluginHandler persistentPluginHandler,
+                         InstallationHandler installationHandler,
+                         Map<String, UpdateFetcher> fetchers) {
+        this.plugin = plugin;
+        this.server = plugin.getServer();
+        this.scheduler = scheduler;
+        this.configuration = configuration;
+        this.persistentPluginHandler = persistentPluginHandler;
+        this.installationHandler = installationHandler;
+        this.fetchers = fetchers;
+        this.logger = plugin.getLogger();
     }
 
-    // Step 3: Provide a public static method to get the instance of the class
-    public static UpdateHandler getInstance() {
-        if (instance == null) {
-            instance = new UpdateHandler();
-        }
-        return instance;
+    public void start() {
+        long intervalMinutes = configuration.getInt("updateInterval");
+        long intervalTicks = Math.max(1L, intervalMinutes) * 20L * 60L;
+        scheduler.runTaskTimerAsynchronously(plugin, this::checkForUpdates, 0L, intervalTicks);
     }
 
     private void checkForUpdates() {
-        int interval = NeverUp2Late.getInstance().getConfig().getInt("updateInterval");
-        new BukkitRunnable() {
-            private final NeverUp2Late plugin = NeverUp2Late.getInstance();
-            private final File pluginsFolder = plugin.getDataFolder().getParentFile();
-            private final File serverFolder = Bukkit.getServer().getWorldContainer().getAbsoluteFile();
-            private final PersistentPluginHandler persistents = PersistentPluginHandler.getInstance();
-            private final Map<String, UpdateFetcher> map = Map.ofEntries(
-                    Map.entry("paper", new PaperFetcher()),
-                    Map.entry("geyser", new GeyserFetcher())
-            );
-            private final Logger logger = plugin.getLogger();
-            private boolean networkWarningShown = false;
+        boolean networkIssueThisRun = false;
+        File pluginsFolder = plugin.getDataFolder().getParentFile();
+        File serverFolder = server.getWorldContainer().getAbsoluteFile();
 
-            @Override
-            public void run() {
-                boolean networkIssueThisRun = false;
+        for (Map.Entry<String, UpdateFetcher> entry : fetchers.entrySet()) {
+            String key = entry.getKey();
+            UpdateFetcher fetcher = entry.getValue();
 
-                for (String key : map.keySet()) {
-                    UpdateFetcher fetcher = map.get(key);
+            try {
+                fetcher.loadLatestBuildInfo();
 
-                    try {
-                        fetcher.loadLatestBuildInfo();
+                if (persistentPluginHandler.getBuild(key) < fetcher.getLatestBuild()
+                        || (fetcher.getInstalledVersion() != null
+                        && compareVersions(fetcher.getInstalledVersion(), fetcher.getLatestVersion()) < 0)) {
+                    String downloadURL = fetcher.getLatestDownloadUrl();
 
-                        if (persistents.getBuild(key) < fetcher.getLatestBuild()
-                                || (fetcher.getInstalledVersion() != null
-                                && compareVersions(fetcher.getInstalledVersion(), fetcher.getLatestVersion()) < 0)) {
-                            String downloadURL = fetcher.getLatestDownloadUrl();
-
-                            if (downloadURL == null || downloadURL.isBlank()) {
-                                logger.log(Level.WARNING, "No download URL available for {0}; skipping update.", key);
-                                continue;
-                            }
-
-                            String destinationPath = (key.equals("paper") ? serverFolder : pluginsFolder)
-                                    .getAbsolutePath() + "/" + plugin.getConfig().getString("filenames." + key);
-
-                            DownloadHandler.downloadJar(downloadURL, destinationPath);
-
-                            persistents.set(key, fetcher.getLatestBuild());
-                            InstallationHandler.getInstance().updateAvailable();
-                        }
-                    } catch (UnknownHostException e) {
-                        networkIssueThisRun = true;
-                        if (!networkWarningShown) {
-                            logger.log(Level.WARNING,
-                                    "Unable to reach update server while checking {0}: {1}. The plugin will retry automatically.",
-                                    new Object[]{key, e.getMessage()});
-                            networkWarningShown = true;
-                        }
-                    } catch (IOException e) {
-                        logger.log(Level.WARNING,
-                                "I/O error while updating {0}: {1}", new Object[]{key, e.getMessage()});
-                    } catch (Exception e) {
-                        logger.log(Level.SEVERE, "Unexpected error while checking updates for " + key, e);
+                    if (downloadURL == null || downloadURL.isBlank()) {
+                        logger.log(Level.WARNING, "No download URL available for {0}; skipping update.", key);
+                        continue;
                     }
-                }
 
-                if (!networkIssueThisRun && networkWarningShown) {
-                    logger.log(Level.INFO, "Connection to update servers restored. Resuming normal update checks.");
-                    networkWarningShown = false;
+                    String destinationPath = (key.equals("paper") ? serverFolder : pluginsFolder)
+                            .getAbsolutePath() + "/" + configuration.getString("filenames." + key);
+
+                    DownloadHandler.downloadJar(downloadURL, destinationPath);
+
+                    persistentPluginHandler.set(key, fetcher.getLatestBuild());
+                    installationHandler.updateAvailable();
                 }
+            } catch (UnknownHostException e) {
+                networkIssueThisRun = true;
+                if (!networkWarningShown) {
+                    logger.log(Level.WARNING,
+                            "Unable to reach update server while checking {0}: {1}. The plugin will retry automatically.",
+                            new Object[]{key, e.getMessage()});
+                    networkWarningShown = true;
+                }
+            } catch (IOException e) {
+                logger.log(Level.WARNING,
+                        "I/O error while updating {0}: {1}", new Object[]{key, e.getMessage()});
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Unexpected error while checking updates for " + key, e);
             }
-        }.runTaskTimerAsynchronously(NeverUp2Late.getInstance(), 0L, interval * 20L * 60L);
+        }
+
+        if (!networkIssueThisRun && networkWarningShown) {
+            logger.log(Level.INFO, "Connection to update servers restored. Resuming normal update checks.");
+            networkWarningShown = false;
+        }
     }
 
     /**
