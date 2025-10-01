@@ -1,39 +1,73 @@
-![Alt text](https://raw.githubusercontent.com/nurkert/never-up-2-late/master/images/banner.png)
+![NeverUp2Late banner](https://raw.githubusercontent.com/nurkert/never-up-2-late/master/images/banner.png)
 
-NeverUp2Late is a Minecraft plugin designed to automatically check for updates and download the latest versions of specified jars (Paper + Geyser). This ensures that your server is always up-to-date with the latest features and security patches.
+# NeverUp2Late
+
+NeverUp2Late hält deinen Minecraft-Server automatisch auf dem aktuellen Stand. Das Plugin prüft in frei wählbaren Intervallen
+Paper, Geyser und beliebige weitere Quellen auf Updates, lädt neue Builds herunter und ersetzt vorhandene JARs. Über das
+/nu2l-Kommando lassen sich neue Quellen sekundenschnell direkt aus einer URL einrichten.
+
+## Funktionsumfang
+
+- **Automatische Update-Pipeline** – Fetch, Download und Installation laufen asynchron, inklusive Netzwerk-Wiederholungen und
+  Statusmeldungen im Chat.
+- **Flexible Quellenverwaltung** – Unterstützt Paper, Geyser, Hangar, Modrinth, CurseForge, GitHub Releases, Jenkins und
+  benutzerdefinierte Fetcher-Klassen.
+- **Schnellinstallation via `/nu2l`** – URLs aus Hangar, Modrinth, GitHub oder Jenkins werden erkannt, nötige Optionen automatisch
+  ausgefüllt und auf Wunsch sofort installiert.
+- **Mehrfach-Asset-Auswahl** – Findet ein Release mehrere passende Dateien, generiert das Plugin eine Regex und lässt dich das
+  gewünschte Asset direkt auswählen.
+- **Versionserkennung** – Optional liest NeverUp2Late die installierte Plugin-Version aus, um nur echte Updates einzuspielen.
 
 ## Installation
 
-1. Download the latest release of NeverUp2Late from the [releases page](https://www.spigotmc.org/resources/neverup2late-automatically-keeps-paper-geyser-up-to-date.120768/history).
-2. Place the `NeverUp2Late.jar` file in your server's `plugins` directory.
-3. Start your server to generate the default configuration files.
-4. Configure the plugin as needed in the `config.yml` file located in the `plugins/NeverUp2Late` directory.
+1. Lade die aktuelle Version von der [SpigotMC-Release-Seite](https://www.spigotmc.org/resources/neverup2late-automatically-keeps-paper-geyser-up-to-date.120768/history).
+2. Lege `NeverUp2Late.jar` im `plugins`-Ordner deines Servers ab.
+3. Starte den Server einmal, damit Konfigurations- und Persistenzdateien erzeugt werden.
+4. Passe die Einstellungen in `plugins/NeverUp2Late/config.yml` an.
 
-## Configuration
+## Quick Install (`/nu2l`)
 
-The `config.yml` file allows you to configure the update interval, filenames and the list of update sources. Below is the default configuration with Paper and Geyser already set up:
+Das Kommando `/nu2l <url>` richtet neue Update-Quellen ohne manuellen YAML-Edit ein. Unterstützt werden derzeit URLs von:
+
+- [Hangar](https://hangar.papermc.io/) Projekten (`https://hangar.papermc.io/<Owner>/<Projekt>`)
+- [Modrinth](https://modrinth.com/) Projekt- und Pluginseiten
+- GitHub-Repositories (Release-Übersicht oder Direktlinks wie `https://github.com/<Owner>/<Repo>/releases/...`)
+- Jenkins-Builds mit `/job/<Name>` in der URL
+
+Ablauf:
+
+1. Kommando ausführen – die Quelle wird analysiert und mit einem sprechenden Namen versehen.
+2. Bei mehreren Assets listet der Chat die Kandidaten und du wählst mit `/nu2l select <nummer>` das gewünschte File aus. Die
+   daraus erzeugte Regex wird automatisch in die Konfiguration geschrieben.
+3. NeverUp2Late speichert die Quelle in `config.yml` und stößt sofort einen Installationslauf an.
+
+> **Berechtigung:** Das Kommando erfordert `neverup2late.install` (Standard: OP). Für die Konsole gelten dieselben Abläufe.
+
+## Konfiguration
+
+Die Datei `plugins/NeverUp2Late/config.yml` enthält globale Einstellungen und die Liste der Quellen.
+
+### Globale Optionen
+
+| Schlüssel                | Bedeutung                                                                 |
+|--------------------------|----------------------------------------------------------------------------|
+| `filenames.<name>`       | Standarddateiname einer Quelle (z. B. `paper.jar`).                        |
+| `updateInterval`         | Prüfintervall in Minuten (Standard: 30).                                   |
+| `ignoreUnstable`         | Legacy-Schalter, wird noch als Fallback für alte Konfigurationen gelesen. |
+| `updates.ignoreUnstable` | Globale Standardeinstellung für Fetcher, die instabile Builds filtern.    |
+
+### Standardkonfiguration
 
 ```yaml
-# The names of the jars as they are in the server directory
 filenames:
   geyser: "Geyser-Spigot.jar"
   paper: "paper.jar"
 
-# Check interval in minutes
 updateInterval: 30
-
-# Ignore unstable builds (legacy location, still respected if updates.ignoreUnstable is absent)
 ignoreUnstable: true
 
 updates:
-  # Ignore unstable builds for fetchers that support filtering (e.g. Paper)
   ignoreUnstable: true
-
-  # Configure the update sources that should be checked.
-  # - name: identifier used for persistence and filename lookups
-  # - type: either a simple alias (e.g. "paper") or the fully qualified UpdateFetcher class name
-  # - target: "server" to place the jar next to the server executable or "plugins" for the plugins directory
-  # - filename: optional override for the downloaded jar name (defaults to entries under filenames.<name>)
   sources:
     - name: paper
       type: paper
@@ -46,79 +80,50 @@ updates:
       filename: "Geyser-Spigot.jar"
 ```
 
-Additional sources can be registered by adding new entries to `updates.sources`. Point `type` to either the short alias (which resolves to a fetcher within this plugin) or the fully qualified class name of a custom `UpdateFetcher` implementation.
+Jede Quelle besteht aus `name`, `type`, Zielverzeichnis (`server` oder `plugins`), optionalem `filename` und einer `options`
+Sektion für fetcher-spezifische Einstellungen. Eigene Fetcher können über den vollqualifizierten Klassennamen registriert werden.
 
-### Hangar sources
+### Unterstützte Fetcher
 
-Projects hosted on [Hangar](https://hangar.papermc.io/) can be tracked by setting the source `type` to `hangar` and providing the project namespace inside the `options` block. The example below downloads the latest reviewed release for `ExampleAuthor/ExampleProject`:
+#### Paper (`type: paper`)
+- Nutzt die PaperMC-API und richtet sich automatisch nach der aktuell installierten Minecraft-Version.
+- `options.ignoreUnstable` (oder `allowUnstable`) überschreibt den globalen Standard für instabile Builds.
 
-```yaml
-    - name: examplePlugin
-      type: hangar
-      target: plugins
-      filename: "ExamplePlugin.jar"
-      options:
-        owner: ExampleAuthor       # or use "project: ExampleAuthor/ExampleProject"
-        slug: ExampleProject
-        platform: PAPER            # optional, defaults to PAPER
-        ignoreUnstable: true       # optional, skip channels flagged as UNSTABLE (default true)
-        allowedChannels: [Release] # optional whitelist of channel names
-        installedPlugin: ExamplePlugin # optional, used to detect the installed version
-```
+#### Geyser (`type: geyser`)
+- Vorkonfigurierte Modrinth-Anbindung mit passenden Loadern und verpflichtender Buildnummer.
 
-### CurseForge sources
+#### Hangar (`type: hangar`)
+- Benötigt `options.owner` + `options.slug` oder `options.project: Owner/Projekt`.
+- Weitere Optionen: `platform` (Standard `PAPER`), `allowedChannels`, `ignoreUnstable`, `allowUnstable`, `requireReviewed`
+  (Standard `true`), `preferPinned` (`true`), `pageSize`, `maxPages`, `installedPlugin` zur Versionserkennung.
 
-To download updates from [CurseForge](https://www.curseforge.com/) set the source `type` to `curseforge` and provide the numeric project id in the `options`. The fetcher can optionally filter by supported Minecraft versions or include beta builds when desired:
+#### Modrinth (`type: modrinth`)
+- Pflichtfeld `options.project` (Slug). Optionale Filter: `loaders`, `statuses` (Standard nur `listed`), `versionTypes`,
+  `gameVersions`, `preferPrimaryFile` (Standard `true`), `requireBuildNumber`, `installedPlugin` für Versionsvergleich.
 
-```yaml
-    - name: examplePlugin
-      type: curseforge
-      target: plugins
-      filename: "ExamplePlugin.jar"
-      options:
-        modId: 123456
-        apiKey: "your-api-key"         # optional, but recommended for higher rate limits
-        gameVersions: ["1.20.1"]        # optional list of accepted Minecraft versions
-        releaseTypes: ["release"]       # optional, defaults to ["release"], can include "beta" or "alpha"
-        installedPlugin: ExamplePlugin  # optional, used to detect the installed version
-```
+#### CurseForge (`type: curseforge`)
+- Pflichtfeld `options.modId`.
+- Empfohlene Ergänzungen: `apiKey` (höhere Rate Limits), `pageSize`, `maxPages`, `gameVersions`, `gameVersionTypeIds`,
+  `releaseTypes` (`release`, `beta`, `alpha`), `installedPlugin` zur Versionserkennung.
 
-### GitHub release sources
+#### GitHub Releases (`type: githubRelease`)
+- Benötigt `options.owner` und `options.repository`.
+- Optional: `assetPattern` (Regex für Dateiname/URL), `allowPrerelease`, `installedPlugin`.
+- Bei mehreren Assets fordert dich NeverUp2Late zur Auswahl auf und speichert das Ergebnis dauerhaft.
 
-To track releases that are published on GitHub, set the source `type` to `githubRelease` and provide the repository details inside the `options` block:
+#### Jenkins (`type: jenkins`)
+- Benötigt `options.baseUrl` (inkl. Protokoll) und `options.job` (Pfad hinter `/job/`).
+- Asset-Auswahl via `artifact` oder `artifactPattern`. Weitere Optionen: `preferLastSuccessful` (`true`), `versionSource`
+  (`displayName`, `build_id`, `build_number`, `artifact_file`), `versionPattern` (Regex für Versionsauswertung), `installedPlugin`.
+  Wenn weder `artifact` noch `artifactPattern` gesetzt ist, muss der Build exakt ein Artefakt liefern.
 
-```yaml
-    - name: examplePlugin
-      type: githubRelease
-      target: plugins
-      filename: "ExamplePlugin.jar"
-      options:
-        owner: example
-        repository: example-plugin
-        assetPattern: ".*paper.*\\.jar$"   # optional regex filter applied to browser_download_url
-        allowPrerelease: false               # optional, include pre-releases when true
-        installedPlugin: "ExamplePlugin"    # optional, used to detect the currently installed version
-```
+#### Eigene Fetcher
+- Gib als `type` den vollqualifizierten Klassennamen einer `UpdateFetcher`-Implementierung an. Alle angegebenen `options` werden
+  unverändert an den Konstruktor weitergereicht.
 
-If `assetPattern` is omitted the fetcher will automatically select the only matching JAR asset. When multiple matching assets are available, the quick install command now lists all candidates and lets you choose the correct file via `/nu2l select <nummer>`. A suitable regular expression is generated automatically from your selection and stored for future updates. Archive downloads such as `.zip` files keep their original extension so you can extract the contained JAR manually when necessary. When `installedPlugin` is configured the fetcher queries Bukkit's `PluginManager` to determine the installed version, otherwise it returns `null`.
+## Update-Ablauf
 
-### Jenkins sources
-
-Self-hosted Jenkins instances can be queried by setting the source `type` to `jenkins`. Provide the base URL of the Jenkins instance and the job path (folders can be separated with `/`). When multiple artifacts are published you can either specify the exact `artifact` file name or a regular expression via `artifactPattern`.
-
-```yaml
-    - name: examplePlugin
-      type: jenkins
-      target: plugins
-      filename: "ExamplePlugin.jar"
-      options:
-        baseUrl: https://jenkins.example.com/
-        job: Plugins/ExamplePlugin
-        artifactPattern: ".*ExamplePlugin.*\\.jar$"
-        preferLastSuccessful: true       # optional, defaults to true
-        versionSource: artifact          # optional (displayName, id, number, artifact)
-        versionPattern: "ExamplePlugin-(.*)\\.jar" # optional regex to extract the version
-        installedPlugin: ExamplePlugin   # optional, used to detect the installed version
-```
-
-If neither `artifact` nor `artifactPattern` are supplied, the fetcher expects exactly one artifact to be present. The download URL is constructed from the selected artifact of the latest build returned by Jenkins.
+NeverUp2Late prüft alle Quellen in dem eingestellten Intervall und nutzt dabei einen dreistufigen Pipeline-Job (Fetch → Download
+→ Installation). Fehler werden geloggt; Netzwerkprobleme führen zu einer Warnung und wiederholten Versuchen. Manuell gestartete
+Läufe – etwa nach einer Schnellinstallation – melden Erfolg, Fehler und den Ablagepfad direkt im Chat. Nach erfolgreicher
+Installation sollte der Server neu gestartet werden, um neue JARs zu laden.
