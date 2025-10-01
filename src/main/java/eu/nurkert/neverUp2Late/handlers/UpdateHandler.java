@@ -9,7 +9,9 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.update.VersionComparator;
+import org.bukkit.ChatColor;
 import org.bukkit.Server;
+import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
@@ -18,6 +20,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -33,6 +36,7 @@ public class UpdateHandler {
     private final ArtifactDownloader artifactDownloader;
     private final VersionComparator versionComparator;
     private final Logger logger;
+    private final String messagePrefix;
 
     private boolean networkWarningShown;
 
@@ -54,6 +58,7 @@ public class UpdateHandler {
         this.artifactDownloader = artifactDownloader;
         this.versionComparator = versionComparator;
         this.logger = plugin.getLogger();
+        this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
     }
 
     public void start() {
@@ -118,5 +123,57 @@ public class UpdateHandler {
                     new Object[]{source.getName(), e.getMessage()});
             networkWarningShown = true;
         }
+    }
+
+    public void runJobNow(UpdateSource source, CommandSender sender) {
+        Objects.requireNonNull(source, "source");
+        scheduler.runTaskAsynchronously(plugin, () -> executeManualRun(source, sender));
+    }
+
+    private void executeManualRun(UpdateSource source, CommandSender sender) {
+        File pluginsFolder = plugin.getDataFolder().getParentFile();
+        File serverFolder = server.getWorldContainer().getAbsoluteFile();
+        Path destination = resolveDestination(source, pluginsFolder, serverFolder);
+        UpdateJob job = createDefaultJob();
+        UpdateContext context = new UpdateContext(source, destination, logger);
+
+        notify(sender, ChatColor.YELLOW + "Prüfe " + displayName(source) + " auf neue Versionen …");
+
+        try {
+            job.run(context);
+            if (context.isCancelled()) {
+                String reason = context.getCancelReason().orElse("Installation abgebrochen.");
+                notify(sender, ChatColor.GOLD + reason);
+                return;
+            }
+
+            String version = context.getLatestVersion();
+            String buildInfo = version != null ? "Version " + version : "Build " + context.getLatestBuild();
+            String destinationFile = destination.getFileName() != null ? destination.getFileName().toString() : destination.toString();
+            notify(sender, ChatColor.GREEN + "Installation abgeschlossen: " + displayName(source) + " "
+                    + buildInfo + " → " + destinationFile + ". Bitte Server neu starten.");
+        } catch (UnknownHostException e) {
+            notify(sender, ChatColor.RED + "Download fehlgeschlagen: " + e.getMessage());
+            handleUnknownHost(source, e);
+        } catch (IOException e) {
+            notify(sender, ChatColor.RED + "I/O-Fehler: " + e.getMessage());
+            logger.log(Level.WARNING,
+                    "I/O error while installing {0}: {1}", new Object[]{source.getName(), e.getMessage()});
+        } catch (Exception e) {
+            notify(sender, ChatColor.RED + "Unerwarteter Fehler: " + e.getMessage());
+            logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
+        }
+    }
+
+    private void notify(CommandSender sender, String message) {
+        if (sender == null || message == null) {
+            return;
+        }
+        scheduler.runTask(plugin, () -> sender.sendMessage(messagePrefix + message));
+    }
+
+    private String displayName(UpdateSource source) {
+        String name = source.getName();
+        return name == null ? "Unbekannte Quelle" : name;
     }
 }

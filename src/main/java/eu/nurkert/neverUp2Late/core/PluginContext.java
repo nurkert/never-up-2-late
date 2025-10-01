@@ -19,19 +19,22 @@ public class PluginContext {
     private final PersistentPluginHandler persistentPluginHandler;
     private final UpdateHandler updateHandler;
     private final InstallationHandler installationHandler;
+    private final eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry;
 
     public PluginContext(JavaPlugin plugin,
                          BukkitScheduler scheduler,
                          FileConfiguration configuration,
                          PersistentPluginHandler persistentPluginHandler,
                          UpdateHandler updateHandler,
-                         InstallationHandler installationHandler) {
+                         InstallationHandler installationHandler,
+                         eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry) {
         this.plugin = plugin;
         this.scheduler = scheduler;
         this.configuration = configuration;
         this.persistentPluginHandler = persistentPluginHandler;
         this.updateHandler = updateHandler;
         this.installationHandler = installationHandler;
+        this.updateSourceRegistry = updateSourceRegistry;
     }
 
     public JavaPlugin getPlugin() {
@@ -56,5 +59,9 @@ public class PluginContext {
 
     public InstallationHandler getInstallationHandler() {
         return installationHandler;
+    }
+
+    public eu.nurkert.neverUp2Late.update.UpdateSourceRegistry getUpdateSourceRegistry() {
+        return updateSourceRegistry;
     }
 }

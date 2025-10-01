@@ -15,6 +15,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Registry that creates {@link UpdateFetcher} instances from configuration entries.
@@ -26,7 +28,7 @@ public class UpdateSourceRegistry {
     private final Logger logger;
     private final FileConfiguration configuration;
     private final boolean ignoreUnstableGlobal;
-    private final List<UpdateSource> sources = new ArrayList<>();
+    private final CopyOnWriteArrayList<UpdateSource> sources = new CopyOnWriteArrayList<>();
 
     public UpdateSourceRegistry(Logger logger, FileConfiguration configuration) {
         this.logger = logger;
@@ -41,6 +43,36 @@ public class UpdateSourceRegistry {
 
     public List<UpdateSource> getSources() {
         return Collections.unmodifiableList(sources);
+    }
+
+    public Optional<UpdateSource> findSource(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        String normalized = name.trim();
+        return sources.stream()
+                .filter(source -> source.getName().equalsIgnoreCase(normalized))
+                .findFirst();
+    }
+
+    public boolean hasSource(String name) {
+        return findSource(name).isPresent();
+    }
+
+    public UpdateFetcher createFetcher(String type, Map<String, Object> options) throws Exception {
+        ConfigurationSection section = createOptionsSection(options);
+        return instantiateFetcher(type, section);
+    }
+
+    public UpdateSource registerDynamicSource(String name,
+                                              String type,
+                                              TargetDirectory targetDirectory,
+                                              String filename,
+                                              Map<String, Object> options) throws Exception {
+        UpdateFetcher fetcher = createFetcher(type, options);
+        UpdateSource source = new UpdateSource(name, fetcher, targetDirectory, filename);
+        sources.add(source);
+        return source;
     }
 
     private void loadSources() {
