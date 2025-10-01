@@ -48,6 +48,24 @@ updates:
 
 Additional sources can be registered by adding new entries to `updates.sources`. Point `type` to either the short alias (which resolves to a fetcher within this plugin) or the fully qualified class name of a custom `UpdateFetcher` implementation.
 
+### Hangar sources
+
+Projects hosted on [Hangar](https://hangar.papermc.io/) can be tracked by setting the source `type` to `hangar` and providing the project namespace inside the `options` block. The example below downloads the latest reviewed release for `ExampleAuthor/ExampleProject`:
+
+```yaml
+    - name: examplePlugin
+      type: hangar
+      target: plugins
+      filename: "ExamplePlugin.jar"
+      options:
+        owner: ExampleAuthor       # or use "project: ExampleAuthor/ExampleProject"
+        slug: ExampleProject
+        platform: PAPER            # optional, defaults to PAPER
+        ignoreUnstable: true       # optional, skip channels flagged as UNSTABLE (default true)
+        allowedChannels: [Release] # optional whitelist of channel names
+        installedPlugin: ExamplePlugin # optional, used to detect the installed version
+```
+
 ### GitHub release sources
 
 To track releases that are published on GitHub, set the source `type` to `githubRelease` and provide the repository details inside the `options` block:
