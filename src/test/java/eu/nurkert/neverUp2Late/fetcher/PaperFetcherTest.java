@@ -29,6 +29,12 @@ class PaperFetcherTest {
                           "builds": [14, 15, 16]
                         }
                         """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/16",
+                """
+                        {
+                          "channel": "default"
+                        }
+                        """);
 
         PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses));
         fetcher.loadLatestBuildInfo();
@@ -90,6 +96,12 @@ class PaperFetcherTest {
                 """
                         {
                           "builds": [15, 16]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/16",
+                """
+                        {
+                          "channel": "stable"
                         }
                         """);
 
