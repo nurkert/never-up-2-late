@@ -22,7 +22,7 @@ public final class NeverUp2Late extends JavaPlugin {
         FileConfiguration configuration = getConfig();
 
         PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(this);
-        InstallationHandler installationHandler = new InstallationHandler(getServer());
+        InstallationHandler installationHandler = new InstallationHandler(this);
         UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
         ArtifactDownloader artifactDownloader = new ArtifactDownloader();
         VersionComparator versionComparator = new VersionComparator();

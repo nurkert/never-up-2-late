@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
 import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
@@ -8,23 +9,27 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.lang.reflect.Proxy;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class InstallationHandlerTest {
 
     @Test
-    void restartsImmediatelyWhenNoPlayersOnline() {
+    void restartsImmediatelyWhenNoPlayersOnline() throws IOException {
         AtomicInteger shutdownCalls = new AtomicInteger();
         Collection<Player> players = new ArrayList<>();
+        Logger logger = Logger.getLogger("test");
 
-        Server server = createServer(players, shutdownCalls);
-        InstallationHandler handler = new InstallationHandler(server);
+        Server server = createServer(players, shutdownCalls, logger);
+        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger);
 
         handler.onUpdateCompleted(createEvent());
 
@@ -32,13 +37,14 @@ class InstallationHandlerTest {
     }
 
     @Test
-    void defersRestartUntilLastPlayerLeaves() {
+    void defersRestartUntilLastPlayerLeaves() throws IOException {
         AtomicInteger shutdownCalls = new AtomicInteger();
         Collection<Player> players = new ArrayList<>();
         players.add(createPlayer());
+        Logger logger = Logger.getLogger("test");
 
-        Server server = createServer(players, shutdownCalls);
-        InstallationHandler handler = new InstallationHandler(server);
+        Server server = createServer(players, shutdownCalls, logger);
+        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger);
 
         handler.onUpdateCompleted(createEvent());
         assertEquals(0, shutdownCalls.get(), "Restart must be deferred while players are online");
@@ -47,7 +53,37 @@ class InstallationHandlerTest {
         assertEquals(1, shutdownCalls.get(), "Restart should happen once the last player leaves");
     }
 
-    private Server createServer(Collection<Player> players, AtomicInteger shutdownCalls) {
+    @Test
+    void respectsRestartCooldownAcrossServerRestarts() throws IOException {
+        Logger logger = Logger.getLogger("test");
+        Path directory = Files.createTempDirectory("nu2l-restart-state-");
+        directory.toFile().deleteOnExit();
+
+        RestartCooldownRepository repository = new RestartCooldownRepository(directory.toFile(), logger);
+
+        AtomicInteger firstShutdownCalls = new AtomicInteger();
+        Server firstServer = createServer(new ArrayList<>(), firstShutdownCalls, logger);
+        InstallationHandler firstHandler = new InstallationHandler(firstServer, repository, logger);
+
+        firstHandler.onUpdateCompleted(createEvent());
+        assertEquals(1, firstShutdownCalls.get(), "Initial restart should be triggered");
+
+        AtomicInteger secondShutdownCalls = new AtomicInteger();
+        RestartCooldownRepository reloadedRepository = new RestartCooldownRepository(directory.toFile(), logger);
+        Server secondServer = createServer(new ArrayList<>(), secondShutdownCalls, logger);
+        InstallationHandler secondHandler = new InstallationHandler(secondServer, reloadedRepository, logger);
+
+        secondHandler.onUpdateCompleted(createEvent());
+        assertEquals(0, secondShutdownCalls.get(), "Cooldown should prevent immediate restart loop");
+    }
+
+    private RestartCooldownRepository createRepository(Logger logger) throws IOException {
+        Path directory = Files.createTempDirectory("nu2l-restart-state-");
+        directory.toFile().deleteOnExit();
+        return new RestartCooldownRepository(directory.toFile(), logger);
+    }
+
+    private Server createServer(Collection<Player> players, AtomicInteger shutdownCalls, Logger logger) {
         return (Server) Proxy.newProxyInstance(
                 Server.class.getClassLoader(),
                 new Class<?>[]{Server.class},
@@ -59,7 +95,7 @@ class InstallationHandlerTest {
                             shutdownCalls.incrementAndGet();
                             return null;
                         case "getLogger":
-                            return java.util.logging.Logger.getLogger("test");
+                            return logger;
                         default:
                             return defaultValue(method.getReturnType());
                     }

@@ -1,17 +1,20 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
 import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
 import eu.nurkert.neverUp2Late.update.UpdateCompletionListener;
 import org.bukkit.Server;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class InstallationHandler implements Listener, UpdateCompletionListener {
 
@@ -19,9 +22,17 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     private final List<PostUpdateAction> actions = new CopyOnWriteArrayList<>();
     private volatile UpdateCompletedEvent pendingEvent;
 
-    public InstallationHandler(Server server) {
+    public InstallationHandler(JavaPlugin plugin) {
+        this(
+                plugin.getServer(),
+                new RestartCooldownRepository(plugin.getDataFolder(), plugin.getLogger()),
+                plugin.getLogger()
+        );
+    }
+
+    public InstallationHandler(Server server, RestartCooldownRepository restartCooldownRepository, Logger logger) {
         this.server = server;
-        registerAction(new ServerRestartAction(server));
+        registerAction(new ServerRestartAction(server, restartCooldownRepository, logger));
     }
 
     public void registerAction(PostUpdateAction action) {
@@ -62,11 +73,18 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
 
     public static class ServerRestartAction implements PostUpdateAction {
         private final Server server;
+        private final RestartCooldownRepository restartCooldownRepository;
+        private final Logger logger;
         private static final long RESTART_COOLDOWN_MILLIS = Duration.ofHours(1).toMillis();
-        private final AtomicLong lastRestartTime = new AtomicLong(0L);
+        private final AtomicLong lastRestartTime;
 
-        public ServerRestartAction(Server server) {
+        public ServerRestartAction(Server server,
+                                   RestartCooldownRepository restartCooldownRepository,
+                                   Logger logger) {
             this.server = server;
+            this.restartCooldownRepository = restartCooldownRepository;
+            this.logger = logger;
+            this.lastRestartTime = new AtomicLong(restartCooldownRepository.getLastRestartTime());
         }
 
         @Override
@@ -83,7 +101,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                     long minutes = remaining.toMinutes();
                     long seconds = remaining.minusMinutes(minutes).getSeconds();
 
-                    server.getLogger().log(
+                    logger.log(
                             Level.INFO,
                             String.format(
                                     "Skipping server restart; cooldown active for %d minute(s) and %d second(s).",
@@ -95,10 +113,12 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                 }
 
                 if (lastRestartTime.compareAndSet(lastRestart, now)) {
+                    restartCooldownRepository.saveLastRestartTime(now);
                     break;
                 }
             }
 
+            logger.log(Level.INFO, "Restarting server to complete plugin update.");
             server.shutdown();
         }
 
