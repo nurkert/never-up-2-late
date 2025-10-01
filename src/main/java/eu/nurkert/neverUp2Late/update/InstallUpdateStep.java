@@ -25,7 +25,10 @@ public class InstallUpdateStep implements UpdateStep {
         }
 
         String key = context.getSource().getName();
-        persistentPluginHandler.set(key, context.getLatestBuild());
+        persistentPluginHandler.saveLatestBuild(
+                key,
+                context.getLatestBuild(),
+                context.getLatestVersion());
 
         UpdateCompletedEvent event = new UpdateCompletedEvent(
                 context.getSource(),
