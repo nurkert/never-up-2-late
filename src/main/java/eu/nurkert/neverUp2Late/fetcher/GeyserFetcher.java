@@ -48,29 +48,34 @@ public class GeyserFetcher implements UpdateFetcher {
         URL url = new URL(apiUrl);
         // Open an HTTP connection to the URL
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setConnectTimeout(5_000);
+        connection.setReadTimeout(10_000);
         // Set the request method to GET
         connection.setRequestMethod("GET");
 
-        // Check the HTTP response code
-        int responseCode = connection.getResponseCode();
-        if (responseCode != HttpURLConnection.HTTP_OK) {
-            throw new RuntimeException("HTTP GET Request Failed with Error code: " + responseCode);
+        try {
+            // Check the HTTP response code
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                throw new RuntimeException("HTTP GET Request Failed with Error code: " + responseCode);
+            }
+
+            // Read the response from the input stream
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                String inputLine;
+                StringBuilder response = new StringBuilder();
+
+                // Append each line of the response
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
+                }
+
+                // Return the response as a string
+                return response.toString();
+            }
+        } finally {
+            connection.disconnect();
         }
-
-        // Read the response from the input stream
-        BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-        String inputLine;
-        StringBuilder response = new StringBuilder();
-
-        // Append each line of the response
-        while ((inputLine = in.readLine()) != null) {
-            response.append(inputLine);
-        }
-        // Close the input stream
-        in.close();
-
-        // Return the response as a string
-        return response.toString();
     }
 
     /**
