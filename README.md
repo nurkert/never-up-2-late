@@ -102,6 +102,8 @@ To track releases that are published on GitHub, set the source `type` to `github
 
 If `assetPattern` is omitted the first asset with a download URL is used. When `installedPlugin` is configured the fetcher queries Bukkit's `PluginManager` to determine the installed version, otherwise it returns `null`.
 
+When using the `/nu2l install <url>` command you can control which GitHub asset is selected by appending query parameters to the release URL. `?asset=<text>` matches assets whose download URL contains the provided text (case-insensitive) while `?assetPattern=<regex>` accepts a full regular expression. Direct download links created from the "Download" buttons are also recognized and will automatically prefer the referenced asset on future updates.
+
 ### Jenkins sources
 
 Self-hosted Jenkins instances can be queried by setting the source `type` to `jenkins`. Provide the base URL of the Jenkins instance and the job path (folders can be separated with `/`). When multiple artifacts are published you can either specify the exact `artifact` file name or a regular expression via `artifactPattern`.
