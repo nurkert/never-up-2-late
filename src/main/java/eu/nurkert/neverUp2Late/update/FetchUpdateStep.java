@@ -44,7 +44,7 @@ public class FetchUpdateStep implements UpdateStep {
 
     private boolean isUpdateRequired(UpdateContext context, UpdateFetcher fetcher) {
         String key = context.getSource().getName();
-        int storedBuild = persistentPluginHandler.getBuild(key);
+        int storedBuild = persistentPluginHandler.getStoredBuild(key);
         if (storedBuild < fetcher.getLatestBuild()) {
             return true;
         }
