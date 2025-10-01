@@ -47,3 +47,22 @@ updates:
 ```
 
 Additional sources can be registered by adding new entries to `updates.sources`. Point `type` to either the short alias (which resolves to a fetcher within this plugin) or the fully qualified class name of a custom `UpdateFetcher` implementation.
+
+### GitHub release sources
+
+To track releases that are published on GitHub, set the source `type` to `githubRelease` and provide the repository details inside the `options` block:
+
+```yaml
+    - name: examplePlugin
+      type: githubRelease
+      target: plugins
+      filename: "ExamplePlugin.jar"
+      options:
+        owner: example
+        repository: example-plugin
+        assetPattern: ".*paper.*\\.jar$"   # optional regex filter applied to browser_download_url
+        allowPrerelease: false               # optional, include pre-releases when true
+        installedPlugin: "ExamplePlugin"    # optional, used to detect the currently installed version
+```
+
+If `assetPattern` is omitted the first asset with a download URL is used. When `installedPlugin` is configured the fetcher queries Bukkit's `PluginManager` to determine the installed version, otherwise it returns `null`.
