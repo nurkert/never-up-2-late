@@ -1,6 +1,9 @@
 package eu.nurkert.neverUp2Late.handlers;
 
 import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import org.bukkit.Server;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -9,7 +12,6 @@ import org.bukkit.scheduler.BukkitScheduler;
 import java.io.File;
 import java.io.IOException;
 import java.net.UnknownHostException;
-import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -21,7 +23,7 @@ public class UpdateHandler {
     private final FileConfiguration configuration;
     private final PersistentPluginHandler persistentPluginHandler;
     private final InstallationHandler installationHandler;
-    private final Map<String, UpdateFetcher> fetchers;
+    private final UpdateSourceRegistry updateSourceRegistry;
     private final Logger logger;
 
     private boolean networkWarningShown;
@@ -31,14 +33,14 @@ public class UpdateHandler {
                          FileConfiguration configuration,
                          PersistentPluginHandler persistentPluginHandler,
                          InstallationHandler installationHandler,
-                         Map<String, UpdateFetcher> fetchers) {
+                         UpdateSourceRegistry updateSourceRegistry) {
         this.plugin = plugin;
         this.server = plugin.getServer();
         this.scheduler = scheduler;
         this.configuration = configuration;
         this.persistentPluginHandler = persistentPluginHandler;
         this.installationHandler = installationHandler;
-        this.fetchers = fetchers;
+        this.updateSourceRegistry = updateSourceRegistry;
         this.logger = plugin.getLogger();
     }
 
@@ -53,9 +55,9 @@ public class UpdateHandler {
         File pluginsFolder = plugin.getDataFolder().getParentFile();
         File serverFolder = server.getWorldContainer().getAbsoluteFile();
 
-        for (Map.Entry<String, UpdateFetcher> entry : fetchers.entrySet()) {
-            String key = entry.getKey();
-            UpdateFetcher fetcher = entry.getValue();
+        for (UpdateSource source : updateSourceRegistry.getSources()) {
+            String key = source.getName();
+            UpdateFetcher fetcher = source.getFetcher();
 
             try {
                 fetcher.loadLatestBuildInfo();
@@ -70,8 +72,11 @@ public class UpdateHandler {
                         continue;
                     }
 
-                    String destinationPath = (key.equals("paper") ? serverFolder : pluginsFolder)
-                            .getAbsolutePath() + "/" + configuration.getString("filenames." + key);
+                    File destinationDirectory = source.getTargetDirectory() == TargetDirectory.SERVER
+                            ? serverFolder
+                            : pluginsFolder;
+
+                    String destinationPath = new File(destinationDirectory, source.getFilename()).getAbsolutePath();
 
                     DownloadHandler.downloadJar(downloadURL, destinationPath);
 

@@ -1,16 +1,12 @@
 package eu.nurkert.neverUp2Late;
 
 import eu.nurkert.neverUp2Late.core.PluginContext;
-import eu.nurkert.neverUp2Late.fetcher.GeyserFetcher;
-import eu.nurkert.neverUp2Late.fetcher.PaperFetcher;
-import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.util.Map;
 
 public final class NeverUp2Late extends JavaPlugin {
 
@@ -22,11 +18,7 @@ public final class NeverUp2Late extends JavaPlugin {
 
         PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(this);
         InstallationHandler installationHandler = new InstallationHandler(getServer());
-
-        Map<String, UpdateFetcher> fetchers = Map.ofEntries(
-                Map.entry("paper", new PaperFetcher(configuration.getBoolean("ignoreUnstable"))),
-                Map.entry("geyser", new GeyserFetcher())
-        );
+        UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
 
         UpdateHandler updateHandler = new UpdateHandler(
                 this,
@@ -34,7 +26,7 @@ public final class NeverUp2Late extends JavaPlugin {
                 configuration,
                 persistentPluginHandler,
                 installationHandler,
-                fetchers
+                updateSourceRegistry
         );
 
         context = new PluginContext(
