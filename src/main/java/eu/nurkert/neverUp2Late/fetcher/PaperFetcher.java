@@ -3,6 +3,7 @@ package eu.nurkert.neverUp2Late.fetcher;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.Bukkit;
+import org.bukkit.configuration.ConfigurationSection;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,9 +25,17 @@ public class PaperFetcher extends JsonUpdateFetcher {
         this(fetchStableVersions, new HttpClient());
     }
 
+    public PaperFetcher(ConfigurationSection options) {
+        this(options, new HttpClient());
+    }
+
     PaperFetcher(boolean fetchStableVersions, HttpClient httpClient) {
         super(httpClient);
         this.fetchStableVersions = fetchStableVersions;
+    }
+
+    PaperFetcher(ConfigurationSection options, HttpClient httpClient) {
+        this(determineStablePreference(options), httpClient);
     }
 
     @Override
@@ -66,5 +75,21 @@ public class PaperFetcher extends JsonUpdateFetcher {
         private VersionResponse {
             builds = builds == null ? List.of() : List.copyOf(builds);
         }
+    }
+
+    private static boolean determineStablePreference(ConfigurationSection options) {
+        if (options == null) {
+            return true;
+        }
+
+        if (options.contains("ignoreUnstable")) {
+            return options.getBoolean("ignoreUnstable");
+        }
+
+        if (options.contains("allowUnstable")) {
+            return !options.getBoolean("allowUnstable");
+        }
+
+        return options.getBoolean("_ignoreUnstableDefault", true);
     }
 }

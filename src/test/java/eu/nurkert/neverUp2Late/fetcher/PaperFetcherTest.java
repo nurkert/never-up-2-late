@@ -1,6 +1,7 @@
 package eu.nurkert.neverUp2Late.fetcher;
 
 import eu.nurkert.neverUp2Late.net.HttpClient;
+import org.bukkit.configuration.MemoryConfiguration;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -74,6 +75,60 @@ class PaperFetcherTest {
 
         PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses));
         assertThrows(IOException.class, fetcher::loadLatestBuildInfo);
+    }
+
+    @Test
+    void prefersStableWhenOptionOverridesDefault() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.papermc.io/v2/projects/paper",
+                """
+                        {
+                          "versions": ["1.20.1", "1.20.2-rc1"]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1",
+                """
+                        {
+                          "builds": [15, 16]
+                        }
+                        """);
+
+        MemoryConfiguration options = new MemoryConfiguration();
+        options.set("_ignoreUnstableDefault", false);
+        options.set("ignoreUnstable", true);
+
+        PaperFetcher fetcher = new PaperFetcher(options, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("1.20.1", fetcher.getLatestVersion());
+        assertEquals(16, fetcher.getLatestBuild());
+    }
+
+    @Test
+    void allowsUnstableWhenOptionEnabled() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.papermc.io/v2/projects/paper",
+                """
+                        {
+                          "versions": ["1.20.1", "1.20.2-rc1"]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.2-rc1",
+                """
+                        {
+                          "builds": [1, 2]
+                        }
+                        """);
+
+        MemoryConfiguration options = new MemoryConfiguration();
+        options.set("_ignoreUnstableDefault", true);
+        options.set("allowUnstable", true);
+
+        PaperFetcher fetcher = new PaperFetcher(options, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("1.20.2-rc1", fetcher.getLatestVersion());
+        assertEquals(2, fetcher.getLatestBuild());
     }
 
     private static class StubHttpClient extends HttpClient {
