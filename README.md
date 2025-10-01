@@ -84,3 +84,24 @@ To track releases that are published on GitHub, set the source `type` to `github
 ```
 
 If `assetPattern` is omitted the first asset with a download URL is used. When `installedPlugin` is configured the fetcher queries Bukkit's `PluginManager` to determine the installed version, otherwise it returns `null`.
+
+### Jenkins sources
+
+Self-hosted Jenkins instances can be queried by setting the source `type` to `jenkins`. Provide the base URL of the Jenkins instance and the job path (folders can be separated with `/`). When multiple artifacts are published you can either specify the exact `artifact` file name or a regular expression via `artifactPattern`.
+
+```yaml
+    - name: examplePlugin
+      type: jenkins
+      target: plugins
+      filename: "ExamplePlugin.jar"
+      options:
+        baseUrl: https://jenkins.example.com/
+        job: Plugins/ExamplePlugin
+        artifactPattern: ".*ExamplePlugin.*\\.jar$"
+        preferLastSuccessful: true       # optional, defaults to true
+        versionSource: artifact          # optional (displayName, id, number, artifact)
+        versionPattern: "ExamplePlugin-(.*)\\.jar" # optional regex to extract the version
+        installedPlugin: ExamplePlugin   # optional, used to detect the installed version
+```
+
+If neither `artifact` nor `artifactPattern` are supplied, the fetcher expects exactly one artifact to be present. The download URL is constructed from the selected artifact of the latest build returned by Jenkins.
