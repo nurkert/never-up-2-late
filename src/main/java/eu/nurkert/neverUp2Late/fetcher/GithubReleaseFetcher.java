@@ -12,7 +12,13 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
+
+import java.util.Locale;
 
 /**
  * Fetcher that retrieves release information from the GitHub Releases API.
@@ -64,18 +70,136 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
             throw new IOException("Latest release for " + owner + "/" + repository + " is missing a tag name");
         }
 
-        String downloadUrl = latest.assets().stream()
-                .map(Asset::browserDownloadUrl)
-                .map(GithubReleaseFetcher::trimToNull)
-                .filter(Objects::nonNull)
-                .filter(url -> assetPattern == null || assetPattern.matcher(url).find())
-                .findFirst()
-                .orElseThrow(() -> new IOException("No asset download URL" +
-                        (assetPattern != null ? " matching pattern " + assetPattern.pattern() : "") +
-                        " for release " + tagName));
+        List<Asset> assets = latest.assets();
+        List<Asset> matchingAssets = findMatchingAssets(tagName, assets);
+
+        if (matchingAssets.isEmpty()) {
+            throw new IOException("No asset download URL"
+                    + (assetPattern != null ? " matching pattern " + assetPattern.pattern() : "")
+                    + " for release " + tagName);
+        }
+
+        Asset selected = matchingAssets.get(0);
 
         int build = Math.toIntExact(latest.id());
-        setLatestBuildInfo(tagName, build, downloadUrl);
+        setLatestBuildInfo(tagName, build, selected.browserDownloadUrl());
+    }
+
+    private List<Asset> findMatchingAssets(String tagName, List<Asset> assets)
+            throws AssetSelectionRequiredException {
+        List<Asset> validAssets = assets.stream()
+                .map(asset -> asset)
+                .filter(asset -> asset.browserDownloadUrl() != null)
+                .collect(Collectors.toList());
+
+        if (assetPattern != null) {
+            return validAssets.stream()
+                    .filter(asset -> matchesPattern(assetPattern, asset))
+                    .collect(Collectors.toList());
+        }
+
+        List<Asset> jarAssets = validAssets.stream()
+                .filter(GithubReleaseFetcher::isJarAsset)
+                .collect(Collectors.toList());
+
+        if (jarAssets.size() == 1) {
+            return jarAssets;
+        }
+        if (jarAssets.size() > 1) {
+            throw new AssetSelectionRequiredException(tagName, toReleaseAssets(jarAssets),
+                    AssetSelectionRequiredException.AssetType.JAR);
+        }
+
+        List<Asset> archiveAssets = validAssets.stream()
+                .filter(GithubReleaseFetcher::isArchiveAsset)
+                .collect(Collectors.toList());
+
+        if (archiveAssets.size() == 1) {
+            return archiveAssets;
+        }
+        if (archiveAssets.size() > 1) {
+            throw new AssetSelectionRequiredException(tagName, toReleaseAssets(archiveAssets),
+                    AssetSelectionRequiredException.AssetType.ARCHIVE);
+        }
+
+        return validAssets;
+    }
+
+    private List<AssetSelectionRequiredException.ReleaseAsset> toReleaseAssets(List<Asset> assets) {
+        return assets.stream()
+                .map(asset -> new AssetSelectionRequiredException.ReleaseAsset(
+                        Optional.ofNullable(assetDisplayName(asset)).orElse(asset.browserDownloadUrl()),
+                        asset.browserDownloadUrl(),
+                        isArchiveAsset(asset)))
+                .collect(Collectors.toList());
+    }
+
+    private static boolean matchesPattern(Pattern pattern, Asset asset) {
+        String url = asset.browserDownloadUrl();
+        if (url != null && pattern.matcher(url).find()) {
+            return true;
+        }
+        String name = asset.name();
+        if (name != null && pattern.matcher(name).find()) {
+            return true;
+        }
+        String fileName = assetDisplayName(asset);
+        return fileName != null && pattern.matcher(fileName).find();
+    }
+
+    private static boolean isJarAsset(Asset asset) {
+        return hasExtension(asset, ".jar");
+    }
+
+    private static boolean isArchiveAsset(Asset asset) {
+        return hasExtension(asset, ".zip")
+                || hasExtension(asset, ".tar.gz")
+                || hasExtension(asset, ".tgz")
+                || hasExtension(asset, ".tar")
+                || hasExtension(asset, ".tar.xz")
+                || hasExtension(asset, ".tar.bz2");
+    }
+
+    private static boolean hasExtension(Asset asset, String extension) {
+        String name = asset.name();
+        if (name != null && name.toLowerCase(Locale.ROOT).endsWith(extension)) {
+            return true;
+        }
+        String fileName = assetDisplayName(asset);
+        if (fileName != null && fileName.toLowerCase(Locale.ROOT).endsWith(extension)) {
+            return true;
+        }
+        String url = stripQuery(asset.browserDownloadUrl());
+        return url != null && url.toLowerCase(Locale.ROOT).endsWith(extension);
+    }
+
+    private static String assetDisplayName(Asset asset) {
+        String name = asset.name();
+        if (name != null) {
+            return name;
+        }
+        return extractFileName(asset.browserDownloadUrl());
+    }
+
+    private static String extractFileName(String value) {
+        String sanitized = stripQuery(value);
+        if (sanitized == null || sanitized.isBlank()) {
+            return null;
+        }
+        int lastSlash = sanitized.lastIndexOf('/');
+        return lastSlash >= 0 ? sanitized.substring(lastSlash + 1) : sanitized;
+    }
+
+    private static String stripQuery(String value) {
+        if (value == null) {
+            return null;
+        }
+        int queryIndex = value.indexOf('?');
+        if (queryIndex >= 0) {
+            return value.substring(0, queryIndex);
+        }
+        int hashIndex = value.indexOf('#');
+        return hashIndex >= 0 ? value.substring(0, hashIndex) : value;
     }
 
     @Override
@@ -141,7 +265,12 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
     }
 
     private record Asset(
+            @JsonProperty("name") String name,
             @JsonProperty("browser_download_url") String browserDownloadUrl
     ) {
+        private Asset {
+            name = trimToNull(name);
+            browserDownloadUrl = trimToNull(browserDownloadUrl);
+        }
     }
 }
