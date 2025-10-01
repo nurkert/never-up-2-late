@@ -1,6 +1,5 @@
 package eu.nurkert.neverUp2Late.fetcher;
 
-import eu.nurkert.neverUp2Late.NeverUp2Late;
 import org.bukkit.Bukkit;
 
 import java.io.BufferedReader;
@@ -26,7 +25,7 @@ public class PaperFetcher implements UpdateFetcher {
     private String latestDownloadUrl;
 
     // Flag to determine whether to fetch only stable versions
-    private boolean fetchStableVersions = NeverUp2Late.getInstance().getConfig().getBoolean("ignoreUnstable");
+    private boolean fetchStableVersions = true;
 
     /**
      * Default constructor that fetches only stable versions.

@@ -1,29 +1,22 @@
 package eu.nurkert.neverUp2Late.handlers;
 
-import eu.nurkert.neverUp2Late.NeverUp2Late;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class PersistentPluginHandler {
-    // Singleton instance
-    private static PersistentPluginHandler instance = new PersistentPluginHandler();
 
-    private PluginsFile pluginsFile;
-    private FileConfiguration config;
+    private final PluginsFile pluginsFile;
+    private final FileConfiguration config;
 
-    private PersistentPluginHandler() {
-        pluginsFile = new PluginsFile();
+    public PersistentPluginHandler(JavaPlugin plugin) {
+        pluginsFile = new PluginsFile(plugin);
         config = pluginsFile.getConfig();
-    }
-
-    /**
-     * @return the singleton instance
-     */
-    public static PersistentPluginHandler getInstance() {
-        return instance;
     }
 
     public void set(String path, Object value) {
@@ -31,7 +24,7 @@ public class PersistentPluginHandler {
         pluginsFile.save();
     }
     public int getBuild(String path) {
-        return config.get(path) != null ? config.getInt(path) :-1;
+        return config.get(path) != null ? config.getInt(path) : -1;
     }
 
     /**
@@ -50,27 +43,33 @@ public class PersistentPluginHandler {
     public static class PluginsFile {
 
         private final String filename = "plugins.yml";
-        private File dataFolder, pluginsYML;
+        private final JavaPlugin plugin;
+        private final Logger logger;
+        private File dataFolder;
+        private File pluginsYML;
         private FileConfiguration plugins;
 
-        public PluginsFile() {
+        public PluginsFile(JavaPlugin plugin) {
+            this.plugin = plugin;
+            this.logger = plugin.getLogger();
             init();
         }
 
         private void init() {
-            dataFolder = NeverUp2Late.getInstance().getDataFolder();
+            dataFolder = plugin.getDataFolder();
 
-            if (!dataFolder.exists()) {
-                dataFolder.mkdirs();
+            if (!dataFolder.exists() && !dataFolder.mkdirs()) {
+                logger.log(Level.WARNING, "Could not create plugin data folder at {0}", dataFolder.getAbsolutePath());
             }
 
             pluginsYML = new File(dataFolder, filename);
             if (!pluginsYML.exists()) {
                 try {
-                    pluginsYML.createNewFile();
-                    NeverUp2Late.getInstance().saveDefaultConfig();
+                    if (!pluginsYML.createNewFile()) {
+                        logger.log(Level.WARNING, "Unable to create {0}", pluginsYML.getAbsolutePath());
+                    }
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    logger.log(Level.SEVERE, "Failed to create " + filename, e);
                 }
             }
 
@@ -85,7 +84,7 @@ public class PersistentPluginHandler {
             try {
                 plugins.save(pluginsYML);
             } catch (IOException e) {
-                e.printStackTrace();
+                logger.log(Level.SEVERE, "Failed to save " + filename, e);
             }
         }
     }
