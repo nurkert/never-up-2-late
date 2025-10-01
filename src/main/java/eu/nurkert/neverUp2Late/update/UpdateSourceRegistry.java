@@ -24,6 +24,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class UpdateSourceRegistry {
 
     private static final String DEFAULT_FETCHER_PACKAGE = "eu.nurkert.neverUp2Late.fetcher";
+    private static final String OPTION_IGNORE_UNSTABLE_DEFAULT = "_ignoreUnstableDefault";
 
     private final Logger logger;
     private final FileConfiguration configuration;
@@ -60,7 +61,7 @@ public class UpdateSourceRegistry {
     }
 
     public UpdateFetcher createFetcher(String type, Map<String, Object> options) throws Exception {
-        ConfigurationSection section = createOptionsSection(options);
+        ConfigurationSection section = prepareOptionsSection(createOptionsSection(options));
         return instantiateFetcher(type, section);
     }
 
@@ -134,7 +135,7 @@ public class UpdateSourceRegistry {
             }
 
             TargetDirectory targetDirectory = parseTargetDirectory(asString(entry.get("target")), name);
-            ConfigurationSection optionsSection = createOptionsSection(entry.get("options"));
+            ConfigurationSection optionsSection = prepareOptionsSection(createOptionsSection(entry.get("options")));
 
             try {
                 UpdateFetcher fetcher = instantiateFetcher(type, optionsSection);
@@ -202,6 +203,14 @@ public class UpdateSourceRegistry {
             }
         }
         return memoryConfiguration;
+    }
+
+    private ConfigurationSection prepareOptionsSection(ConfigurationSection optionsSection) {
+        ConfigurationSection result = optionsSection != null ? optionsSection : new MemoryConfiguration();
+        if (!result.contains(OPTION_IGNORE_UNSTABLE_DEFAULT)) {
+            result.set(OPTION_IGNORE_UNSTABLE_DEFAULT, ignoreUnstableGlobal);
+        }
+        return result;
     }
 
     private UpdateFetcher instantiateFetcher(String type, ConfigurationSection optionsSection) throws Exception {
