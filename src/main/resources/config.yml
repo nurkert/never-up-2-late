@@ -28,3 +28,14 @@ updates:
       type: geyser
       target: plugins
       filename: "Geyser-Spigot.jar"
+
+    - name: examplePlugin
+      type: githubRelease
+      target: plugins
+      filename: "ExamplePlugin.jar"
+      options:
+        owner: example
+        repository: example-plugin
+        # assetPattern: ".*paper.*\\.jar$"   # optional regex to select a specific asset
+        # allowPrerelease: false              # optional, defaults to false
+        # installedPlugin: "ExamplePlugin"   # optional, used to read the installed version
