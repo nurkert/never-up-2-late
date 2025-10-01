@@ -29,13 +29,15 @@ updates:
       target: plugins
       filename: "Geyser-Spigot.jar"
 
-    - name: examplePlugin
-      type: githubRelease
-      target: plugins
-      filename: "ExamplePlugin.jar"
-      options:
-        owner: example
-        repository: example-plugin
-        # assetPattern: ".*paper.*\\.jar$"   # optional regex to select a specific asset
-        # allowPrerelease: false              # optional, defaults to false
-        # installedPlugin: "ExamplePlugin"   # optional, used to read the installed version
+    # The example below illustrates how to configure a GitHub release source.
+    # Uncomment and adjust the values to track a real project.
+    # - name: examplePlugin
+    #   type: githubRelease
+    #   target: plugins
+    #   filename: "ExamplePlugin.jar"
+    #   options:
+    #     owner: example
+    #     repository: example-plugin
+    #     # assetPattern: ".*paper.*\\.jar$"   # optional regex to select a specific asset
+    #     # allowPrerelease: false              # optional, defaults to false
+    #     # installedPlugin: "ExamplePlugin"   # optional, used to read the installed version
