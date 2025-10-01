@@ -130,6 +130,8 @@ public class PaperFetcher implements UpdateFetcher {
         StringBuilder result = new StringBuilder();
         URL url = new URL(urlString);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setConnectTimeout(5_000);
+        conn.setReadTimeout(10_000);
         conn.setRequestMethod("GET");
         // Set the User-Agent header
         conn.setRequestProperty("User-Agent", "PaperFetcher");
@@ -138,6 +140,8 @@ public class PaperFetcher implements UpdateFetcher {
             while ((line = reader.readLine()) != null) {
                 result.append(line);
             }
+        } finally {
+            conn.disconnect();
         }
         return result.toString();
     }
@@ -209,31 +213,37 @@ public class PaperFetcher implements UpdateFetcher {
         URL url = new URL(apiUrl);
         // Open an HTTP connection to the URL
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setConnectTimeout(5_000);
+        connection.setReadTimeout(10_000);
         // Set the request method to GET
         connection.setRequestMethod("GET");
         // Set the User-Agent header
         connection.setRequestProperty("User-Agent", "PaperFetcher");
 
-        // Check the HTTP response code
-        int responseCode = connection.getResponseCode();
-        if (responseCode != HttpURLConnection.HTTP_OK) {
-            throw new RuntimeException("HTTP GET Request Failed with Error code: " + responseCode);
-        }
-
-        // Read the response from the input stream
-        StringBuilder response = new StringBuilder();
-        try (BufferedReader in = new BufferedReader(
-                new InputStreamReader(connection.getInputStream(), "UTF-8"))) {
-            String inputLine;
-
-            // Append each line of the response
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine);
+        try {
+            // Check the HTTP response code
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                throw new RuntimeException("HTTP GET Request Failed with Error code: " + responseCode);
             }
-        }
 
-        // Return the response as a string
-        return response.toString();
+            // Read the response from the input stream
+            StringBuilder response = new StringBuilder();
+            try (BufferedReader in = new BufferedReader(
+                    new InputStreamReader(connection.getInputStream(), "UTF-8"))) {
+                String inputLine;
+
+                // Append each line of the response
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
+                }
+            }
+
+            // Return the response as a string
+            return response.toString();
+        } finally {
+            connection.disconnect();
+        }
     }
 
     /**
