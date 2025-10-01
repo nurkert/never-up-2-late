@@ -1,6 +1,7 @@
 # The names of the jars as they are in the server directory
 filenames:
   geyser: "Geyser-Spigot.jar"
+  floodgate: "floodgate-spigot.jar"
   paper: "paper.jar"
 
 # Check interval in minutes
