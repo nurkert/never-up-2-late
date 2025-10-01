@@ -324,6 +324,8 @@ public class QuickInstallCoordinator {
         options.put("project", owner + "/" + slug);
         options.put("platform", "PAPER");
 
+        String defaultFilename = resolveDefaultFilename(slug, owner + "-" + slug);
+
         InstallationPlan plan = new InstallationPlan(
                 originalUrl,
                 "Hangar",
@@ -332,7 +334,8 @@ public class QuickInstallCoordinator {
                 slug,
                 toDisplayName(slug),
                 TargetDirectory.PLUGINS,
-                options
+                options,
+                defaultFilename
         );
         plan.addPluginNameCandidate(owner);
         plan.addPluginNameCandidate(slug);
@@ -352,6 +355,8 @@ public class QuickInstallCoordinator {
         options.put("project", slug);
         options.put("loaders", List.of("paper", "spigot"));
 
+        String defaultFilename = resolveDefaultFilename(slug);
+
         InstallationPlan plan = new InstallationPlan(
                 originalUrl,
                 "Modrinth",
@@ -360,7 +365,8 @@ public class QuickInstallCoordinator {
                 slug,
                 toDisplayName(slug),
                 TargetDirectory.PLUGINS,
-                options
+                options,
+                defaultFilename
         );
         plan.addPluginNameCandidate(slug);
         plan.addPluginNameCandidate(toDisplayName(slug));
@@ -378,6 +384,8 @@ public class QuickInstallCoordinator {
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("owner", owner);
         options.put("repository", repository);
+        String defaultFilename = resolveDefaultFilename(repository, owner + "-" + repository);
+
         InstallationPlan plan = new InstallationPlan(
                 originalUrl,
                 "GitHub Releases",
@@ -386,7 +394,8 @@ public class QuickInstallCoordinator {
                 repository,
                 toDisplayName(repository),
                 TargetDirectory.PLUGINS,
-                options
+                options,
+                defaultFilename
         );
         plan.addPluginNameCandidate(repository);
         plan.addPluginNameCandidate(toDisplayName(repository));
@@ -416,6 +425,8 @@ public class QuickInstallCoordinator {
 
         String displayName = jobSegments.get(jobSegments.size() - 1);
         String providerLabel = (host == null || host.isBlank()) ? "Jenkins" : host;
+        String defaultFilename = resolveDefaultFilename(displayName, jobPath);
+
         InstallationPlan plan = new InstallationPlan(
                 originalUrl,
                 providerLabel,
@@ -424,7 +435,8 @@ public class QuickInstallCoordinator {
                 sanitizeKey(displayName),
                 displayName,
                 TargetDirectory.PLUGINS,
-                options
+                options,
+                defaultFilename
         );
         plan.addPluginNameCandidate(displayName);
         plan.addPluginNameCandidate(displayName.replace("-", " "));
@@ -559,6 +571,34 @@ public class QuickInstallCoordinator {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private String resolveDefaultFilename(String... candidates) {
+        if (candidates == null || candidates.length == 0) {
+            return null;
+        }
+
+        Set<String> keys = new LinkedHashSet<>();
+        for (String candidate : candidates) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            keys.add(candidate);
+            keys.add(candidate.toLowerCase(Locale.ROOT));
+            keys.add(sanitizeKey(candidate));
+        }
+
+        for (String key : keys) {
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            String value = configuration.getString("filenames." + key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
     private List<String> pathSegments(String path) {
         List<String> segments = new ArrayList<>();
         if (path == null || path.isEmpty()) {
@@ -653,7 +693,8 @@ public class QuickInstallCoordinator {
                           String suggestedName,
                           String displayName,
                           TargetDirectory targetDirectory,
-                          Map<String, Object> options) {
+                          Map<String, Object> options,
+                          String defaultFilename) {
             this.originalUrl = originalUrl;
             this.providerLabel = providerLabel;
             this.host = host;
@@ -662,7 +703,9 @@ public class QuickInstallCoordinator {
             this.displayName = displayName;
             this.targetDirectory = targetDirectory;
             this.options = options;
-            this.defaultFilename = this.suggestedName + ".jar";
+            this.defaultFilename = (defaultFilename == null || defaultFilename.isBlank())
+                    ? this.suggestedName + ".jar"
+                    : defaultFilename;
             this.sourceName = this.suggestedName;
         }
 
