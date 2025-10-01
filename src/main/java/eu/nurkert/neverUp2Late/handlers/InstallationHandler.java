@@ -63,7 +63,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     public static class ServerRestartAction implements PostUpdateAction {
         private final Server server;
         private static final long RESTART_COOLDOWN_MILLIS = Duration.ofHours(1).toMillis();
-        private static final AtomicLong LAST_RESTART_TIME = new AtomicLong(0L);
+        private final AtomicLong lastRestartTime = new AtomicLong(0L);
 
         public ServerRestartAction(Server server) {
             this.server = server;
@@ -74,7 +74,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
             long now = System.currentTimeMillis();
 
             while (true) {
-                long lastRestart = LAST_RESTART_TIME.get();
+                long lastRestart = lastRestartTime.get();
                 long elapsed = now - lastRestart;
 
                 if (lastRestart != 0L && elapsed < RESTART_COOLDOWN_MILLIS) {
@@ -94,7 +94,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                     return;
                 }
 
-                if (LAST_RESTART_TIME.compareAndSet(lastRestart, now)) {
+                if (lastRestartTime.compareAndSet(lastRestart, now)) {
                     break;
                 }
             }
