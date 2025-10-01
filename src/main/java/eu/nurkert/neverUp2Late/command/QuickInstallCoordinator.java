@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 public class QuickInstallCoordinator {
 
@@ -297,7 +298,16 @@ public class QuickInstallCoordinator {
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("owner", owner);
         options.put("repository", repository);
-        options.put("assetPattern", "(?i).*\\.jar$");
+
+        Map<String, String> parameters = new LinkedHashMap<>();
+        parameters.putAll(parseParameters(uri.getRawQuery()));
+        parameters.putAll(parseParameters(uri.getRawFragment()));
+
+        String assetPattern = determineGithubAssetPattern(segments, parameters);
+        if (assetPattern == null || assetPattern.isBlank()) {
+            assetPattern = "(?i).*\\.jar$";
+        }
+        options.put("assetPattern", assetPattern);
 
         InstallationPlan plan = new InstallationPlan(
                 originalUrl,
@@ -433,6 +443,64 @@ public class QuickInstallCoordinator {
         return segments;
     }
 
+    private Map<String, String> parseParameters(String raw) {
+        Map<String, String> parameters = new LinkedHashMap<>();
+        if (raw == null || raw.isBlank()) {
+            return parameters;
+        }
+        for (String pair : raw.split("&")) {
+            if (pair.isBlank()) {
+                continue;
+            }
+            int separator = pair.indexOf('=');
+            String key;
+            String value;
+            if (separator >= 0) {
+                key = pair.substring(0, separator);
+                value = pair.substring(separator + 1);
+            } else {
+                key = pair;
+                value = "";
+            }
+            key = decode(key).trim();
+            value = decode(value).trim();
+            if (!key.isEmpty() && !parameters.containsKey(key)) {
+                parameters.put(key, value);
+            }
+        }
+        return parameters;
+    }
+
+    private String determineGithubAssetPattern(List<String> segments, Map<String, String> parameters) {
+        String explicitPattern = trimToNull(parameters.get("assetPattern"));
+        if (explicitPattern != null) {
+            return explicitPattern;
+        }
+
+        String assetName = trimToNull(parameters.get("asset"));
+        if (assetName != null) {
+            return buildSubstringPattern(assetName);
+        }
+
+        if (segments.size() >= 4 && "releases".equalsIgnoreCase(segments.get(2))
+                && "download".equalsIgnoreCase(segments.get(3)) && segments.size() >= 5) {
+            String filename = segments.get(segments.size() - 1);
+            if (!filename.isBlank() && filename.contains(".")) {
+                return buildExactFilenamePattern(filename);
+            }
+        }
+
+        return null;
+    }
+
+    private String buildSubstringPattern(String assetName) {
+        return "(?i).*" + Pattern.quote(assetName) + ".*";
+    }
+
+    private String buildExactFilenamePattern(String filename) {
+        return "(?i).*" + Pattern.quote(filename) + "$";
+    }
+
     private String decode(String value) {
         return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
@@ -454,6 +522,14 @@ public class QuickInstallCoordinator {
             end--;
         }
         return value.substring(start, end);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private String toDisplayName(String slug) {
