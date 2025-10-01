@@ -1,5 +1,7 @@
 package eu.nurkert.neverUp2Late;
 
+import eu.nurkert.neverUp2Late.command.NeverUp2LateCommand;
+import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
@@ -8,6 +10,7 @@ import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.VersionComparator;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class NeverUp2Late extends JavaPlugin {
@@ -41,11 +44,22 @@ public final class NeverUp2Late extends JavaPlugin {
                 configuration,
                 persistentPluginHandler,
                 updateHandler,
-                installationHandler
+                installationHandler,
+                updateSourceRegistry
         );
 
         updateHandler.start();
         getServer().getPluginManager().registerEvents(installationHandler, this);
+
+        QuickInstallCoordinator coordinator = new QuickInstallCoordinator(context);
+        NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator);
+        PluginCommand pluginCommand = getCommand("nu2l");
+        if (pluginCommand != null) {
+            pluginCommand.setExecutor(command);
+            pluginCommand.setTabCompleter(command);
+        } else {
+            getLogger().warning("Failed to register /nu2l command; entry missing in plugin.yml");
+        }
     }
 
     @Override
