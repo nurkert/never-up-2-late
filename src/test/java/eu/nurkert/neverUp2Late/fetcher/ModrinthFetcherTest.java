@@ -106,6 +106,47 @@ class ModrinthFetcherTest {
         assertEquals("https://example.com/0.9.0.jar", fetcher.getLatestDownloadUrl());
     }
 
+    @Test
+    void ignoresBuildsWithoutPaperOrSpigotLoader() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.modrinth.com/v2/project/example/version",
+                """
+                        [
+                          {
+                            \"id\": \"1\",
+                            \"version_number\": \"2.0.0\",
+                            \"status\": \"listed\",
+                            \"date_published\": \"2023-10-10T10:15:30Z\",
+                            \"game_versions\": [\"1.20\"],
+                            \"loaders\": [\"fabric\"],
+                            \"files\": [
+                              { \"url\": \"https://example.com/2.0.0.jar\", \"primary\": true }
+                            ]
+                          },
+                          {
+                            \"id\": \"2\",
+                            \"version_number\": \"1.5.0\",
+                            \"status\": \"listed\",
+                            \"date_published\": \"2023-09-10T10:15:30Z\",
+                            \"game_versions\": [\"1.20\"],
+                            \"loaders\": [\"paper\"],
+                            \"files\": [
+                              { \"url\": \"https://example.com/1.5.0.jar\", \"primary\": true }
+                            ]
+                          }
+                        ]
+                        """);
+
+        ModrinthFetcher.Config config = ModrinthFetcher.builder("example")
+                .loaders(List.of("paper", "spigot"))
+                .build();
+        ModrinthFetcher fetcher = new ModrinthFetcher(config, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("1.5.0", fetcher.getLatestVersion());
+        assertEquals("https://example.com/1.5.0.jar", fetcher.getLatestDownloadUrl());
+    }
+
     private static class StubHttpClient extends HttpClient {
         private final Map<String, String> responses;
 
