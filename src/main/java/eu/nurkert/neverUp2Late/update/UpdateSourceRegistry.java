@@ -2,8 +2,8 @@ package eu.nurkert.neverUp2Late.update;
 
 import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.MemoryConfiguration;
 import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.MemoryConfiguration;
 
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
