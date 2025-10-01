@@ -31,10 +31,37 @@ public class HttpClient {
                 DEFAULT_HEADERS);
     }
 
+    /**
+     * Creates a new HTTP client that includes the provided headers in addition to the defaults.
+     *
+     * @param additionalHeaders headers that should be sent with every request
+     */
+    public HttpClient(Map<String, String> additionalHeaders) {
+        this(java.net.http.HttpClient.newBuilder()
+                        .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+                        .build(),
+                DEFAULT_REQUEST_TIMEOUT,
+                mergeHeaders(additionalHeaders));
+    }
+
     protected HttpClient(java.net.http.HttpClient client, Duration requestTimeout, Map<String, String> defaultHeaders) {
         this.client = Objects.requireNonNull(client, "client");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
         this.defaultHeaders = Map.copyOf(defaultHeaders);
+    }
+
+    private static Map<String, String> mergeHeaders(Map<String, String> additionalHeaders) {
+        if (additionalHeaders == null || additionalHeaders.isEmpty()) {
+            return DEFAULT_HEADERS;
+        }
+
+        Map<String, String> merged = new java.util.LinkedHashMap<>(DEFAULT_HEADERS);
+        for (Map.Entry<String, String> entry : additionalHeaders.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                merged.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return Map.copyOf(merged);
     }
 
     /**

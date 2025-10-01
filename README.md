@@ -66,6 +66,23 @@ Projects hosted on [Hangar](https://hangar.papermc.io/) can be tracked by settin
         installedPlugin: ExamplePlugin # optional, used to detect the installed version
 ```
 
+### CurseForge sources
+
+To download updates from [CurseForge](https://www.curseforge.com/) set the source `type` to `curseforge` and provide the numeric project id in the `options`. The fetcher can optionally filter by supported Minecraft versions or include beta builds when desired:
+
+```yaml
+    - name: examplePlugin
+      type: curseforge
+      target: plugins
+      filename: "ExamplePlugin.jar"
+      options:
+        modId: 123456
+        apiKey: "your-api-key"         # optional, but recommended for higher rate limits
+        gameVersions: ["1.20.1"]        # optional list of accepted Minecraft versions
+        releaseTypes: ["release"]       # optional, defaults to ["release"], can include "beta" or "alpha"
+        installedPlugin: ExamplePlugin  # optional, used to detect the installed version
+```
+
 ### GitHub release sources
 
 To track releases that are published on GitHub, set the source `type` to `githubRelease` and provide the repository details inside the `options` block:
