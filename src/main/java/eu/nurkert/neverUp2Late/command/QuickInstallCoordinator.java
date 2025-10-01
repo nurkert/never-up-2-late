@@ -1,6 +1,8 @@
 package eu.nurkert.neverUp2Late.command;
 
 import eu.nurkert.neverUp2Late.core.PluginContext;
+import eu.nurkert.neverUp2Late.fetcher.AssetPatternBuilder;
+import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
@@ -14,6 +16,7 @@ import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
+import org.bukkit.entity.Player;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -29,6 +32,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -41,6 +45,7 @@ public class QuickInstallCoordinator {
     private final eu.nurkert.neverUp2Late.handlers.UpdateHandler updateHandler;
     private final Logger logger;
     private final String messagePrefix;
+    private final Map<String, PendingSelection> pendingSelections = new ConcurrentHashMap<>();
 
     public QuickInstallCoordinator(PluginContext context) {
         this.plugin = context.getPlugin();
@@ -58,6 +63,8 @@ public class QuickInstallCoordinator {
             send(sender, ChatColor.RED + "Bitte gib eine gültige URL an.");
             return;
         }
+
+        clearPendingSelection(sender);
 
         URI uri;
         try {
@@ -96,6 +103,10 @@ public class QuickInstallCoordinator {
             plan.setLatestVersion(fetcher.getLatestVersion());
             plan.setDownloadUrl(downloadUrl);
             plan.setFilename(determineFilename(downloadUrl, plan.getDefaultFilename()));
+        } catch (AssetSelectionRequiredException selection) {
+            logger.log(Level.INFO, "Asset selection required for {0}: {1}", new Object[]{plan.getDisplayName(), selection.getMessage()});
+            requestAssetSelection(sender, plan, selection);
+            return;
         } catch (Exception e) {
             logger.log(Level.WARNING, "Failed to prepare installation for " + plan.getDisplayName(), e);
             send(sender, ChatColor.RED + "Fehler beim Laden der Versionsinformationen: " + e.getMessage());
@@ -105,6 +116,76 @@ public class QuickInstallCoordinator {
         send(sender, ChatColor.GREEN + "Neueste Version: " + plan.getLatestVersionInfo());
 
         scheduler.runTask(plugin, () -> finalizeInstallation(sender, plan));
+    }
+
+    public void handleAssetSelection(CommandSender sender, String selectionInput) {
+        if (selectionInput == null || selectionInput.isBlank()) {
+            send(sender, ChatColor.RED + "Bitte gib die Nummer der gewünschten Datei an.");
+            return;
+        }
+
+        String key = selectionKey(sender);
+        PendingSelection pending = pendingSelections.get(key);
+        if (pending == null) {
+            send(sender, ChatColor.RED + "Es gibt keine offene Auswahl.");
+            return;
+        }
+
+        int index;
+        try {
+            index = Integer.parseInt(selectionInput.trim());
+        } catch (NumberFormatException ex) {
+            send(sender, ChatColor.RED + "Bitte gib eine gültige Nummer an.");
+            return;
+        }
+
+        if (index < 1 || index > pending.assets().size()) {
+            send(sender, ChatColor.RED + "Ungültige Auswahl. Bitte wähle eine Zahl zwischen 1 und " + pending.assets().size() + ".");
+            return;
+        }
+
+        AssetSelectionRequiredException.ReleaseAsset asset = pending.assets().get(index - 1);
+        String assetName = assetLabel(asset);
+        String pattern = AssetPatternBuilder.build(assetName);
+
+        pending.plan().getOptions().put("assetPattern", pattern);
+        pendingSelections.remove(key);
+
+        send(sender, ChatColor.GREEN + "Verwende Asset \"" + assetName + "\". Regex wurde automatisch erstellt.");
+        if (asset.archive()) {
+            send(sender, ChatColor.GOLD + "Hinweis: Das ausgewählte Asset ist ein Archiv und muss nach dem Download manuell entpackt werden.");
+        }
+
+        scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
+    }
+
+    private void requestAssetSelection(CommandSender sender,
+                                       InstallationPlan plan,
+                                       AssetSelectionRequiredException selection) {
+        String key = selectionKey(sender);
+        pendingSelections.put(key, new PendingSelection(plan, selection.getAssets(), selection.getAssetType(), selection.getReleaseTag()));
+
+        String typeLabel = switch (selection.getAssetType()) {
+            case ARCHIVE -> "Archive";
+            case JAR -> "JAR-Dateien";
+            default -> "Assets";
+        };
+
+        send(sender, ChatColor.GOLD + "Mehrere " + typeLabel + " gefunden für " + plan.getDisplayName()
+                + " (" + selection.getReleaseTag() + "):");
+        List<AssetSelectionRequiredException.ReleaseAsset> assets = selection.getAssets();
+        for (int i = 0; i < assets.size(); i++) {
+            AssetSelectionRequiredException.ReleaseAsset asset = assets.get(i);
+            String label = assetLabel(asset);
+            String suffix = asset.archive() ? ChatColor.YELLOW + " (Archiv)" : "";
+            send(sender, ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
+                    + ChatColor.AQUA + label + suffix);
+        }
+        send(sender, ChatColor.YELLOW + "Bitte wähle mit /nu2l select <Nummer> das gewünschte Asset aus.");
+        if (selection.getAssetType() == AssetSelectionRequiredException.AssetType.ARCHIVE
+                || assets.stream().anyMatch(AssetSelectionRequiredException.ReleaseAsset::archive)) {
+            send(sender, ChatColor.GOLD + "Hinweis: Archive müssen nach dem Download manuell entpackt werden.");
+        }
     }
 
     private void finalizeInstallation(CommandSender sender, InstallationPlan plan) {
@@ -297,8 +378,6 @@ public class QuickInstallCoordinator {
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("owner", owner);
         options.put("repository", repository);
-        options.put("assetPattern", "(?i).*\\.jar$");
-
         InstallationPlan plan = new InstallationPlan(
                 originalUrl,
                 "GitHub Releases",
@@ -394,7 +473,10 @@ public class QuickInstallCoordinator {
             String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
             candidate = candidate.isBlank() ? fallback : candidate;
             candidate = candidate.split("\\?")[0];
-            if (!candidate.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            if (candidate.isBlank()) {
+                candidate = fallback;
+            }
+            if (!candidate.contains(".")) {
                 candidate = candidate + ".jar";
             }
             return candidate;
@@ -418,6 +500,63 @@ public class QuickInstallCoordinator {
             return;
         }
         scheduler.runTask(plugin, () -> sender.sendMessage(messagePrefix + message));
+    }
+
+    private void clearPendingSelection(CommandSender sender) {
+        if (sender == null) {
+            return;
+        }
+        pendingSelections.remove(selectionKey(sender));
+    }
+
+    private String selectionKey(CommandSender sender) {
+        if (sender instanceof Player player) {
+            return "player:" + player.getUniqueId();
+        }
+        String name = Optional.ofNullable(sender.getName()).orElse("console");
+        return "sender:" + name.toLowerCase(Locale.ROOT);
+    }
+
+    private String assetLabel(AssetSelectionRequiredException.ReleaseAsset asset) {
+        if (asset == null) {
+            return "Unbekannt";
+        }
+        String name = trimToNull(asset.name());
+        if (name != null) {
+            return name;
+        }
+        String fromUrl = extractFileName(asset.downloadUrl());
+        return fromUrl != null ? fromUrl : asset.downloadUrl();
+    }
+
+    private String extractFileName(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            URI uri = new URI(url);
+            String path = Optional.ofNullable(uri.getPath()).orElse("");
+            int lastSlash = path.lastIndexOf('/');
+            String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+            candidate = candidate.split("\\?")[0];
+            return candidate.isBlank() ? null : candidate;
+        } catch (Exception e) {
+            int queryIndex = url.indexOf('?');
+            String sanitized = queryIndex >= 0 ? url.substring(0, queryIndex) : url;
+            int lastSlash = sanitized.lastIndexOf('/');
+            if (lastSlash >= 0 && lastSlash + 1 < sanitized.length()) {
+                return sanitized.substring(lastSlash + 1);
+            }
+            return sanitized.isBlank() ? null : sanitized;
+        }
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private List<String> pathSegments(String path) {
@@ -477,6 +616,16 @@ public class QuickInstallCoordinator {
 
     private String normalize(String value) {
         return value == null ? "" : value.replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
+    }
+
+    private record PendingSelection(InstallationPlan plan,
+                                    List<AssetSelectionRequiredException.ReleaseAsset> assets,
+                                    AssetSelectionRequiredException.AssetType assetType,
+                                    String releaseTag) {
+        private PendingSelection {
+            Objects.requireNonNull(plan, "plan");
+            assets = List.copyOf(assets);
+        }
     }
 
     private final class InstallationPlan {

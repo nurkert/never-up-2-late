@@ -17,7 +17,11 @@ public class HttpClient {
 
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(10);
-    private static final Map<String, String> DEFAULT_HEADERS = Map.of("User-Agent", "never-up-2-late/1.0");
+    private static final Map<String, String> DEFAULT_HEADERS = Map.of(
+            "User-Agent", "never-up-2-late/1.0",
+            "Accept", "application/vnd.github+json",
+            "X-GitHub-Api-Version", "2022-11-28"
+    );
 
     private final java.net.http.HttpClient client;
     private final Duration requestTimeout;

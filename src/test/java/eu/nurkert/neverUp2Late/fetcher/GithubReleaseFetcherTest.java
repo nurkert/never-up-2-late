@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.fetcher;
 
+import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.configuration.MemoryConfiguration;
 import org.junit.jupiter.api.Test;
@@ -9,8 +10,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 class GithubReleaseFetcherTest {
 
@@ -27,7 +27,7 @@ class GithubReleaseFetcherTest {
                             "prerelease": false,
                             "published_at": "2023-09-10T10:00:00Z",
                             "assets": [
-                              { "browser_download_url": "https://example.com/v1.0.0.jar" }
+                              { "name": "demo-1.0.0.jar", "browser_download_url": "https://example.com/v1.0.0.jar" }
                             ]
                           },
                           {
@@ -37,7 +37,7 @@ class GithubReleaseFetcherTest {
                             "prerelease": true,
                             "published_at": "2023-09-12T10:00:00Z",
                             "assets": [
-                              { "browser_download_url": "https://example.com/v1.1.0-beta.jar" }
+                              { "name": "demo-1.1.0-beta.jar", "browser_download_url": "https://example.com/v1.1.0-beta.jar" }
                             ]
                           },
                           {
@@ -47,7 +47,7 @@ class GithubReleaseFetcherTest {
                             "prerelease": false,
                             "published_at": "2023-09-11T10:00:00Z",
                             "assets": [
-                              { "browser_download_url": "https://example.com/v1.0.1.jar" }
+                              { "name": "demo-1.0.1.jar", "browser_download_url": "https://example.com/v1.0.1.jar" }
                             ]
                           },
                           {
@@ -57,7 +57,7 @@ class GithubReleaseFetcherTest {
                             "prerelease": false,
                             "published_at": "2023-09-13T10:00:00Z",
                             "assets": [
-                              { "browser_download_url": "https://example.com/v0.9.9.jar" }
+                              { "name": "demo-0.9.9.jar", "browser_download_url": "https://example.com/v0.9.9.jar" }
                             ]
                           }
                         ]
@@ -84,7 +84,7 @@ class GithubReleaseFetcherTest {
                             "prerelease": true,
                             "published_at": "2023-09-20T10:00:00Z",
                             "assets": [
-                              { "browser_download_url": "https://example.com/v2.0.0-beta1.jar" }
+                              { "name": "demo-2.0.0-beta1.jar", "browser_download_url": "https://example.com/v2.0.0-beta1.jar" }
                             ]
                           },
                           {
@@ -94,7 +94,7 @@ class GithubReleaseFetcherTest {
                             "prerelease": false,
                             "published_at": "2023-09-18T10:00:00Z",
                             "assets": [
-                              { "browser_download_url": "https://example.com/v1.9.0.jar" }
+                              { "name": "demo-1.9.0.jar", "browser_download_url": "https://example.com/v1.9.0.jar" }
                             ]
                           }
                         ]
@@ -134,6 +134,57 @@ class GithubReleaseFetcherTest {
 
         GithubReleaseFetcher failingFetcher = new GithubReleaseFetcher(options(false, ".*linux\\.jar$"), new StubHttpClient(responses));
         assertThrows(IOException.class, failingFetcher::loadLatestBuildInfo);
+    }
+
+    @Test
+    void requiresSelectionWhenMultipleJarAssetsArePresent() {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.github.com/repos/example/demo/releases",
+                """
+                        [
+                          {
+                            "id": 6,
+                            "tag_name": "v1.3.0",
+                            "draft": false,
+                            "prerelease": false,
+                            "published_at": "2023-09-16T10:00:00Z",
+                            "assets": [
+                              { "name": "demo-paper-1.3.0.jar", "browser_download_url": "https://example.com/demo-paper-1.3.0.jar" },
+                              { "name": "demo-folia-1.3.0.jar", "browser_download_url": "https://example.com/demo-folia-1.3.0.jar" }
+                            ]
+                          }
+                        ]
+                        """);
+
+        GithubReleaseFetcher fetcher = new GithubReleaseFetcher(options(false, null), new StubHttpClient(responses));
+        AssetSelectionRequiredException exception = assertThrows(AssetSelectionRequiredException.class, fetcher::loadLatestBuildInfo);
+        assertEquals(2, exception.getAssets().size());
+        assertEquals(AssetSelectionRequiredException.AssetType.JAR, exception.getAssetType());
+        assertEquals("v1.3.0", exception.getReleaseTag());
+    }
+
+    @Test
+    void acceptsZipWhenNoJarIsAvailable() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.github.com/repos/example/demo/releases",
+                """
+                        [
+                          {
+                            "id": 7,
+                            "tag_name": "v1.4.0",
+                            "draft": false,
+                            "prerelease": false,
+                            "published_at": "2023-09-17T10:00:00Z",
+                            "assets": [
+                              { "name": "demo-1.4.0.zip", "browser_download_url": "https://example.com/demo-1.4.0.zip" }
+                            ]
+                          }
+                        ]
+                        """);
+
+        GithubReleaseFetcher fetcher = new GithubReleaseFetcher(options(false, null), new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+        assertEquals("https://example.com/demo-1.4.0.zip", fetcher.getLatestDownloadUrl());
     }
 
     private MemoryConfiguration options(boolean allowPrerelease, String assetPattern) {

@@ -25,8 +25,17 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (args.length > 0 && "select".equalsIgnoreCase(args[0])) {
+            if (args.length < 2) {
+                sender.sendMessage(ChatColor.RED + "Bitte gib die Nummer der gewünschten Datei an.");
+                return true;
+            }
+            coordinator.handleAssetSelection(sender, args[1]);
+            return true;
+        }
+
         if (args.length == 0) {
-            sender.sendMessage(ChatColor.RED + "Verwendung: /" + label + " <url>");
+            sender.sendMessage(ChatColor.RED + "Verwendung: /" + label + " <url> oder /" + label + " select <nummer>");
             return true;
         }
 

@@ -100,7 +100,7 @@ To track releases that are published on GitHub, set the source `type` to `github
         installedPlugin: "ExamplePlugin"    # optional, used to detect the currently installed version
 ```
 
-If `assetPattern` is omitted the first asset with a download URL is used. When `installedPlugin` is configured the fetcher queries Bukkit's `PluginManager` to determine the installed version, otherwise it returns `null`.
+If `assetPattern` is omitted the fetcher will automatically select the only matching JAR asset. When multiple matching assets are available, the quick install command now lists all candidates and lets you choose the correct file via `/nu2l select <nummer>`. A suitable regular expression is generated automatically from your selection and stored for future updates. Archive downloads such as `.zip` files keep their original extension so you can extract the contained JAR manually when necessary. When `installedPlugin` is configured the fetcher queries Bukkit's `PluginManager` to determine the installed version, otherwise it returns `null`.
 
 ### Jenkins sources
 
