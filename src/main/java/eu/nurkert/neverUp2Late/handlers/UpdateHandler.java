@@ -1,9 +1,14 @@
 package eu.nurkert.neverUp2Late.handlers;
 
-import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
+import eu.nurkert.neverUp2Late.update.DownloadUpdateStep;
+import eu.nurkert.neverUp2Late.update.FetchUpdateStep;
+import eu.nurkert.neverUp2Late.update.InstallUpdateStep;
+import eu.nurkert.neverUp2Late.update.UpdateContext;
+import eu.nurkert.neverUp2Late.update.UpdateJob;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
-import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
+import eu.nurkert.neverUp2Late.update.VersionComparator;
 import org.bukkit.Server;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -12,6 +17,7 @@ import org.bukkit.scheduler.BukkitScheduler;
 import java.io.File;
 import java.io.IOException;
 import java.net.UnknownHostException;
+import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -24,6 +30,8 @@ public class UpdateHandler {
     private final PersistentPluginHandler persistentPluginHandler;
     private final InstallationHandler installationHandler;
     private final UpdateSourceRegistry updateSourceRegistry;
+    private final ArtifactDownloader artifactDownloader;
+    private final VersionComparator versionComparator;
     private final Logger logger;
 
     private boolean networkWarningShown;
@@ -33,7 +41,9 @@ public class UpdateHandler {
                          FileConfiguration configuration,
                          PersistentPluginHandler persistentPluginHandler,
                          InstallationHandler installationHandler,
-                         UpdateSourceRegistry updateSourceRegistry) {
+                         UpdateSourceRegistry updateSourceRegistry,
+                         ArtifactDownloader artifactDownloader,
+                         VersionComparator versionComparator) {
         this.plugin = plugin;
         this.server = plugin.getServer();
         this.scheduler = scheduler;
@@ -41,6 +51,8 @@ public class UpdateHandler {
         this.persistentPluginHandler = persistentPluginHandler;
         this.installationHandler = installationHandler;
         this.updateSourceRegistry = updateSourceRegistry;
+        this.artifactDownloader = artifactDownloader;
+        this.versionComparator = versionComparator;
         this.logger = plugin.getLogger();
     }
 
@@ -56,46 +68,20 @@ public class UpdateHandler {
         File serverFolder = server.getWorldContainer().getAbsoluteFile();
 
         for (UpdateSource source : updateSourceRegistry.getSources()) {
-            String key = source.getName();
-            UpdateFetcher fetcher = source.getFetcher();
+            Path destination = resolveDestination(source, pluginsFolder, serverFolder);
+            UpdateJob job = createDefaultJob();
+            UpdateContext context = new UpdateContext(source, destination, logger);
 
             try {
-                fetcher.loadLatestBuildInfo();
-
-                if (persistentPluginHandler.getBuild(key) < fetcher.getLatestBuild()
-                        || (fetcher.getInstalledVersion() != null
-                        && compareVersions(fetcher.getInstalledVersion(), fetcher.getLatestVersion()) < 0)) {
-                    String downloadURL = fetcher.getLatestDownloadUrl();
-
-                    if (downloadURL == null || downloadURL.isBlank()) {
-                        logger.log(Level.WARNING, "No download URL available for {0}; skipping update.", key);
-                        continue;
-                    }
-
-                    File destinationDirectory = source.getTargetDirectory() == TargetDirectory.SERVER
-                            ? serverFolder
-                            : pluginsFolder;
-
-                    String destinationPath = new File(destinationDirectory, source.getFilename()).getAbsolutePath();
-
-                    DownloadHandler.downloadJar(downloadURL, destinationPath);
-
-                    persistentPluginHandler.set(key, fetcher.getLatestBuild());
-                    installationHandler.updateAvailable();
-                }
+                job.run(context);
             } catch (UnknownHostException e) {
                 networkIssueThisRun = true;
-                if (!networkWarningShown) {
-                    logger.log(Level.WARNING,
-                            "Unable to reach update server while checking {0}: {1}. The plugin will retry automatically.",
-                            new Object[]{key, e.getMessage()});
-                    networkWarningShown = true;
-                }
+                handleUnknownHost(source, e);
             } catch (IOException e) {
                 logger.log(Level.WARNING,
-                        "I/O error while updating {0}: {1}", new Object[]{key, e.getMessage()});
+                        "I/O error while updating {0}: {1}", new Object[]{source.getName(), e.getMessage()});
             } catch (Exception e) {
-                logger.log(Level.SEVERE, "Unexpected error while checking updates for " + key, e);
+                logger.log(Level.SEVERE, "Unexpected error while checking updates for " + source.getName(), e);
             }
         }
 
@@ -105,34 +91,32 @@ public class UpdateHandler {
         }
     }
 
+    private Path resolveDestination(UpdateSource source, File pluginsFolder, File serverFolder) {
+        File destinationDirectory = source.getTargetDirectory() == TargetDirectory.SERVER
+                ? serverFolder
+                : pluginsFolder;
+        return new File(destinationDirectory, source.getFilename()).toPath();
+    }
+
     /**
-     * Vergleicht zwei Versionsnummern.
-     *
-     * @param version1 die erste Versionsnummer (z.B. "1.16.5")
-     * @param version2 die zweite Versionsnummer (z.B. "1.17.1")
-     * @return -1, wenn version1 < version2; 0, wenn version1 == version2; 1, wenn version1 > version2
+     * Creates the default update pipeline consisting of fetch, download and
+     * install steps. Plugins can register new steps by overriding this method
+     * or by modifying the returned {@link UpdateJob} prior to execution in
+     * {@link #checkForUpdates()}.
      */
-    public static int compareVersions(String version1, String version2) {
-        // Aufteilen der Versionsnummern in ihre Bestandteile
-        String[] parts1 = version1.split("\\.");
-        String[] parts2 = version2.split("\\.");
+    private UpdateJob createDefaultJob() {
+        return new UpdateJob()
+                .addStep(new FetchUpdateStep(persistentPluginHandler, versionComparator))
+                .addStep(new DownloadUpdateStep(artifactDownloader))
+                .addStep(new InstallUpdateStep(persistentPluginHandler, installationHandler));
+    }
 
-        int length = Math.max(parts1.length, parts2.length);
-
-        for (int i = 0; i < length; i++) {
-            // Holen des aktuellen Teils oder 0, falls nicht vorhanden
-            int v1 = i < parts1.length ? Integer.parseInt(parts1[i]) : 0;
-            int v2 = i < parts2.length ? Integer.parseInt(parts2[i]) : 0;
-
-            // Vergleich der aktuellen Teile
-            if (v1 < v2) {
-                return -1;
-            } else if (v1 > v2) {
-                return 1;
-            }
+    private void handleUnknownHost(UpdateSource source, UnknownHostException e) {
+        if (!networkWarningShown) {
+            logger.log(Level.WARNING,
+                    "Unable to reach update server while checking {0}: {1}. The plugin will retry automatically.",
+                    new Object[]{source.getName(), e.getMessage()});
+            networkWarningShown = true;
         }
-
-        // Alle Teile sind gleich
-        return 0;
     }
 }

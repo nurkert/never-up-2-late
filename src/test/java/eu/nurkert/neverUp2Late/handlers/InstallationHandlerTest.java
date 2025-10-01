@@ -1,11 +1,15 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,7 +26,7 @@ class InstallationHandlerTest {
         Server server = createServer(players, shutdownCalls);
         InstallationHandler handler = new InstallationHandler(server);
 
-        handler.updateAvailable();
+        handler.onUpdateCompleted(createEvent());
 
         assertEquals(1, shutdownCalls.get(), "Server should shut down when no players are online");
     }
@@ -36,7 +40,7 @@ class InstallationHandlerTest {
         Server server = createServer(players, shutdownCalls);
         InstallationHandler handler = new InstallationHandler(server);
 
-        handler.updateAvailable();
+        handler.onUpdateCompleted(createEvent());
         assertEquals(0, shutdownCalls.get(), "Restart must be deferred while players are online");
 
         handler.onPlayerLeave(new PlayerQuitEvent(createPlayer(), ""));
@@ -54,11 +58,18 @@ class InstallationHandlerTest {
                         case "shutdown":
                             shutdownCalls.incrementAndGet();
                             return null;
+                        case "getLogger":
+                            return java.util.logging.Logger.getLogger("test");
                         default:
                             return defaultValue(method.getReturnType());
                     }
                 }
         );
+    }
+
+    private UpdateCompletedEvent createEvent() {
+        UpdateSource source = new UpdateSource("test", null, TargetDirectory.PLUGINS, "test.jar");
+        return new UpdateCompletedEvent(source, Path.of("plugins/test.jar"), "1.0", 1, Path.of("plugins/test.jar"), "");
     }
 
     private Player createPlayer() {
