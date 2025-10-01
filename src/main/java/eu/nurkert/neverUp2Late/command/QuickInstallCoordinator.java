@@ -269,6 +269,7 @@ public class QuickInstallCoordinator {
 
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("project", slug);
+        options.put("loaders", List.of("paper", "spigot"));
 
         InstallationPlan plan = new InstallationPlan(
                 originalUrl,
