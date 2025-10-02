@@ -227,12 +227,26 @@ public class UpdateStateRepository {
     }
 
     public void saveLatestBuild(String pluginName, int build, String version) {
-        configuration.set(pathForBuild(pluginName), build);
+        savePluginState(pluginName, build, version);
+    }
+
+    public void savePluginState(String pluginName, Integer build, String version) {
+        if (pluginName == null || pluginName.isBlank()) {
+            return;
+        }
+
+        if (build != null) {
+            configuration.set(pathForBuild(pluginName), build);
+        } else {
+            configuration.set(pathForBuild(pluginName), null);
+        }
+
         if (version != null) {
             configuration.set(pathForVersion(pluginName), version);
         } else {
             configuration.set(pathForVersion(pluginName), null);
         }
+
         saveInternal();
     }
 
