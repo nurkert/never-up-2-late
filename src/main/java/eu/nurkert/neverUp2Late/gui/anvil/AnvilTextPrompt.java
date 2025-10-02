@@ -56,7 +56,7 @@ public class AnvilTextPrompt implements Listener {
             existing.cancel(player);
         }
 
-        Inventory inventory = Bukkit.createInventory(player, InventoryType.ANVIL, prompt.title());
+        Inventory inventory = Bukkit.createInventory(null, InventoryType.ANVIL, prompt.title());
         if (!(inventory instanceof AnvilInventory anvilInventory)) {
             throw new IllegalStateException("Failed to create anvil inventory");
         }
