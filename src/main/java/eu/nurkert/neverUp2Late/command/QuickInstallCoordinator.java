@@ -12,6 +12,7 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
+import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
@@ -979,7 +980,7 @@ public class QuickInstallCoordinator {
                 return;
             }
 
-            String sanitized = sanitizeFilename(requestedName);
+            String sanitized = FileNameSanitizer.sanitizeJarFilename(requestedName);
             if (sanitized == null) {
                 send(sender, ChatColor.RED + "Bitte gib einen gültigen Dateinamen an.");
                 return;
@@ -1065,21 +1066,6 @@ public class QuickInstallCoordinator {
 
             send(sender, ChatColor.GREEN + "Plugin-Datei in " + ChatColor.AQUA + sanitized + ChatColor.GREEN + " umbenannt.");
         });
-    }
-
-    private String sanitizeFilename(String input) {
-        if (input == null) {
-            return null;
-        }
-        String trimmed = input.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        String sanitized = trimmed.replaceAll("[^a-zA-Z0-9._-]", "-");
-        if (!sanitized.toLowerCase(Locale.ROOT).endsWith(".jar")) {
-            sanitized = sanitized + ".jar";
-        }
-        return sanitized;
     }
 
     private void clearPendingSelection(CommandSender sender) {
