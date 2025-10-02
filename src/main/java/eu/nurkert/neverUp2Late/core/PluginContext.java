@@ -22,8 +22,8 @@ public class PluginContext {
     private final UpdateHandler updateHandler;
     private final InstallationHandler installationHandler;
     private final eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry;
-    private final PluginLifecycleManager pluginLifecycleManager;
     private final PluginUpdateSettingsRepository pluginUpdateSettingsRepository;
+    private PluginLifecycleManager pluginLifecycleManager;
 
     public PluginContext(JavaPlugin plugin,
                          BukkitScheduler scheduler,
@@ -73,11 +73,49 @@ public class PluginContext {
         return updateSourceRegistry;
     }
 
-    public PluginLifecycleManager getPluginLifecycleManager() {
+    public synchronized PluginLifecycleManager getPluginLifecycleManager() {
         return pluginLifecycleManager;
     }
 
     public PluginUpdateSettingsRepository getPluginUpdateSettingsRepository() {
         return pluginUpdateSettingsRepository;
+    }
+
+    public boolean isAutoLoadOnInstallEnabled() {
+        return installationHandler.isAutoLoadOnInstall();
+    }
+
+    public void setAutoLoadOnInstall(boolean autoLoadOnInstall) {
+        installationHandler.setAutoLoadOnInstall(autoLoadOnInstall);
+    }
+
+    public synchronized boolean isPluginLifecycleEnabled() {
+        return pluginLifecycleManager != null;
+    }
+
+    public synchronized PluginLifecycleManager enablePluginLifecycle() {
+        if (pluginLifecycleManager != null) {
+            return pluginLifecycleManager;
+        }
+
+        PluginLifecycleManager manager = new eu.nurkert.neverUp2Late.plugin.PluginManagerApi(
+                plugin.getServer().getPluginManager(),
+                plugin.getDataFolder().getParentFile(),
+                plugin.getLogger()
+        );
+        manager.registerLoadedPlugins(plugin);
+        pluginLifecycleManager = manager;
+        installationHandler.attachPluginLifecycleManager(manager, pluginUpdateSettingsRepository);
+        updateHandler.setPluginLifecycleManager(manager);
+        return manager;
+    }
+
+    public synchronized void disablePluginLifecycle() {
+        if (pluginLifecycleManager == null) {
+            return;
+        }
+        pluginLifecycleManager = null;
+        installationHandler.detachPluginLifecycleManager();
+        updateHandler.setPluginLifecycleManager(null);
     }
 }

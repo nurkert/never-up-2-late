@@ -91,7 +91,7 @@ class InstallationHandlerTest {
         StubLifecycleManager lifecycleManager = new StubLifecycleManager();
         lifecycleManager.reloadResult = true;
 
-        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null);
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null, true);
         UpdateCompletedEvent event = createEvent();
 
         handler.onUpdateCompleted(event);
@@ -112,7 +112,7 @@ class InstallationHandlerTest {
         StubLifecycleManager lifecycleManager = new StubLifecycleManager();
         lifecycleManager.reloadResult = false;
 
-        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null);
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null, true);
 
         handler.onUpdateCompleted(createEvent());
 
