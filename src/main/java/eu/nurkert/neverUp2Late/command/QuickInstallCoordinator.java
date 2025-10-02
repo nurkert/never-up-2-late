@@ -25,6 +25,7 @@ import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.entity.Player;
 
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
@@ -890,6 +891,72 @@ public class QuickInstallCoordinator {
             return;
         }
         removeManagedPlugin(sender, target);
+    }
+
+    public void disableAutomaticUpdates(CommandSender sender, ManagedPlugin target) {
+        if (target == null) {
+            send(sender, ChatColor.RED + "Unbekanntes Plugin – Aktion abgebrochen.");
+            return;
+        }
+        if (!hasPermission(sender, Permissions.GUI_MANAGE_LINK)) {
+            return;
+        }
+
+        String initialPluginName = Optional.ofNullable(target.getName()).orElse("");
+        Path jarPath = target.getPath();
+
+        List<UpdateSource> matchingSources = updateSourceRegistry.getSources().stream()
+                .filter(source -> matchesPluginSource(source, initialPluginName, jarPath))
+                .toList();
+
+        String pluginName = initialPluginName;
+        String displayName = pluginName.isBlank() ? "Plugin" : pluginName;
+
+        if (matchingSources.isEmpty()) {
+            send(sender, ChatColor.YELLOW + "Für " + ChatColor.AQUA + displayName
+                    + ChatColor.YELLOW + " ist keine Update-Quelle hinterlegt.");
+            return;
+        }
+
+        if (pluginName.isBlank()) {
+            pluginName = matchingSources.stream()
+                    .map(UpdateSource::getInstalledPluginName)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse("");
+            if (!pluginName.isBlank()) {
+                displayName = pluginName;
+            }
+        }
+
+        int removed = 0;
+        for (UpdateSource source : matchingSources) {
+            if (updateSourceRegistry.unregisterSource(source.getName())) {
+                configuration.set("filenames." + source.getName(), null);
+                persistentPluginHandler.removePluginInfo(source.getName());
+                removed++;
+            }
+        }
+
+        if (removed > 0) {
+            plugin.saveConfig();
+        }
+
+        if (pluginUpdateSettingsRepository != null && !pluginName.isBlank()) {
+            PluginUpdateSettings current = pluginUpdateSettingsRepository.getSettings(pluginName);
+            if (current.autoUpdateEnabled()) {
+                pluginUpdateSettingsRepository.saveSettings(pluginName,
+                        new PluginUpdateSettings(false, current.behaviour(), current.retainUpstreamFilename()));
+            }
+        }
+
+        if (removed > 0) {
+            send(sender, ChatColor.YELLOW + "Automatische Updates für " + ChatColor.AQUA + displayName
+                    + ChatColor.YELLOW + " wurden deaktiviert.");
+            send(sender, ChatColor.GRAY + "Das Plugin bleibt installiert, nur die Update-Quelle wurde entfernt.");
+        } else {
+            send(sender, ChatColor.RED + "Automatische Updates konnten nicht deaktiviert werden.");
+        }
     }
 
     public void renameManagedPlugin(CommandSender sender, ManagedPlugin target, String requestedName) {
