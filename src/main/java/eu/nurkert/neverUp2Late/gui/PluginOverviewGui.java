@@ -11,6 +11,8 @@ import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
+import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggestion;
+import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggester;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -32,10 +34,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -63,12 +67,15 @@ public class PluginOverviewGui implements Listener {
     private final Map<UUID, LinkRequest> pendingLinkRequests = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedPlugin> pendingRemovalRequests = new ConcurrentHashMap<>();
     private final Map<UUID, RenameSession> pendingRenameSessions = new ConcurrentHashMap<>();
+    private final Map<UUID, ManagedPlugin> pendingSuggestionRequests = new ConcurrentHashMap<>();
     private final PluginUpdateSettingsRepository updateSettingsRepository;
+    private final PluginLinkSuggester linkSuggester;
 
     public PluginOverviewGui(PluginContext context, QuickInstallCoordinator coordinator) {
         this.context = Objects.requireNonNull(context, "context");
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
         this.updateSettingsRepository = context.getPluginUpdateSettingsRepository();
+        this.linkSuggester = new PluginLinkSuggester(context.getPlugin().getLogger());
     }
 
     public void open(Player player) {
@@ -579,6 +586,26 @@ public class PluginOverviewGui implements Listener {
             return;
         }
 
+        if (session.view() == View.LINK_SUGGESTIONS) {
+            int manualSlot = session.inventory().getSize() - 2;
+            int backSlot = session.inventory().getSize() - 1;
+            int clicked = event.getRawSlot();
+            if (clicked == backSlot) {
+                openPluginDetails(player, plugin);
+                return;
+            }
+            if (clicked == manualSlot) {
+                player.closeInventory();
+                promptManualLinkInput(player, plugin, Optional.empty());
+                return;
+            }
+            PluginLinkSuggestion suggestion = session.suggestions().get(clicked);
+            if (suggestion != null) {
+                applySuggestion(player, plugin, suggestion);
+            }
+            return;
+        }
+
         int slot = event.getRawSlot();
         if (slot == DETAIL_BACK_SLOT) {
             openOverview(player);
@@ -629,6 +656,7 @@ public class PluginOverviewGui implements Listener {
         pendingLinkRequests.remove(playerId);
         pendingRemovalRequests.remove(playerId);
         pendingRenameSessions.remove(playerId);
+        pendingSuggestionRequests.remove(playerId);
     }
 
     @EventHandler
@@ -686,8 +714,10 @@ public class PluginOverviewGui implements Listener {
         if (!checkPermission(player, Permissions.GUI_MANAGE_LINK)) {
             return;
         }
+        UUID playerId = player.getUniqueId();
         player.closeInventory();
-        openInventories.remove(player.getUniqueId());
+        openInventories.remove(playerId);
+        pendingSuggestionRequests.remove(playerId);
 
         Path path = plugin.getPath();
         if (path == null) {
@@ -695,14 +725,240 @@ public class PluginOverviewGui implements Listener {
             return;
         }
 
-        String pluginName = plugin.getName();
-        pendingLinkRequests.put(player.getUniqueId(), new LinkRequest(pluginName, false));
+        Optional<UpdateSource> existingSource = findMatchingSource(plugin);
+        if (existingSource.isPresent()) {
+            promptManualLinkInput(player, plugin, existingSource);
+            return;
+        }
+
+        List<String> searchTerms = buildSearchTerms(plugin);
+        if (searchTerms.isEmpty()) {
+            promptManualLinkInput(player, plugin, Optional.empty());
+            return;
+        }
+
+        pendingSuggestionRequests.put(playerId, plugin);
+        player.sendMessage(ChatColor.GRAY + "Suche nach passenden Quellen …");
+
+        context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
+            List<PluginLinkSuggestion> suggestions;
+            try {
+                suggestions = linkSuggester.suggest(searchTerms);
+            } catch (Exception e) {
+                context.getPlugin().getLogger().log(Level.FINE,
+                        "Failed to resolve link suggestions for " + plugin.getName(), e);
+                suggestions = List.of();
+            }
+            List<PluginLinkSuggestion> finalSuggestions = suggestions;
+            context.getScheduler().runTask(context.getPlugin(), () ->
+                    handleSuggestionResults(player, plugin, finalSuggestions));
+        });
+    }
+
+    private void handleSuggestionResults(Player player,
+                                         ManagedPlugin plugin,
+                                         List<PluginLinkSuggestion> suggestions) {
+        UUID playerId = player.getUniqueId();
+        ManagedPlugin expected = pendingSuggestionRequests.get(playerId);
+        if (expected == null || expected != plugin) {
+            return;
+        }
+        pendingSuggestionRequests.remove(playerId);
+
+        if (!player.isOnline()) {
+            return;
+        }
+
+        if (suggestions == null || suggestions.isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "Keine passenden Quellen gefunden. Bitte gib den Link manuell ein.");
+            promptManualLinkInput(player, plugin, Optional.empty());
+            return;
+        }
+
+        player.sendMessage(ChatColor.GREEN + "Es wurden " + suggestions.size()
+                + " mögliche Update-Quellen gefunden.");
+        player.sendMessage(ChatColor.GRAY + "Wähle einen Vorschlag aus oder trage einen Link manuell ein.");
+        openLinkSuggestions(player, plugin, suggestions);
+    }
+
+    private void openLinkSuggestions(Player player,
+                                      ManagedPlugin plugin,
+                                      List<PluginLinkSuggestion> suggestions) {
+        String pluginName = Objects.requireNonNullElse(plugin.getName(), "Plugin");
+        List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : suggestions;
+        int baseCount = Math.max(0, entries.size()) + 2;
+        int size = Math.max(9, ((baseCount + 8) / 9) * 9);
+        size = Math.min(size, MAX_SIZE);
+
+        Inventory inventory = Bukkit.createInventory(null, size,
+                ChatColor.DARK_PURPLE + pluginName + " – Update-Quellen");
+
+        ItemStack filler = createFiller();
+        for (int i = 0; i < size; i++) {
+            inventory.setItem(i, filler.clone());
+        }
+
+        Map<Integer, PluginLinkSuggestion> mapping = new HashMap<>();
+        int maxSuggestions = Math.max(0, size - 2);
+        for (int i = 0; i < maxSuggestions && i < entries.size(); i++) {
+            PluginLinkSuggestion suggestion = entries.get(i);
+            inventory.setItem(i, createSuggestionItem(suggestion));
+            mapping.put(i, suggestion);
+        }
+
+        int manualSlot = size - 2;
+        inventory.setItem(manualSlot, createManualLinkOptionItem());
+        inventory.setItem(size - 1, createSuggestionBackItem());
+
+        openInventories.put(player.getUniqueId(), InventorySession.suggestions(inventory, plugin, mapping));
+        player.openInventory(inventory);
+    }
+
+    private void applySuggestion(Player player, ManagedPlugin plugin, PluginLinkSuggestion suggestion) {
+        String pluginName = Objects.requireNonNullElse(plugin.getName(),
+                plugin.getPath() != null ? plugin.getPath().getFileName().toString() : "Plugin");
+        player.closeInventory();
+        openInventories.remove(player.getUniqueId());
+        pendingLinkRequests.remove(player.getUniqueId());
+        player.sendMessage(ChatColor.GREEN + "Übernehme Vorschlag " + ChatColor.AQUA
+                + suggestion.provider() + ChatColor.GREEN + " für " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
+        coordinator.installForPlugin(player, pluginName, suggestion.url());
+    }
+
+    private void promptManualLinkInput(Player player,
+                                       ManagedPlugin plugin,
+                                       Optional<UpdateSource> existingSource) {
+        UUID playerId = player.getUniqueId();
+        pendingSuggestionRequests.remove(playerId);
+        String pluginName = Objects.requireNonNullElse(plugin.getName(),
+                plugin.getPath() != null ? plugin.getPath().getFileName().toString() : "Plugin");
+        pendingLinkRequests.put(playerId, new LinkRequest(pluginName, false));
 
         player.sendMessage(ChatColor.AQUA + "Update-Link für " + pluginName + " festlegen.");
-        findMatchingSource(plugin).ifPresentOrElse(source ->
+        existingSource.ifPresentOrElse(source ->
                         player.sendMessage(ChatColor.GRAY + "Aktuelle Quelle: " + ChatColor.AQUA + source.getName()),
                 () -> player.sendMessage(ChatColor.GRAY + "Aktuell ist keine Quelle verknüpft."));
         player.sendMessage(ChatColor.YELLOW + "Bitte gib die Download-URL im Chat ein oder tippe 'abbrechen'.");
+    }
+
+    private List<String> buildSearchTerms(ManagedPlugin plugin) {
+        Set<String> terms = new LinkedHashSet<>();
+
+        String pluginName = plugin.getName();
+        if (pluginName != null) {
+            terms.add(pluginName);
+        }
+
+        plugin.getPlugin().ifPresent(loaded -> {
+            String descriptionName = loaded.getDescription().getName();
+            if (descriptionName != null) {
+                terms.add(descriptionName);
+            }
+            String fullName = loaded.getDescription().getFullName();
+            if (fullName != null) {
+                terms.add(fullName);
+            }
+        });
+
+        Path path = plugin.getPath();
+        if (path != null) {
+            String baseName = stripJarExtension(path.getFileName().toString());
+            if (baseName != null && !baseName.isBlank()) {
+                terms.add(baseName);
+                terms.add(baseName.replace('_', ' '));
+                int dash = baseName.indexOf('-');
+                if (dash > 0) {
+                    terms.add(baseName.substring(0, dash));
+                }
+                int underscore = baseName.indexOf('_');
+                if (underscore > 0) {
+                    terms.add(baseName.substring(0, underscore));
+                }
+            }
+        }
+
+        return terms.stream()
+                .map(String::trim)
+                .filter(term -> !term.isEmpty())
+                .limit(6)
+                .toList();
+    }
+
+    private ItemStack createSuggestionItem(PluginLinkSuggestion suggestion) {
+        ItemStack item = new ItemStack(Material.WRITABLE_BOOK);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            String title = Objects.requireNonNullElse(suggestion.title(), suggestion.provider());
+            meta.setDisplayName(ChatColor.AQUA + title + ChatColor.DARK_GRAY + " (" + suggestion.provider() + ")");
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + suggestion.provider() + " Vorschlag");
+            for (String line : wrapText(suggestion.description(), 40)) {
+                lore.add(ChatColor.DARK_GRAY + line);
+            }
+            if (!suggestion.highlights().isEmpty()) {
+                lore.add(" ");
+                for (String highlight : suggestion.highlights()) {
+                    lore.add(ChatColor.GRAY + "• " + ChatColor.YELLOW + highlight);
+                }
+            }
+            lore.add(" ");
+            lore.add(ChatColor.DARK_GRAY + suggestion.url());
+            lore.add(ChatColor.GREEN + "Klicken, um diesen Link zu übernehmen.");
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createManualLinkOptionItem() {
+        ItemStack item = new ItemStack(Material.OAK_SIGN);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.AQUA + "Link manuell eintragen");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Öffnet die Chat-Eingabe,",
+                    ChatColor.GRAY + "um eine URL selbst einzutragen."
+            ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createSuggestionBackItem() {
+        ItemStack item = new ItemStack(Material.ARROW);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.YELLOW + "Zurück zu den Plugin-Details");
+            meta.setLore(List.of(ChatColor.GRAY + "Kehrt zu den Details des Plugins zurück."));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private List<String> wrapText(String text, int maxLength) {
+        if (text == null) {
+            return List.of();
+        }
+        String trimmed = text.trim();
+        if (trimmed.isEmpty() || maxLength <= 0) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String word : trimmed.split("\\s+")) {
+            if (current.length() > 0 && current.length() + word.length() + 1 > maxLength) {
+                lines.add(current.toString());
+                current.setLength(0);
+            }
+            if (current.length() > 0) {
+                current.append(' ');
+            }
+            current.append(word);
+        }
+        if (current.length() > 0) {
+            lines.add(current.toString());
+        }
+        return lines;
     }
 
     private void confirmRemoval(Player player, ManagedPlugin plugin) {
@@ -825,19 +1081,27 @@ public class PluginOverviewGui implements Listener {
 
     private enum View {
         OVERVIEW,
-        DETAIL
+        DETAIL,
+        LINK_SUGGESTIONS
     }
 
     private record InventorySession(Inventory inventory,
                                     View view,
                                     Map<Integer, ManagedPlugin> plugins,
-                                    ManagedPlugin plugin) {
+                                    ManagedPlugin plugin,
+                                    Map<Integer, PluginLinkSuggestion> suggestions) {
         static InventorySession overview(Inventory inventory, Map<Integer, ManagedPlugin> plugins) {
-            return new InventorySession(inventory, View.OVERVIEW, Map.copyOf(plugins), null);
+            return new InventorySession(inventory, View.OVERVIEW, Map.copyOf(plugins), null, Map.of());
         }
 
         static InventorySession detail(Inventory inventory, ManagedPlugin plugin) {
-            return new InventorySession(inventory, View.DETAIL, Map.of(), plugin);
+            return new InventorySession(inventory, View.DETAIL, Map.of(), plugin, Map.of());
+        }
+
+        static InventorySession suggestions(Inventory inventory,
+                                            ManagedPlugin plugin,
+                                            Map<Integer, PluginLinkSuggestion> suggestions) {
+            return new InventorySession(inventory, View.LINK_SUGGESTIONS, Map.of(), plugin, Map.copyOf(suggestions));
         }
     }
 
