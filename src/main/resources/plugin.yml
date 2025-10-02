@@ -5,18 +5,18 @@ author: nurkert
 api-version: '1.21'
 commands:
   nu2l:
-    description: Installiert Plugins direkt aus einer URL.
+    description: Installs plugins directly from a URL.
     usage: "/<command> <url>"
     permission: neverup2late.install
 permissions:
   neverup2late.install:
-    description: Erlaubt die Nutzung des /nu2l Kommandos zum Installieren neuer Update-Quellen.
+    description: Allows using the /nu2l command to install new update sources.
     default: op
   neverup2late.gui.open:
-    description: Erlaubt das Öffnen der grafischen Oberfläche.
+    description: Allows opening the graphical interface.
     default: op
   neverup2late.gui.manage:
-    description: Bündelt alle Verwaltungsrechte in der GUI.
+    description: Grants all management permissions in the GUI.
     default: op
     children:
       neverup2late.gui.manage.lifecycle: true
@@ -25,17 +25,17 @@ permissions:
       neverup2late.gui.manage.rename: true
       neverup2late.gui.manage.remove: true
   neverup2late.gui.manage.lifecycle:
-    description: Erlaubt Plugins über die GUI zu laden, zu entladen und zu aktivieren.
+    description: Allows loading, unloading, and enabling plugins through the GUI.
     default: op
   neverup2late.gui.manage.link:
-    description: Erlaubt das Verknüpfen von Plugins mit Update-Quellen.
+    description: Allows linking plugins with update sources.
     default: op
   neverup2late.gui.manage.settings:
-    description: Erlaubt das Anpassen der Update-Einstellungen in der GUI.
+    description: Allows adjusting update settings in the GUI.
     default: op
   neverup2late.gui.manage.rename:
-    description: Erlaubt das Umbenennen von Plugin-Dateien über die GUI.
+    description: Allows renaming plugin files through the GUI.
     default: op
   neverup2late.gui.manage.remove:
-    description: Erlaubt das Entfernen von Plugins über die GUI.
+    description: Allows removing plugins through the GUI.
     default: op

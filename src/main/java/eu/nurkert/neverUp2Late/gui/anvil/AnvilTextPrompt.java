@@ -180,13 +180,13 @@ public class AnvilTextPrompt implements Listener {
 
     public static final class Builder {
 
-        private String title = ChatColor.DARK_PURPLE + "Eingabe";
+        private String title = ChatColor.DARK_PURPLE + "Input";
         private String initialText = "";
         private ItemStack inputItem = new ItemStack(Material.PAPER);
         private Function<String, ItemStack> previewFactory;
         private Function<String, Optional<String>> validation = value -> {
             if (value == null || value.isBlank()) {
-                return Optional.of(ChatColor.RED + "Bitte gib einen Wert ein.");
+                return Optional.of(ChatColor.RED + "Please enter a value.");
             }
             return Optional.empty();
         };

@@ -28,24 +28,24 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0 || "gui".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.GUI_OPEN)) {
-                sender.sendMessage(ChatColor.RED + "Dir fehlt die Berechtigung, die GUI zu öffnen.");
+                sender.sendMessage(ChatColor.RED + "You do not have permission to open the GUI.");
                 return true;
             }
             if (sender instanceof Player player) {
                 overviewGui.open(player);
             } else {
-                sender.sendMessage(ChatColor.RED + "Die grafische Oberfläche kann nur von Spielern geöffnet werden.");
+                sender.sendMessage(ChatColor.RED + "The graphical interface can only be opened by players.");
             }
             return true;
         }
 
         if (args.length > 0 && "select".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.INSTALL)) {
-                sender.sendMessage(ChatColor.RED + "Dir fehlt die Berechtigung, Installationen zu verwalten.");
+                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
                 return true;
             }
             if (args.length < 2) {
-                sender.sendMessage(ChatColor.RED + "Bitte gib die Nummer der gewünschten Datei an.");
+                sender.sendMessage(ChatColor.RED + "Please specify the number of the desired file.");
                 return true;
             }
             coordinator.handleAssetSelection(sender, args[1]);
@@ -54,11 +54,11 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         if (args.length > 0 && "remove".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.GUI_MANAGE_REMOVE)) {
-                sender.sendMessage(ChatColor.RED + "Dir fehlt die Berechtigung, Plugins zu entfernen.");
+                sender.sendMessage(ChatColor.RED + "You do not have permission to remove plugins.");
                 return true;
             }
             if (args.length < 2) {
-                sender.sendMessage(ChatColor.RED + "Bitte gib den Namen des Plugins an.");
+                sender.sendMessage(ChatColor.RED + "Please provide the plugin name.");
                 return true;
             }
             String pluginName = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
@@ -67,13 +67,13 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         }
 
         if (!sender.hasPermission(Permissions.INSTALL)) {
-            sender.sendMessage(ChatColor.RED + "Dir fehlt die Berechtigung, Installationen zu verwalten.");
+            sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
             return true;
         }
 
         String url = String.join(" ", args).trim();
         if (url.isEmpty()) {
-            sender.sendMessage(ChatColor.RED + "Bitte gib eine gültige URL an.");
+            sender.sendMessage(ChatColor.RED + "Please provide a valid URL.");
             return true;
         }
 
@@ -87,7 +87,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             return List.of("gui", "select", "remove");
         }
         if (args.length == 2 && "select".equalsIgnoreCase(args[0])) {
-            return Collections.singletonList("<nummer>");
+            return Collections.singletonList("<number>");
         }
         return Collections.emptyList();
     }
