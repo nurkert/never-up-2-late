@@ -11,6 +11,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.logging.Logger;
 
 /**
  * Fetcher for Paper builds using the PaperMC public API.
@@ -19,6 +20,7 @@ public class PaperFetcher extends JsonUpdateFetcher {
 
     private static final String API_URL = "https://api.papermc.io/v2/projects/paper";
     private static final Set<String> STABLE_CHANNELS = Set.of("default", "stable");
+    private static final Logger LOGGER = Logger.getLogger(PaperFetcher.class.getName());
 
     private final boolean fetchStableVersions;
 
@@ -54,12 +56,32 @@ public class PaperFetcher extends JsonUpdateFetcher {
             throw new IOException("No versions available");
         }
 
-        versions.sort(semanticVersionComparator().reversed());
+        Comparator<String> comparator = semanticVersionComparator();
+        versions.sort(comparator.reversed());
+
+        LOGGER.fine("Paper API returned versions: " + versions);
+
+        String newestVersion = versions.get(0);
+        String installedVersion = null;
+        boolean restrictToInstalled = false;
 
         Exception lastError = null;
         for (String version : versions) {
+            if (restrictToInstalled) {
+                if (installedVersion == null) {
+                    installedVersion = getInstalledVersion();
+                    LOGGER.fine("Installed Minecraft version detected as " + installedVersion);
+                }
+                if (installedVersion != null && !installedVersion.isEmpty()
+                        && comparator.compare(version, installedVersion) > 0) {
+                    LOGGER.fine("Skipping version " + version
+                            + " because it exceeds installed version " + installedVersion);
+                    continue;
+                }
+            }
             try {
                 VersionResponse versionResponse = getJson(API_URL + "/versions/" + version, VersionResponse.class);
+                LOGGER.fine("Builds reported for version " + version + ": " + versionResponse.builds());
                 int latestBuild = fetchStableVersions
                         ? selectLatestStableBuild(version, versionResponse.builds())
                         : selectLatestBuild(versionResponse.builds());
@@ -70,6 +92,18 @@ public class PaperFetcher extends JsonUpdateFetcher {
                 return;
             } catch (Exception exception) {
                 lastError = exception;
+                if (!restrictToInstalled && version.equals(newestVersion)) {
+                    if (installedVersion == null) {
+                        installedVersion = getInstalledVersion();
+                        LOGGER.fine("Installed Minecraft version detected as " + installedVersion);
+                    }
+                    if (installedVersion != null && !installedVersion.isEmpty()
+                            && comparator.compare(version, installedVersion) > 0) {
+                        restrictToInstalled = true;
+                        LOGGER.fine("Enabling fallback to installed version " + installedVersion
+                                + " after failure for newest version " + version);
+                    }
+                }
             }
         }
 
@@ -82,7 +116,10 @@ public class PaperFetcher extends JsonUpdateFetcher {
 
     @Override
     public String getInstalledVersion() {
-        String fullVersion = Bukkit.getVersion();
+        if (Bukkit.getServer() == null) {
+            return "";
+        }
+        String fullVersion = Bukkit.getServer().getVersion();
         int start = fullVersion.indexOf("MC: ");
         if (start == -1) {
             return fullVersion;
@@ -115,7 +152,9 @@ public class PaperFetcher extends JsonUpdateFetcher {
 
         for (Integer build : sortedBuilds) {
             BuildResponse buildResponse = getJson(API_URL + "/versions/" + version + "/builds/" + build, BuildResponse.class);
-            if (isStableChannel(buildResponse.channel())) {
+            String channel = buildResponse.channel();
+            LOGGER.fine("Version " + version + " build " + build + " reported channel " + channel);
+            if (isStableChannel(channel)) {
                 return build;
             }
         }

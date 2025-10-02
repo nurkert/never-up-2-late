@@ -143,6 +143,59 @@ class PaperFetcherTest {
         assertEquals(2, fetcher.getLatestBuild());
     }
 
+    @Test
+    void fallsBackToInstalledVersionWhenNewestFails() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.papermc.io/v2/projects/paper",
+                """
+                        {
+                          "versions": ["1.21.9", "1.20.2", "1.20.1"]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.21.9",
+                """
+                        {
+                          "builds": [7, 6]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.21.9/builds/7",
+                """
+                        {
+                          "channel": "beta"
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.21.9/builds/6",
+                """
+                        {
+                          "channel": "experimental"
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1",
+                """
+                        {
+                          "builds": [14, 15]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/15",
+                """
+                        {
+                          "channel": "stable"
+                        }
+                        """);
+
+        PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses)) {
+            @Override
+            public String getInstalledVersion() {
+                return "1.20.1";
+            }
+        };
+
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("1.20.1", fetcher.getLatestVersion());
+        assertEquals(15, fetcher.getLatestBuild());
+    }
+
     private static class StubHttpClient extends HttpClient {
         private final Map<String, String> responses;
 
