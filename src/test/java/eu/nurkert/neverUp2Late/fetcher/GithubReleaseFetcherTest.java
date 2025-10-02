@@ -187,6 +187,58 @@ class GithubReleaseFetcherTest {
         assertEquals("https://example.com/demo-1.4.0.zip", fetcher.getLatestDownloadUrl());
     }
 
+    @Test
+    void fallsBackToReleaseArchiveWhenNoAssetsArePresent() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.github.com/repos/example/demo/releases",
+                """
+                        [
+                          {
+                            "id": 11,
+                            "tag_name": "v3.0.0",
+                            "draft": false,
+                            "prerelease": false,
+                            "published_at": "2023-10-01T12:00:00Z",
+                            "assets": []
+                          }
+                        ]
+                        """);
+
+        GithubReleaseFetcher fetcher = new GithubReleaseFetcher(options(false, null), new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("v3.0.0", fetcher.getLatestVersion());
+        assertEquals(11, fetcher.getLatestBuild());
+        assertEquals("https://github.com/example/demo/archive/refs/tags/v3.0.0.zip", fetcher.getLatestDownloadUrl());
+        assertTrue(fetcher.isSelectedAssetArchive());
+    }
+
+    @Test
+    void fallsBackToTagsWhenNoReleasesExist() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.github.com/repos/example/demo/releases", "[]");
+        responses.put("https://api.github.com/repos/example/demo/tags",
+                """
+                        [
+                          {
+                            "name": "v4.0.0",
+                            "commit": { "sha": "abcdef12fedcba98" }
+                          },
+                          {
+                            "name": "v3.9.0",
+                            "commit": { "sha": "12345678abcdef00" }
+                          }
+                        ]
+                        """);
+
+        GithubReleaseFetcher fetcher = new GithubReleaseFetcher(options(false, null), new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("v4.0.0", fetcher.getLatestVersion());
+        assertEquals("https://github.com/example/demo/archive/refs/tags/v4.0.0.zip", fetcher.getLatestDownloadUrl());
+        assertTrue(fetcher.isSelectedAssetArchive());
+    }
+
     private MemoryConfiguration options(boolean allowPrerelease, String assetPattern) {
         MemoryConfiguration configuration = new MemoryConfiguration();
         configuration.set("owner", "example");
