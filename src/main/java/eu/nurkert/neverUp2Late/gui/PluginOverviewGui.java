@@ -63,6 +63,11 @@ public class PluginOverviewGui implements Listener {
     private static final int DETAIL_REMOVE_SLOT = 22;
     private static final int DETAIL_QUICK_RENAME_SLOT = 23;
     private static final int DETAIL_BACK_SLOT = 26;
+    private static final int INSTALL_INVENTORY_SIZE = 27;
+    private static final int INSTALL_INFO_SLOT = 18;
+    private static final int INSTALL_SEARCH_SLOT = 20;
+    private static final int INSTALL_MANUAL_SLOT = 22;
+    private static final int INSTALL_BACK_SLOT = 26;
 
     private final PluginContext context;
     private final QuickInstallCoordinator coordinator;
@@ -70,6 +75,7 @@ public class PluginOverviewGui implements Listener {
     private final Map<UUID, LinkRequest> pendingLinkRequests = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedPlugin> pendingRemovalRequests = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedPlugin> pendingSuggestionRequests = new ConcurrentHashMap<>();
+    private final Map<UUID, String> pendingInstallSearches = new ConcurrentHashMap<>();
     private final PluginUpdateSettingsRepository updateSettingsRepository;
     private final PluginLinkSuggester linkSuggester;
     private final AnvilTextPrompt anvilTextPrompt;
@@ -615,10 +621,8 @@ public class PluginOverviewGui implements Listener {
         if (!checkPermission(player, Permissions.INSTALL)) {
             return;
         }
-        player.closeInventory();
-        openInventories.remove(player.getUniqueId());
-        pendingLinkRequests.put(player.getUniqueId(), new LinkRequest(null, true));
-        player.sendMessage(ChatColor.AQUA + "Please enter the download URL of the new plugin in chat or type 'cancel'.");
+        openStandaloneInstall(player, List.of(), null);
+        player.sendMessage(ChatColor.GRAY + "Suche nach neuen Plugins auf Modrinth oder Hangar oder gebe einen direkten Link an.");
     }
 
     @EventHandler
@@ -642,6 +646,30 @@ public class PluginOverviewGui implements Listener {
         }
 
         event.setCancelled(true);
+
+        if (session.view() == View.NEW_INSTALL) {
+            int clicked = event.getRawSlot();
+            if (clicked == INSTALL_BACK_SLOT) {
+                openOverview(player);
+                return;
+            }
+            if (clicked == INSTALL_SEARCH_SLOT) {
+                promptStandaloneSearch(player, session);
+                return;
+            }
+            if (clicked == INSTALL_MANUAL_SLOT) {
+                promptStandaloneManualInstall(player, session);
+                return;
+            }
+            if (clicked == INSTALL_INFO_SLOT) {
+                return;
+            }
+            PluginLinkSuggestion suggestion = session.suggestions().get(clicked);
+            if (suggestion != null) {
+                installStandaloneSuggestion(player, suggestion);
+            }
+            return;
+        }
 
         if (session.view() == View.OVERVIEW) {
             int installSlot = session.inventory().getSize() - 1;
@@ -745,6 +773,7 @@ public class PluginOverviewGui implements Listener {
         pendingLinkRequests.remove(playerId);
         pendingRemovalRequests.remove(playerId);
         pendingSuggestionRequests.remove(playerId);
+        pendingInstallSearches.remove(playerId);
     }
 
     @EventHandler
@@ -898,7 +927,7 @@ public class PluginOverviewGui implements Listener {
         inventory.setItem(manualSlot, createManualLinkOptionItem());
         inventory.setItem(size - 1, createSuggestionBackItem());
 
-        openInventories.put(player.getUniqueId(), InventorySession.suggestions(inventory, plugin, mapping));
+        openInventories.put(player.getUniqueId(), InventorySession.suggestions(inventory, plugin, mapping, entries));
         player.openInventory(inventory);
     }
 
@@ -911,6 +940,215 @@ public class PluginOverviewGui implements Listener {
         player.sendMessage(ChatColor.GREEN + "Applying suggestion " + ChatColor.AQUA
                 + suggestion.provider() + ChatColor.GREEN + " for " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
         coordinator.installForPlugin(player, pluginName, suggestion.url());
+    }
+
+    private void openStandaloneInstall(Player player,
+                                       List<PluginLinkSuggestion> suggestions,
+                                       String searchTerm) {
+        List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : suggestions.stream()
+                .limit(INSTALL_INFO_SLOT)
+                .toList();
+
+        Inventory inventory = Bukkit.createInventory(null, INSTALL_INVENTORY_SIZE,
+                ChatColor.DARK_PURPLE + "NU2L – Neues Plugin");
+
+        ItemStack filler = createFiller();
+        for (int i = 0; i < INSTALL_INVENTORY_SIZE; i++) {
+            inventory.setItem(i, filler.clone());
+        }
+
+        Map<Integer, PluginLinkSuggestion> mapping = new HashMap<>();
+        for (int i = 0; i < entries.size() && i < INSTALL_INFO_SLOT; i++) {
+            PluginLinkSuggestion suggestion = entries.get(i);
+            inventory.setItem(i, createSuggestionItem(suggestion));
+            mapping.put(i, suggestion);
+        }
+
+        inventory.setItem(INSTALL_INFO_SLOT, createInstallInfoItem(entries.size(), searchTerm));
+        inventory.setItem(INSTALL_SEARCH_SLOT, createInstallSearchItem(searchTerm));
+        inventory.setItem(INSTALL_MANUAL_SLOT, createManualInstallItem());
+        inventory.setItem(INSTALL_BACK_SLOT, createBackToOverviewItem());
+
+        openInventories.put(player.getUniqueId(),
+                InventorySession.newInstall(inventory, mapping, entries, searchTerm));
+        player.openInventory(inventory);
+    }
+
+    private ItemStack createInstallInfoItem(int resultCount, String searchTerm) {
+        ItemStack item = new ItemStack(Material.WRITTEN_BOOK);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.AQUA + "Plugin-Suche");
+            List<String> lore = new ArrayList<>();
+            if (searchTerm == null || searchTerm.isBlank()) {
+                lore.add(ChatColor.GRAY + "Nutze die Suche, um Modrinth oder Hangar zu durchsuchen.");
+            } else if (resultCount == 0) {
+                lore.add(ChatColor.YELLOW + "Keine Treffer für: " + ChatColor.WHITE + searchTerm);
+                lore.add(ChatColor.GRAY + "Passe den Suchbegriff an oder versuche einen Direktlink.");
+            } else {
+                lore.add(ChatColor.GREEN + "Gefundene Projekte: " + ChatColor.WHITE + resultCount);
+                lore.add(ChatColor.GRAY + "Klicke einen Eintrag, um die JAR herunterzuladen.");
+            }
+            lore.add(" ");
+            lore.add(ChatColor.DARK_GRAY + "Die Plugins werden nicht automatisch aktiviert.");
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createInstallSearchItem(String searchTerm) {
+        ItemStack item = new ItemStack(Material.COMPASS);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GREEN + "Plugin suchen");
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "Öffnet ein Texteingabefeld.");
+            lore.add(ChatColor.GRAY + "Suche gleichzeitig auf Modrinth und Hangar.");
+            if (searchTerm != null && !searchTerm.isBlank()) {
+                lore.add(" ");
+                lore.add(ChatColor.DARK_GRAY + "Letzte Suche: " + ChatColor.WHITE + searchTerm);
+            }
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createManualInstallItem() {
+        ItemStack item = new ItemStack(Material.OAK_SIGN);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.YELLOW + "Direktlink eingeben");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Öffnet einen Anvil-Dialog",
+                    ChatColor.GRAY + "für direkte Download-Links."
+            ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createBackToOverviewItem() {
+        ItemStack item = new ItemStack(Material.ARROW);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.YELLOW + "Zurück zur Übersicht");
+            meta.setLore(List.of(ChatColor.GRAY + "Schließt die Installation und zeigt alle Plugins."));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private void promptStandaloneSearch(Player player, InventorySession session) {
+        List<PluginLinkSuggestion> previous = new ArrayList<>(session.orderedSuggestions());
+        String previousTerm = session.searchTerm();
+
+        openInventories.remove(player.getUniqueId());
+        player.closeInventory();
+
+        anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
+                .title(ChatColor.DARK_PURPLE + "NU2L Suche")
+                .initialText(previousTerm != null ? previousTerm : "")
+                .validation(value -> {
+                    String trimmed = value != null ? value.trim() : "";
+                    if (trimmed.length() < 3) {
+                        return Optional.of(ChatColor.RED + "Bitte gib mindestens drei Zeichen ein.");
+                    }
+                    return Optional.empty();
+                })
+                .onConfirm((p, value) -> performStandaloneSearch(p, value, previous, previousTerm))
+                .onCancel(p -> openStandaloneInstall(p, previous, previousTerm))
+                .build());
+    }
+
+    private void performStandaloneSearch(Player player,
+                                         String query,
+                                         List<PluginLinkSuggestion> previousSuggestions,
+                                         String previousTerm) {
+        String trimmed = query != null ? query.trim() : "";
+        if (trimmed.length() < 3) {
+            player.sendMessage(ChatColor.RED + "Bitte gib mindestens drei Zeichen ein.");
+            openStandaloneInstall(player, previousSuggestions, previousTerm);
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+        pendingInstallSearches.put(playerId, trimmed);
+        player.sendMessage(ChatColor.GRAY + "Suche nach " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
+
+        context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
+            List<PluginLinkSuggestion> suggestions;
+            try {
+                suggestions = linkSuggester.suggest(List.of(trimmed));
+            } catch (Exception e) {
+                context.getPlugin().getLogger().log(Level.FINE,
+                        "Failed to resolve standalone search for " + trimmed, e);
+                suggestions = List.of();
+            }
+            List<PluginLinkSuggestion> finalSuggestions = suggestions;
+            context.getScheduler().runTask(context.getPlugin(),
+                    () -> handleStandaloneSearchResult(player, trimmed, finalSuggestions));
+        });
+    }
+
+    private void handleStandaloneSearchResult(Player player,
+                                              String searchTerm,
+                                              List<PluginLinkSuggestion> suggestions) {
+        UUID playerId = player.getUniqueId();
+        String expected = pendingInstallSearches.get(playerId);
+        if (!Objects.equals(expected, searchTerm)) {
+            return;
+        }
+        pendingInstallSearches.remove(playerId);
+
+        if (!player.isOnline()) {
+            return;
+        }
+
+        List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : suggestions;
+        if (entries.isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "Keine Treffer gefunden. Versuche einen anderen Begriff.");
+        } else {
+            player.sendMessage(ChatColor.GREEN + "Gefundene Projekte: " + entries.size());
+        }
+
+        openStandaloneInstall(player, entries, searchTerm);
+    }
+
+    private void promptStandaloneManualInstall(Player player, InventorySession session) {
+        List<PluginLinkSuggestion> previous = new ArrayList<>(session.orderedSuggestions());
+        String previousTerm = session.searchTerm();
+
+        openInventories.remove(player.getUniqueId());
+        player.closeInventory();
+
+        anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
+                .title(ChatColor.DARK_PURPLE + "NU2L Direktlink")
+                .initialText("https://")
+                .onConfirm((p, value) -> installStandaloneFromUrl(p, value))
+                .onCancel(p -> openStandaloneInstall(p, previous, previousTerm))
+                .build());
+    }
+
+    private void installStandaloneSuggestion(Player player, PluginLinkSuggestion suggestion) {
+        player.closeInventory();
+        openInventories.remove(player.getUniqueId());
+        String title = Objects.requireNonNullElse(suggestion.title(), suggestion.provider());
+        player.sendMessage(ChatColor.GREEN + "Installiere " + ChatColor.AQUA
+                + suggestion.provider() + ChatColor.GREEN + " Projekt " + ChatColor.AQUA
+                + title + ChatColor.GREEN + " …");
+        coordinator.install(player, suggestion.url());
+    }
+
+    private void installStandaloneFromUrl(Player player, String value) {
+        String trimmed = value != null ? value.trim() : "";
+        if (trimmed.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "Bitte gib einen gültigen Download-Link ein.");
+            return;
+        }
+        player.sendMessage(ChatColor.GREEN + "Starte Installation über direkten Link…");
+        coordinator.install(player, trimmed);
     }
 
     private void promptManualLinkInput(Player player,
@@ -1192,26 +1430,39 @@ public class PluginOverviewGui implements Listener {
     private enum View {
         OVERVIEW,
         DETAIL,
-        LINK_SUGGESTIONS
+        LINK_SUGGESTIONS,
+        NEW_INSTALL
     }
 
     private record InventorySession(Inventory inventory,
                                     View view,
                                     Map<Integer, ManagedPlugin> plugins,
                                     ManagedPlugin plugin,
-                                    Map<Integer, PluginLinkSuggestion> suggestions) {
+                                    Map<Integer, PluginLinkSuggestion> suggestions,
+                                    List<PluginLinkSuggestion> orderedSuggestions,
+                                    String searchTerm) {
         static InventorySession overview(Inventory inventory, Map<Integer, ManagedPlugin> plugins) {
-            return new InventorySession(inventory, View.OVERVIEW, Map.copyOf(plugins), null, Map.of());
+            return new InventorySession(inventory, View.OVERVIEW, Map.copyOf(plugins), null, Map.of(), List.of(), null);
         }
 
         static InventorySession detail(Inventory inventory, ManagedPlugin plugin) {
-            return new InventorySession(inventory, View.DETAIL, Map.of(), plugin, Map.of());
+            return new InventorySession(inventory, View.DETAIL, Map.of(), plugin, Map.of(), List.of(), null);
         }
 
         static InventorySession suggestions(Inventory inventory,
                                             ManagedPlugin plugin,
-                                            Map<Integer, PluginLinkSuggestion> suggestions) {
-            return new InventorySession(inventory, View.LINK_SUGGESTIONS, Map.of(), plugin, Map.copyOf(suggestions));
+                                            Map<Integer, PluginLinkSuggestion> suggestions,
+                                            List<PluginLinkSuggestion> ordered) {
+            return new InventorySession(inventory, View.LINK_SUGGESTIONS, Map.of(), plugin,
+                    Map.copyOf(suggestions), List.copyOf(ordered), null);
+        }
+
+        static InventorySession newInstall(Inventory inventory,
+                                           Map<Integer, PluginLinkSuggestion> suggestions,
+                                           List<PluginLinkSuggestion> ordered,
+                                           String searchTerm) {
+            return new InventorySession(inventory, View.NEW_INSTALL, Map.of(), null,
+                    Map.copyOf(suggestions), List.copyOf(ordered), searchTerm);
         }
     }
 
