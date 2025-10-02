@@ -28,6 +28,14 @@ class QuickInstallCoordinatorTest {
     }
 
     @Test
+    void extractModrinthSlugIgnoresCategorySegments() {
+        Optional<String> slug = QuickInstallCoordinator.extractModrinthSlug(List.of("datapack", "veinminer"));
+
+        assertTrue(slug.isPresent());
+        assertEquals("veinminer", slug.orElseThrow());
+    }
+
+    @Test
     void extractModrinthSlugDecodesUrlEncodedSegments() {
         Optional<String> slug = QuickInstallCoordinator.extractModrinthSlug(List.of("plugin", "My%20Plugin"));
 

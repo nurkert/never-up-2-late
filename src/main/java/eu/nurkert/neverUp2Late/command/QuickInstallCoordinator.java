@@ -56,6 +56,25 @@ import java.util.logging.Logger;
 
 public class QuickInstallCoordinator {
 
+    private static final Set<String> MODRINTH_SEGMENT_PREFIXES = Set.of(
+            "plugin",
+            "plugins",
+            "project",
+            "projects",
+            "mod",
+            "mods",
+            "modpack",
+            "modpacks",
+            "datapack",
+            "datapacks",
+            "resourcepack",
+            "resourcepacks",
+            "shaderpack",
+            "shaderpacks",
+            "shader",
+            "shaders"
+    );
+
     private final JavaPlugin plugin;
     private final BukkitScheduler scheduler;
     private final FileConfiguration configuration;
@@ -565,12 +584,14 @@ public class QuickInstallCoordinator {
                 continue;
             }
 
+            String normalized = segment.toLowerCase(Locale.ROOT);
+
             if (expectSlug) {
                 slug = segment;
                 break;
             }
 
-            if (segment.equalsIgnoreCase("plugin") || segment.equalsIgnoreCase("project")) {
+            if (MODRINTH_SEGMENT_PREFIXES.contains(normalized)) {
                 expectSlug = true;
                 continue;
             }
