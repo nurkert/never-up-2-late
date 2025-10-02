@@ -39,7 +39,9 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
     private final String installedPluginName;
 
     public GithubReleaseFetcher(ConfigurationSection options) {
-        this(options, new HttpClient(GITHUB_HEADERS));
+        this(options, HttpClient.builder()
+                .headers(GITHUB_HEADERS)
+                .build());
     }
 
     GithubReleaseFetcher(ConfigurationSection options, HttpClient httpClient) {
