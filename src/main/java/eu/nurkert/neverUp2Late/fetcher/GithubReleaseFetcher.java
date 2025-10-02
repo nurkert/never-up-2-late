@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -26,6 +27,10 @@ import java.util.Locale;
 public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
     private static final String API_TEMPLATE = "https://api.github.com/repos/%s/%s/releases";
+    private static final Map<String, String> GITHUB_HEADERS = Map.of(
+            "Accept", "application/vnd.github+json",
+            "X-GitHub-Api-Version", "2022-11-28"
+    );
 
     private final String owner;
     private final String repository;
@@ -34,7 +39,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
     private final String installedPluginName;
 
     public GithubReleaseFetcher(ConfigurationSection options) {
-        this(options, new HttpClient());
+        this(options, new HttpClient(GITHUB_HEADERS));
     }
 
     GithubReleaseFetcher(ConfigurationSection options, HttpClient httpClient) {

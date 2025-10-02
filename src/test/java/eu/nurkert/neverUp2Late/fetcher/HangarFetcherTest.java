@@ -9,9 +9,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class HangarFetcherTest {
+
+    private static final Map<String, String> DEFAULT_HEADERS = new DefaultHeaderCapturingHttpClient().headers();
 
     @Test
     void skipsUnstableVersionsAndFallsBackToLaterPages() throws Exception {
@@ -220,17 +223,37 @@ class HangarFetcherTest {
         private final Map<String, String> responses;
 
         StubHttpClient(Map<String, String> responses) {
-            super(java.net.http.HttpClient.newBuilder().build(), Duration.ofSeconds(1), Map.of());
+            super(java.net.http.HttpClient.newBuilder().build(), Duration.ofSeconds(1), DEFAULT_HEADERS);
             this.responses = responses;
         }
 
         @Override
         protected String doGet(String url) throws IOException {
+            Map<String, String> headers = getDefaultHeaders();
+            assertEquals("application/json", headers.get("Accept"), "Hangar requests should use a generic JSON Accept header");
+            assertFalse(headers.containsKey("X-GitHub-Api-Version"), "GitHub-specific headers should not be sent to Hangar");
             String response = responses.get(url);
             if (response == null) {
                 throw new IOException("No stubbed response for " + url);
             }
             return response;
+        }
+    }
+
+    private static class DefaultHeaderCapturingHttpClient extends HttpClient {
+        private final Map<String, String> headers;
+
+        DefaultHeaderCapturingHttpClient() {
+            this.headers = getDefaultHeaders();
+        }
+
+        Map<String, String> headers() {
+            return headers;
+        }
+
+        @Override
+        protected String doGet(String url) {
+            throw new UnsupportedOperationException("Not implemented");
         }
     }
 }
