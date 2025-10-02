@@ -1,11 +1,17 @@
 package eu.nurkert.neverUp2Late.command;
 
+import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.fetcher.AssetPatternBuilder;
+import eu.nurkert.neverUp2Late.fetcher.GithubReleaseFetcher;
 import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
+import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
+import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
+import eu.nurkert.neverUp2Late.util.ArchiveUtils;
+import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
@@ -18,10 +24,20 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.entity.Player;
 
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
+
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -34,6 +50,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -44,9 +61,14 @@ public class QuickInstallCoordinator {
     private final FileConfiguration configuration;
     private final UpdateSourceRegistry updateSourceRegistry;
     private final eu.nurkert.neverUp2Late.handlers.UpdateHandler updateHandler;
+    private final eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler persistentPluginHandler;
+    private final eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository pluginUpdateSettingsRepository;
+    private final eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager pluginLifecycleManager;
     private final Logger logger;
     private final String messagePrefix;
     private final Map<String, PendingSelection> pendingSelections = new ConcurrentHashMap<>();
+    private final Map<String, ArchivePendingSelection> pendingArchiveSelections = new ConcurrentHashMap<>();
+    private final ArtifactDownloader artifactDownloader = new ArtifactDownloader();
 
     public QuickInstallCoordinator(PluginContext context) {
         this.plugin = context.getPlugin();
@@ -54,6 +76,9 @@ public class QuickInstallCoordinator {
         this.configuration = context.getConfiguration();
         this.updateSourceRegistry = context.getUpdateSourceRegistry();
         this.updateHandler = context.getUpdateHandler();
+        this.persistentPluginHandler = context.getPersistentPluginHandler();
+        this.pluginUpdateSettingsRepository = context.getPluginUpdateSettingsRepository();
+        this.pluginLifecycleManager = context.getPluginLifecycleManager();
         this.logger = plugin.getLogger();
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
     }
@@ -67,6 +92,9 @@ public class QuickInstallCoordinator {
     }
 
     private void install(CommandSender sender, String rawUrl, String forcedPluginName) {
+        if (!hasPermission(sender, Permissions.INSTALL)) {
+            return;
+        }
         String url = rawUrl != null ? rawUrl.trim() : "";
         if (url.isEmpty()) {
             send(sender, ChatColor.RED + "Bitte gib eine gültige URL an.");
@@ -109,8 +137,9 @@ public class QuickInstallCoordinator {
 
     private void prepareAndInstall(CommandSender sender, InstallationPlan plan) {
         send(sender, ChatColor.YELLOW + "Lade Versionsinformationen …");
+        eu.nurkert.neverUp2Late.fetcher.UpdateFetcher fetcher;
         try {
-            var fetcher = updateSourceRegistry.createFetcher(plan.getFetcherType(), plan.getOptions());
+            fetcher = updateSourceRegistry.createFetcher(plan.getFetcherType(), plan.getOptions());
             fetcher.loadLatestBuildInfo();
             String downloadUrl = Objects.requireNonNull(fetcher.getLatestDownloadUrl(), "downloadUrl");
             plan.setLatestBuild(fetcher.getLatestBuild());
@@ -127,12 +156,19 @@ public class QuickInstallCoordinator {
             return;
         }
 
+        if (!ensureArchiveConfiguration(sender, plan, fetcher)) {
+            return;
+        }
+
         send(sender, ChatColor.GREEN + "Neueste Version: " + plan.getLatestVersionInfo());
 
         scheduler.runTask(plugin, () -> finalizeInstallation(sender, plan));
     }
 
     public void handleAssetSelection(CommandSender sender, String selectionInput) {
+        if (!hasPermission(sender, Permissions.INSTALL)) {
+            return;
+        }
         if (selectionInput == null || selectionInput.isBlank()) {
             send(sender, ChatColor.RED + "Bitte gib die Nummer der gewünschten Datei an.");
             return;
@@ -141,7 +177,7 @@ public class QuickInstallCoordinator {
         String key = selectionKey(sender);
         PendingSelection pending = pendingSelections.get(key);
         if (pending == null) {
-            send(sender, ChatColor.RED + "Es gibt keine offene Auswahl.");
+            handleArchiveSelection(sender, selectionInput, key);
             return;
         }
 
@@ -170,10 +206,143 @@ public class QuickInstallCoordinator {
 
         send(sender, ChatColor.GREEN + "Verwende Asset \"" + assetName + "\". Regex wurde automatisch erstellt.");
         if (asset.archive()) {
-            send(sender, ChatColor.GOLD + "Hinweis: Das ausgewählte Asset ist ein Archiv und muss nach dem Download manuell entpackt werden.");
+            send(sender, ChatColor.GOLD + "Hinweis: Das ausgewählte Asset ist ein Archiv. NU2L extrahiert automatisch die passende JAR-Datei.");
         }
 
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
+    }
+
+    private void handleArchiveSelection(CommandSender sender, String selectionInput, String key) {
+        ArchivePendingSelection pending = pendingArchiveSelections.get(key);
+        if (pending == null) {
+            send(sender, ChatColor.RED + "Es gibt keine offene Auswahl.");
+            return;
+        }
+
+        int index;
+        try {
+            index = Integer.parseInt(selectionInput.trim());
+        } catch (NumberFormatException ex) {
+            send(sender, ChatColor.RED + "Bitte gib eine gültige Nummer an.");
+            return;
+        }
+
+        if (index < 1 || index > pending.entries().size()) {
+            send(sender, ChatColor.RED + "Ungültige Auswahl. Bitte wähle eine Zahl zwischen 1 und " + pending.entries().size() + ".");
+            return;
+        }
+
+        ArchiveEntry selected = pending.entries().get(index - 1);
+        List<String> candidateNames = pending.entries().stream().map(ArchiveEntry::fullPath).toList();
+        String pattern = AssetPatternBuilder.build(selected.fullPath(), candidateNames);
+
+        pending.plan().getOptions().put("archiveEntryPattern", pattern);
+        pending.plan().setFilename(extractFileNameForArchive(selected));
+        pendingArchiveSelections.remove(key);
+
+        send(sender, ChatColor.GREEN + "Verwende JAR \"" + selected.fullPath() + "\" aus dem Archiv.");
+        scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
+    }
+
+    private boolean ensureArchiveConfiguration(CommandSender sender,
+                                               InstallationPlan plan,
+                                               eu.nurkert.neverUp2Late.fetcher.UpdateFetcher fetcher) {
+        if (!(fetcher instanceof GithubReleaseFetcher githubFetcher) || !githubFetcher.isSelectedAssetArchive()) {
+            plan.getOptions().remove("archiveEntryPattern");
+            return true;
+        }
+
+        String downloadUrl = plan.getDownloadUrl();
+        if (downloadUrl == null || downloadUrl.isBlank()) {
+            send(sender, ChatColor.RED + "Fehler: Archiv-Download-URL fehlt.");
+            return false;
+        }
+
+        List<ArchiveEntry> entries;
+        try {
+            entries = inspectArchive(downloadUrl);
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "Failed to inspect archive for " + plan.getDisplayName(), e);
+            send(sender, ChatColor.RED + "Fehler beim Auswerten des Archivs: " + e.getMessage());
+            return false;
+        }
+
+        if (entries.isEmpty()) {
+            send(sender, ChatColor.RED + "Das Archiv enthält keine JAR-Dateien.");
+            return false;
+        }
+
+        Optional<Pattern> configuredPattern = githubFetcher.getArchiveEntryPattern();
+        if (configuredPattern.isPresent()) {
+            Pattern pattern = configuredPattern.get();
+            Optional<ArchiveEntry> match = entries.stream()
+                    .filter(entry -> pattern.matcher(entry.fullPath()).matches()
+                            || pattern.matcher(entry.fileName()).matches())
+                    .findFirst();
+            if (match.isPresent()) {
+                applyArchiveSelection(plan, match.get(), entries);
+                return true;
+            }
+            logger.log(Level.INFO,
+                    "Configured archiveEntryPattern did not match any entry for {0}: {1}",
+                    new Object[]{plan.getDisplayName(), pattern.pattern()});
+        }
+
+        if (entries.size() == 1) {
+            applyArchiveSelection(plan, entries.get(0), entries);
+            send(sender, ChatColor.GRAY + "Finde JAR im Archiv: " + entries.get(0).fullPath());
+            return true;
+        }
+
+        requestArchiveEntrySelection(sender, plan, entries);
+        return false;
+    }
+
+    private List<ArchiveEntry> inspectArchive(String downloadUrl) throws IOException {
+        Path tempFile = Files.createTempFile("nu2l-archive-", ".zip");
+        try {
+            ArtifactDownloader.DownloadRequest request = ArtifactDownloader.DownloadRequest.builder()
+                    .url(downloadUrl)
+                    .destination(tempFile)
+                    .build();
+            artifactDownloader.download(request);
+            return ArchiveUtils.listJarEntries(tempFile);
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
+    private void applyArchiveSelection(InstallationPlan plan,
+                                       ArchiveEntry selected,
+                                       List<ArchiveEntry> allEntries) {
+        List<String> candidateNames = allEntries.stream().map(ArchiveEntry::fullPath).toList();
+        String pattern = AssetPatternBuilder.build(selected.fullPath(), candidateNames);
+        plan.getOptions().put("archiveEntryPattern", pattern);
+        plan.setFilename(extractFileNameForArchive(selected));
+    }
+
+    private void requestArchiveEntrySelection(CommandSender sender,
+                                              InstallationPlan plan,
+                                              List<ArchiveEntry> entries) {
+        String key = selectionKey(sender);
+        pendingArchiveSelections.put(key, new ArchivePendingSelection(plan, List.copyOf(entries)));
+
+        send(sender, ChatColor.GOLD + "Das Archiv enthält mehrere JAR-Dateien:");
+        for (int i = 0; i < entries.size(); i++) {
+            ArchiveEntry entry = entries.get(i);
+            send(sender, ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
+                    + ChatColor.AQUA + entry.fullPath());
+        }
+        send(sender, ChatColor.YELLOW + "Bitte wähle mit /nu2l select <Nummer> die gewünschte Datei aus.");
+    }
+
+    private String extractFileNameForArchive(ArchiveEntry entry) {
+        String fileName = Optional.ofNullable(entry.fileName()).orElse(entry.fullPath());
+        int slash = fileName.lastIndexOf('/');
+        if (slash >= 0 && slash < fileName.length() - 1) {
+            fileName = fileName.substring(slash + 1);
+        }
+        return fileName;
     }
 
     private void requestAssetSelection(CommandSender sender,
@@ -201,7 +370,7 @@ public class QuickInstallCoordinator {
         send(sender, ChatColor.YELLOW + "Bitte wähle mit /nu2l select <Nummer> das gewünschte Asset aus.");
         if (selection.getAssetType() == AssetSelectionRequiredException.AssetType.ARCHIVE
                 || assets.stream().anyMatch(AssetSelectionRequiredException.ReleaseAsset::archive)) {
-            send(sender, ChatColor.GOLD + "Hinweis: Archive müssen nach dem Download manuell entpackt werden.");
+            send(sender, ChatColor.GOLD + "Hinweis: Archive werden automatisch entpackt, bitte wähle die gewünschte Datei.");
         }
     }
 
@@ -601,11 +770,237 @@ public class QuickInstallCoordinator {
         scheduler.runTask(plugin, () -> sender.sendMessage(messagePrefix + message));
     }
 
+    private boolean hasPermission(CommandSender sender, String permission) {
+        if (sender == null || permission == null || permission.isBlank()) {
+            return true;
+        }
+        if (sender.hasPermission(permission)) {
+            return true;
+        }
+        send(sender, ChatColor.RED + "Dir fehlt die Berechtigung (" + permission + ").");
+        return false;
+    }
+
+    public void removeManagedPlugin(CommandSender sender, ManagedPlugin target) {
+        if (target == null) {
+            send(sender, ChatColor.RED + "Unbekanntes Plugin – Aktion abgebrochen.");
+            return;
+        }
+        if (!hasPermission(sender, Permissions.GUI_MANAGE_REMOVE)) {
+            return;
+        }
+        if (pluginLifecycleManager == null) {
+            send(sender, ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert; Entfernen nicht möglich.");
+            return;
+        }
+
+        scheduler.runTask(plugin, () -> {
+            String pluginName = Optional.ofNullable(target.getName()).orElse("Plugin");
+            Path jarPath = target.getPath();
+
+            try {
+                if (target.isEnabled()) {
+                    pluginLifecycleManager.disablePlugin(pluginName);
+                }
+                if (target.isLoaded()) {
+                    pluginLifecycleManager.unloadPlugin(pluginName);
+                }
+            } catch (PluginLifecycleException ex) {
+                send(sender, ChatColor.RED + "Fehler beim Entladen von " + pluginName + ": " + ex.getMessage());
+                logger.log(Level.WARNING, "Failed to unload plugin " + pluginName, ex);
+                return;
+            }
+
+            if (jarPath != null) {
+                try {
+                    Files.deleteIfExists(jarPath);
+                } catch (IOException ex) {
+                    send(sender, ChatColor.RED + "Konnte Datei nicht löschen: " + jarPath.getFileName());
+                    logger.log(Level.WARNING, "Failed to delete plugin jar " + jarPath, ex);
+                    return;
+                }
+            }
+
+            List<UpdateSource> matchingSources = updateSourceRegistry.getSources().stream()
+                    .filter(source -> matchesPluginSource(source, pluginName, jarPath))
+                    .toList();
+
+            for (UpdateSource source : matchingSources) {
+                if (updateSourceRegistry.unregisterSource(source.getName())) {
+                    configuration.set("filenames." + source.getName(), null);
+                    persistentPluginHandler.removePluginInfo(source.getName());
+                }
+            }
+
+            if (!matchingSources.isEmpty()) {
+                plugin.saveConfig();
+            }
+
+            if (pluginUpdateSettingsRepository != null) {
+                pluginUpdateSettingsRepository.removeSettings(pluginName);
+            }
+
+            send(sender, ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " wurde entfernt.");
+        });
+    }
+
+    private boolean matchesPluginSource(UpdateSource source, String pluginName, Path jarPath) {
+        if (source == null) {
+            return false;
+        }
+        String filename = source.getFilename();
+        if (jarPath != null && jarPath.getFileName() != null
+                && filename != null
+                && jarPath.getFileName().toString().equalsIgnoreCase(filename)) {
+            return true;
+        }
+        String installedPlugin = source.getInstalledPluginName();
+        return installedPlugin != null && installedPlugin.equalsIgnoreCase(pluginName);
+    }
+
+    public void removePlugin(CommandSender sender, String pluginName) {
+        if (pluginLifecycleManager == null) {
+            send(sender, ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert; Entfernen nicht möglich.");
+            return;
+        }
+        ManagedPlugin target = pluginLifecycleManager.findByName(pluginName).orElse(null);
+        if (target == null) {
+            send(sender, ChatColor.RED + "Plugin " + pluginName + " wurde nicht gefunden.");
+            return;
+        }
+        removeManagedPlugin(sender, target);
+    }
+
+    public void renameManagedPlugin(CommandSender sender, ManagedPlugin target, String requestedName) {
+        if (target == null) {
+            send(sender, ChatColor.RED + "Unbekanntes Plugin – Aktion abgebrochen.");
+            return;
+        }
+        if (!hasPermission(sender, Permissions.GUI_MANAGE_RENAME)) {
+            return;
+        }
+        if (pluginLifecycleManager == null) {
+            send(sender, ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert; Umbenennung nicht möglich.");
+            return;
+        }
+
+        scheduler.runTask(plugin, () -> {
+            Path currentPath = target.getPath();
+            if (currentPath == null) {
+                send(sender, ChatColor.RED + "Es konnte kein Dateipfad ermittelt werden.");
+                return;
+            }
+
+            String sanitized = sanitizeFilename(requestedName);
+            if (sanitized == null) {
+                send(sender, ChatColor.RED + "Bitte gib einen gültigen Dateinamen an.");
+                return;
+            }
+
+            Path parent = currentPath.getParent();
+            if (parent == null) {
+                send(sender, ChatColor.RED + "Konnte Zielverzeichnis nicht bestimmen.");
+                return;
+            }
+            Path targetPath = parent.resolve(sanitized).toAbsolutePath().normalize();
+            if (targetPath.equals(currentPath)) {
+                send(sender, ChatColor.GRAY + "Der Dateiname bleibt unverändert.");
+                return;
+            }
+            if (Files.exists(targetPath)) {
+                send(sender, ChatColor.RED + "Eine Datei mit diesem Namen existiert bereits: " + targetPath.getFileName());
+                return;
+            }
+
+            boolean wasEnabled = target.isEnabled();
+            boolean wasLoaded = target.isLoaded();
+            String pluginName = Optional.ofNullable(target.getName()).orElse("Plugin");
+
+            try {
+                if (target.isEnabled()) {
+                    pluginLifecycleManager.disablePlugin(pluginName);
+                }
+                if (target.isLoaded()) {
+                    pluginLifecycleManager.unloadPlugin(pluginName);
+                }
+            } catch (PluginLifecycleException ex) {
+                send(sender, ChatColor.RED + "Fehler beim Entladen von " + pluginName + ": " + ex.getMessage());
+                logger.log(Level.WARNING, "Failed to unload plugin for rename " + pluginName, ex);
+                return;
+            }
+
+            try {
+                Files.move(currentPath, targetPath,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                try {
+                    Files.move(currentPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException inner) {
+                    send(sender, ChatColor.RED + "Umbenennen fehlgeschlagen: " + inner.getMessage());
+                    logger.log(Level.WARNING, "Failed to rename plugin jar", inner);
+                    return;
+                }
+            } catch (IOException ex) {
+                send(sender, ChatColor.RED + "Umbenennen fehlgeschlagen: " + ex.getMessage());
+                logger.log(Level.WARNING, "Failed to rename plugin jar", ex);
+                return;
+            }
+
+            List<UpdateSource> matchingSources = updateSourceRegistry.getSources().stream()
+                    .filter(source -> matchesPluginSource(source, pluginName, currentPath))
+                    .toList();
+
+            for (UpdateSource source : matchingSources) {
+                if (updateSourceRegistry.updateSourceFilename(source.getName(), sanitized)) {
+                    configuration.set("filenames." + source.getName(), sanitized);
+                }
+            }
+            if (!matchingSources.isEmpty()) {
+                plugin.saveConfig();
+            }
+
+            pluginLifecycleManager.updateManagedPluginPath(currentPath, targetPath);
+
+            if (wasLoaded) {
+                try {
+                    pluginLifecycleManager.loadPlugin(targetPath);
+                    if (wasEnabled) {
+                        pluginLifecycleManager.enablePlugin(pluginName);
+                    }
+                } catch (PluginLifecycleException ex) {
+                    send(sender, ChatColor.YELLOW + "Plugin wurde umbenannt, konnte aber nicht neu geladen werden: " + ex.getMessage());
+                    logger.log(Level.WARNING, "Failed to reload plugin after rename", ex);
+                    return;
+                }
+            }
+
+            send(sender, ChatColor.GREEN + "Plugin-Datei in " + ChatColor.AQUA + sanitized + ChatColor.GREEN + " umbenannt.");
+        });
+    }
+
+    private String sanitizeFilename(String input) {
+        if (input == null) {
+            return null;
+        }
+        String trimmed = input.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String sanitized = trimmed.replaceAll("[^a-zA-Z0-9._-]", "-");
+        if (!sanitized.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            sanitized = sanitized + ".jar";
+        }
+        return sanitized;
+    }
+
     private void clearPendingSelection(CommandSender sender) {
         if (sender == null) {
             return;
         }
-        pendingSelections.remove(selectionKey(sender));
+        String key = selectionKey(sender);
+        pendingSelections.remove(key);
+        pendingArchiveSelections.remove(key);
     }
 
     private String selectionKey(CommandSender sender) {
@@ -755,6 +1150,14 @@ public class QuickInstallCoordinator {
         }
     }
 
+    private record ArchivePendingSelection(InstallationPlan plan,
+                                           List<ArchiveEntry> entries) {
+        private ArchivePendingSelection {
+            Objects.requireNonNull(plan, "plan");
+            entries = List.copyOf(entries);
+        }
+    }
+
     static final class OwnerSlug {
         private final String owner;
         private final String slug;
@@ -888,6 +1291,10 @@ public class QuickInstallCoordinator {
 
         public void setDownloadUrl(String downloadUrl) {
             this.downloadUrl = downloadUrl;
+        }
+
+        public String getDownloadUrl() {
+            return downloadUrl;
         }
 
         public String getLatestVersionInfo() {

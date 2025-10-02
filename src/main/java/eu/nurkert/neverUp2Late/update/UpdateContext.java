@@ -29,11 +29,16 @@ public class UpdateContext {
     private Path downloadedArtifact;
     private ArtifactDownloader.ChecksumValidator checksumValidator;
     private ArtifactDownloader.DownloadHook downloadHook;
+    private DownloadProcessor downloadProcessor;
+    private boolean retainUpstreamFilename;
+    private String remoteFilename;
+    private Path downloadDestination;
 
     public UpdateContext(UpdateSource source, Path destination, Logger logger) {
         this.source = Objects.requireNonNull(source, "source");
         this.destination = Objects.requireNonNull(destination, "destination");
         this.logger = Objects.requireNonNull(logger, "logger");
+        this.downloadDestination = destination;
     }
 
     public UpdateSource getSource() {
@@ -111,6 +116,38 @@ public class UpdateContext {
 
     public void setDownloadHook(ArtifactDownloader.DownloadHook downloadHook) {
         this.downloadHook = downloadHook;
+    }
+
+    public Optional<DownloadProcessor> getDownloadProcessor() {
+        return Optional.ofNullable(downloadProcessor);
+    }
+
+    public void setDownloadProcessor(DownloadProcessor downloadProcessor) {
+        this.downloadProcessor = downloadProcessor;
+    }
+
+    public boolean shouldRetainUpstreamFilename() {
+        return retainUpstreamFilename;
+    }
+
+    public void setRetainUpstreamFilename(boolean retainUpstreamFilename) {
+        this.retainUpstreamFilename = retainUpstreamFilename;
+    }
+
+    public Optional<String> getRemoteFilename() {
+        return Optional.ofNullable(remoteFilename);
+    }
+
+    public void setRemoteFilename(String remoteFilename) {
+        this.remoteFilename = remoteFilename;
+    }
+
+    public Path getDownloadDestination() {
+        return downloadDestination != null ? downloadDestination : destination;
+    }
+
+    public void setDownloadDestination(Path downloadDestination) {
+        this.downloadDestination = downloadDestination;
     }
 
     public void log(Level level, String message, Object... args) {

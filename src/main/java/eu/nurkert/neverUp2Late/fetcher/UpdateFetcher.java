@@ -38,5 +38,13 @@ public interface UpdateFetcher {
      * @return The version of the current
      */
     String getInstalledVersion();
-}
 
+    /**
+     * Allows fetchers to customise the update context after meta information has been loaded.
+     * Implementations can use this hook to set checksum validators, download processors, or
+     * additional metadata required by later pipeline steps.
+     */
+    default void configureContext(eu.nurkert.neverUp2Late.update.UpdateContext context) {
+        // default no-op
+    }
+}

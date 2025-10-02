@@ -30,14 +30,21 @@ public class DownloadUpdateStep implements UpdateStep {
             return;
         }
 
+        Path targetPath = context.getDownloadDestination();
         ArtifactDownloader.DownloadRequest.Builder builder = ArtifactDownloader.DownloadRequest.builder()
                 .url(downloadUrl)
-                .destination(context.getDestination());
+                .destination(targetPath);
 
         context.getChecksumValidator().ifPresent(builder::checksumValidator);
         context.getDownloadHook().ifPresent(builder::hook);
 
         Path result = artifactDownloader.download(builder.build());
+
+        if (context.getDownloadProcessor().isPresent()) {
+            result = context.getDownloadProcessor().get().process(context, result);
+        }
+
         context.setDownloadedArtifact(result);
+        context.setDownloadDestination(result);
     }
 }

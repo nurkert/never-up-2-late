@@ -24,6 +24,7 @@ public class PluginUpdateSettingsRepository {
     private static final String ROOT_NODE = "plugins";
     private static final String AUTO_UPDATE_NODE = "autoUpdate";
     private static final String BEHAVIOUR_NODE = "behaviour";
+    private static final String RETENTION_NODE = "retainUpstreamFilename";
 
     private final File dataFolder;
     private final Logger logger;
@@ -84,7 +85,8 @@ public class PluginUpdateSettingsRepository {
         String behaviourValue = section.getString(BEHAVIOUR_NODE);
         UpdateBehaviour behaviour = UpdateBehaviour.parse(behaviourValue)
                 .orElse(UpdateBehaviour.REQUIRE_RESTART);
-        return new PluginUpdateSettings(autoUpdate, behaviour);
+        boolean retain = section.getBoolean(RETENTION_NODE, false);
+        return new PluginUpdateSettings(autoUpdate, behaviour, retain);
     }
 
     public synchronized void saveSettings(String pluginName, PluginUpdateSettings settings) {
@@ -99,6 +101,7 @@ public class PluginUpdateSettingsRepository {
 
         section.set(AUTO_UPDATE_NODE, settings.autoUpdateEnabled());
         section.set(BEHAVIOUR_NODE, settings.behaviour().name());
+        section.set(RETENTION_NODE, settings.retainUpstreamFilename());
         saveInternal();
     }
 
@@ -113,6 +116,18 @@ public class PluginUpdateSettingsRepository {
             settings.put(key, getSettings(key));
         }
         return settings;
+    }
+
+    public synchronized void removeSettings(String pluginName) {
+        if (pluginName == null || pluginName.isBlank()) {
+            return;
+        }
+        ConfigurationSection root = configuration.getConfigurationSection(ROOT_NODE);
+        if (root == null) {
+            return;
+        }
+        root.set(pluginName, null);
+        saveInternal();
     }
 
     private String pathForPlugin(String pluginName) {
@@ -150,7 +165,9 @@ public class PluginUpdateSettingsRepository {
         }
     }
 
-    public record PluginUpdateSettings(boolean autoUpdateEnabled, UpdateBehaviour behaviour) {
+    public record PluginUpdateSettings(boolean autoUpdateEnabled,
+                                       UpdateBehaviour behaviour,
+                                       boolean retainUpstreamFilename) {
         public PluginUpdateSettings {
             if (behaviour == null) {
                 behaviour = UpdateBehaviour.REQUIRE_RESTART;
@@ -158,8 +175,7 @@ public class PluginUpdateSettingsRepository {
         }
 
         public static PluginUpdateSettings defaultSettings() {
-            return new PluginUpdateSettings(true, UpdateBehaviour.REQUIRE_RESTART);
+            return new PluginUpdateSettings(true, UpdateBehaviour.REQUIRE_RESTART, false);
         }
     }
 }
-

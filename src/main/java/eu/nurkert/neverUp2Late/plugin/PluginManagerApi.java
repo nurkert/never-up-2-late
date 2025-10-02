@@ -155,6 +155,20 @@ public class PluginManagerApi implements PluginLifecycleManager {
         return true;
     }
 
+    @Override
+    public Optional<ManagedPlugin> updateManagedPluginPath(Path oldPath, Path newPath) {
+        if (oldPath == null || newPath == null) {
+            return Optional.empty();
+        }
+        ManagedPlugin existing = managedPlugins.remove(normalize(oldPath));
+        if (existing == null) {
+            return Optional.empty();
+        }
+        ManagedPlugin replacement = new BukkitManagedPlugin(existing.getPlugin().orElse(null), newPath, pluginManager, logger);
+        managedPlugins.put(normalize(newPath), replacement);
+        return Optional.of(replacement);
+    }
+
     private ManagedPlugin ensureManaged(Path path) {
         if (path == null) {
             return null;

@@ -41,4 +41,6 @@ public interface PluginLifecycleManager {
     boolean unloadPlugin(String name) throws PluginLifecycleException;
 
     boolean loadPlugin(Path path) throws PluginLifecycleException;
+
+    java.util.Optional<ManagedPlugin> updateManagedPluginPath(Path oldPath, Path newPath);
 }

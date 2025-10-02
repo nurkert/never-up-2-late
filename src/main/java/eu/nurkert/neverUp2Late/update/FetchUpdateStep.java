@@ -3,6 +3,7 @@ package eu.nurkert.neverUp2Late.update;
 import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 
+import java.net.URI;
 import java.util.logging.Level;
 
 /**
@@ -27,6 +28,9 @@ public class FetchUpdateStep implements UpdateStep {
         context.setLatestBuild(fetcher.getLatestBuild());
         context.setLatestVersion(fetcher.getLatestVersion());
         context.setDownloadUrl(fetcher.getLatestDownloadUrl());
+        context.setRemoteFilename(extractFilename(context.getDownloadUrl()));
+
+        fetcher.configureContext(context);
 
         boolean updateRequired = isUpdateRequired(context, fetcher);
         if (!updateRequired) {
@@ -55,5 +59,27 @@ public class FetchUpdateStep implements UpdateStep {
             return versionComparator.compare(installedVersion, latestVersion) < 0;
         }
         return false;
+    }
+
+    private String extractFilename(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            URI uri = new URI(url);
+            String path = uri.getPath();
+            if (path == null || path.isBlank()) {
+                return null;
+            }
+            int lastSlash = path.lastIndexOf('/');
+            String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+            int queryIndex = candidate.indexOf('?');
+            if (queryIndex >= 0) {
+                candidate = candidate.substring(0, queryIndex);
+            }
+            return candidate.isBlank() ? null : candidate;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }

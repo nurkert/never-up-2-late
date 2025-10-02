@@ -212,15 +212,20 @@ public class JenkinsFetcher extends JsonUpdateFetcher {
             throw new IllegalArgumentException("job must not be blank");
         }
         String jobPath = segments.stream()
-                .map(segment -> "job/" + URLEncoder.encode(segment, StandardCharsets.UTF_8))
+                .map(segment -> "job/" + encodePathSegment(segment))
                 .collect(Collectors.joining("/"));
         return normalizedBase + ensureTrailingSlash(jobPath);
     }
 
     private static String encodePath(String path) {
         return Arrays.stream(path.split("/"))
-                .map(segment -> URLEncoder.encode(segment, StandardCharsets.UTF_8))
+                .map(JenkinsFetcher::encodePathSegment)
                 .collect(Collectors.joining("/"));
+    }
+
+    private static String encodePathSegment(String segment) {
+        String encoded = URLEncoder.encode(segment, StandardCharsets.UTF_8);
+        return encoded.replace("+", "%20");
     }
 
     private static String ensureTrailingSlash(String value) {

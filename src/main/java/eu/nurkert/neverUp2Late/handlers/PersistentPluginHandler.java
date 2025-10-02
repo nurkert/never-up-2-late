@@ -37,4 +37,8 @@ public class PersistentPluginHandler {
     public boolean hasPluginInfo(String pluginName) {
         return repository.hasPluginInfo(pluginName);
     }
+
+    public void removePluginInfo(String pluginName) {
+        repository.savePluginState(pluginName, null, null);
+    }
 }

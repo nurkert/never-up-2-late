@@ -2,12 +2,19 @@ package eu.nurkert.neverUp2Late.fetcher;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import eu.nurkert.neverUp2Late.net.HttpClient;
+import eu.nurkert.neverUp2Late.update.DownloadProcessor;
+import eu.nurkert.neverUp2Late.update.UpdateContext;
+import eu.nurkert.neverUp2Late.util.ArchiveUtils;
+import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -20,6 +27,7 @@ import java.util.stream.Collectors;
 import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
 
 import java.util.Locale;
+import java.util.logging.Level;
 
 /**
  * Fetcher that retrieves release information from the GitHub Releases API.
@@ -35,8 +43,12 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
     private final String owner;
     private final String repository;
     private final Pattern assetPattern;
+    private final Pattern archiveEntryPattern;
     private final boolean allowPrerelease;
     private final String installedPluginName;
+
+    private Asset selectedAsset;
+    private boolean selectedAssetIsArchive;
 
     public GithubReleaseFetcher(ConfigurationSection options) {
         this(options, HttpClient.builder()
@@ -52,8 +64,12 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
         this.repository = requireOption(options, "repository");
         String patternValue = trimToNull(options.getString("assetPattern"));
         this.assetPattern = patternValue != null ? Pattern.compile(patternValue) : null;
+        String archivePattern = trimToNull(options.getString("archiveEntryPattern"));
+        this.archiveEntryPattern = archivePattern != null ? Pattern.compile(archivePattern) : null;
         this.allowPrerelease = options.getBoolean("allowPrerelease", false);
         this.installedPluginName = trimToNull(options.getString("installedPlugin"));
+        this.selectedAsset = null;
+        this.selectedAssetIsArchive = false;
     }
 
     @Override
@@ -87,9 +103,38 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
         }
 
         Asset selected = matchingAssets.get(0);
+        this.selectedAsset = selected;
+        this.selectedAssetIsArchive = isArchiveAsset(selected);
 
         int build = Math.toIntExact(latest.id());
         setLatestBuildInfo(tagName, build, selected.browserDownloadUrl());
+    }
+
+    @Override
+    public void configureContext(UpdateContext context) {
+        if (selectedAsset == null) {
+            context.setDownloadProcessor(null);
+            return;
+        }
+        if (selectedAssetIsArchive) {
+            context.setDownloadProcessor(new GithubArchiveDownloadProcessor(
+                    archiveEntryPattern,
+                    Optional.ofNullable(assetDisplayName(selectedAsset)).orElse(selectedAsset.browserDownloadUrl())));
+        } else {
+            context.setDownloadProcessor(null);
+        }
+    }
+
+    public boolean isSelectedAssetArchive() {
+        return selectedAssetIsArchive;
+    }
+
+    public Optional<String> getSelectedAssetDownloadUrl() {
+        return selectedAsset != null ? Optional.ofNullable(selectedAsset.browserDownloadUrl()) : Optional.empty();
+    }
+
+    public Optional<Pattern> getArchiveEntryPattern() {
+        return Optional.ofNullable(archiveEntryPattern);
     }
 
     private List<Asset> findMatchingAssets(String tagName, List<Asset> assets)
@@ -278,6 +323,68 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
         private Asset {
             name = trimToNull(name);
             browserDownloadUrl = trimToNull(browserDownloadUrl);
+        }
+    }
+
+    private static final class GithubArchiveDownloadProcessor implements DownloadProcessor {
+
+        private final Pattern entryPattern;
+        private final String assetLabel;
+
+        private GithubArchiveDownloadProcessor(Pattern entryPattern, String assetLabel) {
+            this.entryPattern = entryPattern;
+            this.assetLabel = assetLabel;
+        }
+
+        @Override
+        public Path process(UpdateContext context, Path downloadedFile) throws IOException {
+            List<ArchiveEntry> entries = ArchiveUtils.listJarEntries(downloadedFile);
+            if (entries.isEmpty()) {
+                throw new IOException("Das Archiv enthält keine JAR-Dateien: " + downloadedFile);
+            }
+
+            ArchiveEntry selected = selectEntry(entries);
+
+            Path parent = downloadedFile.getParent();
+            Path tempJar = parent != null
+                    ? Files.createTempFile(parent, "nu2l-", ".jar")
+                    : Files.createTempFile("nu2l-", ".jar");
+            try {
+                ArchiveUtils.extractEntry(downloadedFile, selected.fullPath(), tempJar);
+                moveReplacing(tempJar, downloadedFile);
+                context.log(Level.FINE, "Extrahierte {0} aus {1}", selected.fileName(), assetLabel);
+            } finally {
+                Files.deleteIfExists(tempJar);
+            }
+
+            return downloadedFile;
+        }
+
+        private ArchiveEntry selectEntry(List<ArchiveEntry> entries) throws IOException {
+            if (entryPattern != null) {
+                return entries.stream()
+                        .filter(entry -> entryPattern.matcher(entry.fullPath()).matches()
+                                || entryPattern.matcher(entry.fileName()).matches())
+                        .findFirst()
+                        .orElseThrow(() -> new IOException("Keine zur Regex passende JAR im Archiv gefunden: "
+                                + entryPattern.pattern()));
+            }
+            if (entries.size() == 1) {
+                return entries.get(0);
+            }
+            String candidates = entries.stream()
+                    .map(ArchiveEntry::fullPath)
+                    .collect(Collectors.joining(", "));
+            throw new IOException("Mehrere JAR-Dateien im Archiv gefunden. Bitte konfiguriere 'archiveEntryPattern'. Kandidaten: "
+                    + candidates);
+        }
+
+        private void moveReplacing(Path source, Path target) throws IOException {
+            try {
+                Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException ex) {
+                Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         }
     }
 }

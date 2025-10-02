@@ -1,7 +1,6 @@
 package eu.nurkert.neverUp2Late.handlers;
 
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
-import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.DownloadUpdateStep;
@@ -23,7 +22,10 @@ import org.bukkit.scheduler.BukkitScheduler;
 import java.io.File;
 import java.io.IOException;
 import java.net.UnknownHostException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -89,9 +91,11 @@ public class UpdateHandler {
             }
             UpdateJob job = createDefaultJob();
             UpdateContext context = new UpdateContext(source, destination, logger);
+            configureRetention(context, destination);
 
             try {
                 job.run(context);
+                handleFilenameRetention(context);
             } catch (UnknownHostException e) {
                 networkIssueThisRun = true;
                 handleUnknownHost(source, e);
@@ -126,7 +130,7 @@ public class UpdateHandler {
         return new UpdateJob()
                 .addStep(new FetchUpdateStep(persistentPluginHandler, versionComparator))
                 .addStep(new DownloadUpdateStep(artifactDownloader))
-                .addStep(new InstallUpdateStep(persistentPluginHandler, installationHandler));
+                .addStep(new InstallUpdateStep(plugin, persistentPluginHandler, installationHandler));
     }
 
     private void handleUnknownHost(UpdateSource source, UnknownHostException e) {
@@ -149,11 +153,13 @@ public class UpdateHandler {
         Path destination = resolveDestination(source, pluginsFolder, serverFolder);
         UpdateJob job = createDefaultJob();
         UpdateContext context = new UpdateContext(source, destination, logger);
+        configureRetention(context, destination);
 
         notify(sender, ChatColor.YELLOW + "Prüfe " + displayName(source) + " auf neue Versionen …");
 
         try {
             job.run(context);
+            handleFilenameRetention(context);
             if (context.isCancelled()) {
                 String reason = context.getCancelReason().orElse("Installation abgebrochen.");
                 notify(sender, ChatColor.GOLD + reason);
@@ -203,8 +209,7 @@ public class UpdateHandler {
             return false;
         }
 
-        PluginUpdateSettings settings = updateSettingsRepository.getSettings(pluginName);
-        return !settings.autoUpdateEnabled();
+        return !updateSettingsRepository.getSettings(pluginName).autoUpdateEnabled();
     }
 
     private String resolvePluginName(UpdateSource source, Path destination) {
@@ -218,5 +223,68 @@ public class UpdateHandler {
         return pluginLifecycleManager.findByPath(destination)
                 .map(ManagedPlugin::getName)
                 .orElse(null);
+    }
+
+    private void configureRetention(UpdateContext context, Path destination) {
+        if (updateSettingsRepository == null) {
+            context.setRetainUpstreamFilename(false);
+            return;
+        }
+        String pluginName = resolvePluginName(context.getSource(), destination);
+        if (pluginName == null) {
+            pluginName = context.getSource().getInstalledPluginName();
+        }
+        if (pluginName == null) {
+            context.setRetainUpstreamFilename(false);
+            return;
+        }
+        context.setRetainUpstreamFilename(updateSettingsRepository.getSettings(pluginName).retainUpstreamFilename());
+    }
+
+    private void handleFilenameRetention(UpdateContext context) {
+        if (!context.shouldRetainUpstreamFilename()) {
+            return;
+        }
+        Path currentPath = context.getDownloadDestination();
+        if (currentPath == null) {
+            return;
+        }
+        Path parent = currentPath.getParent();
+        if (parent == null) {
+            return;
+        }
+        String remoteFilename = context.getRemoteFilename().orElse(null);
+        if (remoteFilename == null || remoteFilename.isBlank()) {
+            return;
+        }
+        Path newPath = parent.resolve(remoteFilename).toAbsolutePath().normalize();
+
+        if (Files.exists(currentPath) && !currentPath.equals(newPath)) {
+            try {
+                Files.deleteIfExists(newPath);
+                try {
+                    Files.move(currentPath, newPath,
+                            StandardCopyOption.REPLACE_EXISTING,
+                            StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException ignored) {
+                    Files.move(currentPath, newPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException ex) {
+                logger.log(Level.WARNING, "Failed to rename downloaded artifact to " + newPath, ex);
+                return;
+            }
+            context.setDownloadDestination(newPath);
+            context.setDownloadedArtifact(newPath);
+            if (pluginLifecycleManager != null) {
+                pluginLifecycleManager.updateManagedPluginPath(currentPath, newPath);
+            }
+            currentPath = newPath;
+        }
+
+        boolean updated = updateSourceRegistry.updateSourceFilename(context.getSource().getName(), currentPath.getFileName().toString());
+        if (updated) {
+            configuration.set("filenames." + context.getSource().getName(), currentPath.getFileName().toString());
+            plugin.saveConfig();
+        }
     }
 }

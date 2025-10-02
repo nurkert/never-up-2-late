@@ -9,7 +9,6 @@ import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,6 +16,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 /**
  * Registry that creates {@link UpdateFetcher} instances from configuration entries.
@@ -58,6 +59,40 @@ public class UpdateSourceRegistry {
 
     public boolean hasSource(String name) {
         return findSource(name).isPresent();
+    }
+
+    public boolean unregisterSource(String name) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+        boolean removed = sources.removeIf(source -> source.getName().equalsIgnoreCase(name.trim()));
+        if (removed) {
+            removeSourceFromConfiguration(name.trim());
+        }
+        return removed;
+    }
+
+    public boolean updateSourceFilename(String name, String newFilename) {
+        if (name == null || name.isBlank() || newFilename == null || newFilename.isBlank()) {
+            return false;
+        }
+        String trimmedName = name.trim();
+        String filename = newFilename.trim();
+        for (int i = 0; i < sources.size(); i++) {
+            UpdateSource source = sources.get(i);
+            if (source.getName().equalsIgnoreCase(trimmedName)) {
+                UpdateSource replacement = new UpdateSource(
+                        source.getName(),
+                        source.getFetcher(),
+                        source.getTargetDirectory(),
+                        filename,
+                        source.getInstalledPluginName());
+                sources.set(i, replacement);
+                updateSourceFilenameInConfiguration(trimmedName, filename);
+                return true;
+            }
+        }
+        return false;
     }
 
     public UpdateFetcher createFetcher(String type, Map<String, Object> options) throws Exception {
@@ -345,6 +380,51 @@ public class UpdateSourceRegistry {
             }
         }
         return builder.toString();
+    }
+
+    private void removeSourceFromConfiguration(String name) {
+        ConfigurationSection section = configuration.getConfigurationSection("updates.sources");
+        if (section != null && !section.getKeys(false).isEmpty()) {
+            section.set(name, null);
+            return;
+        }
+
+        List<Map<?, ?>> entries = new ArrayList<>(configuration.getMapList("updates.sources"));
+        boolean modified = entries.removeIf(map -> name.equalsIgnoreCase(asString(map.get("name"))));
+        if (modified) {
+            configuration.set("updates.sources", entries);
+        }
+    }
+
+    private void updateSourceFilenameInConfiguration(String name, String filename) {
+        ConfigurationSection section = configuration.getConfigurationSection("updates.sources");
+        if (section != null && !section.getKeys(false).isEmpty()) {
+            ConfigurationSection entry = section.getConfigurationSection(name);
+            if (entry != null) {
+                entry.set("filename", filename);
+            }
+            return;
+        }
+
+        List<Map<?, ?>> entries = new ArrayList<>(configuration.getMapList("updates.sources"));
+        boolean modified = false;
+        for (int i = 0; i < entries.size(); i++) {
+            Map<?, ?> rawEntry = entries.get(i);
+            if (name.equalsIgnoreCase(asString(rawEntry.get("name")))) {
+                Map<String, Object> mutable = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> entry : rawEntry.entrySet()) {
+                    if (entry.getKey() != null) {
+                        mutable.put(entry.getKey().toString(), entry.getValue());
+                    }
+                }
+                mutable.put("filename", filename);
+                entries.set(i, mutable);
+                modified = true;
+            }
+        }
+        if (modified) {
+            configuration.set("updates.sources", entries);
+        }
     }
 
     public enum TargetDirectory {

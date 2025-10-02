@@ -253,5 +253,10 @@ class InstallationHandlerTest {
         public boolean loadPlugin(Path path) {
             return false;
         }
+
+        @Override
+        public java.util.Optional<eu.nurkert.neverUp2Late.plugin.ManagedPlugin> updateManagedPluginPath(Path oldPath, Path newPath) {
+            return java.util.Optional.empty();
+        }
     }
 }
