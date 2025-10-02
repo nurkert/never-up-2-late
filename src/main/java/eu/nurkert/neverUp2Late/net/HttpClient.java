@@ -19,8 +19,7 @@ public class HttpClient {
     private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(10);
     private static final Map<String, String> DEFAULT_HEADERS = Map.of(
             "User-Agent", "never-up-2-late/1.0",
-            "Accept", "application/vnd.github+json",
-            "X-GitHub-Api-Version", "2022-11-28"
+            "Accept", "application/json"
     );
 
     private final java.net.http.HttpClient client;
@@ -52,6 +51,10 @@ public class HttpClient {
         this.client = Objects.requireNonNull(client, "client");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
         this.defaultHeaders = Map.copyOf(defaultHeaders);
+    }
+
+    protected Map<String, String> getDefaultHeaders() {
+        return defaultHeaders;
     }
 
     private static Map<String, String> mergeHeaders(Map<String, String> additionalHeaders) {
