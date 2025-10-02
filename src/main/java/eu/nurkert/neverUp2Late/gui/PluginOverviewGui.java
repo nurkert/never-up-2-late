@@ -537,6 +537,11 @@ public class PluginOverviewGui implements Listener {
             return;
         }
 
+        if (event.getInventory().getType() == InventoryType.ANVIL) {
+            handleRenameClick(player, event);
+            return;
+        }
+
         InventorySession session = openInventories.get(player.getUniqueId());
         if (session == null) {
             return;
@@ -552,11 +557,6 @@ public class PluginOverviewGui implements Listener {
         }
 
         event.setCancelled(true);
-
-        if (event.getInventory().getType() == InventoryType.ANVIL) {
-            handleRenameClick(player, event);
-            return;
-        }
 
         if (session.view() == View.OVERVIEW) {
             int installSlot = session.inventory().getSize() - 1;
@@ -615,7 +615,11 @@ public class PluginOverviewGui implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        openInventories.remove(event.getPlayer().getUniqueId());
+        UUID playerId = event.getPlayer().getUniqueId();
+        InventorySession session = openInventories.get(playerId);
+        if (session != null && event.getInventory().equals(session.inventory())) {
+            openInventories.remove(playerId);
+        }
     }
 
     @EventHandler
