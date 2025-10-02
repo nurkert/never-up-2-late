@@ -3,6 +3,7 @@ package eu.nurkert.neverUp2Late.gui;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
+import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.UpdateBehaviour;
@@ -13,6 +14,7 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggestion;
 import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggester;
+import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -21,11 +23,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.inventory.InventoryType;
-import org.bukkit.event.inventory.PrepareAnvilEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.inventory.AnvilInventory;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -67,14 +66,15 @@ public class PluginOverviewGui implements Listener {
     private final Map<UUID, InventorySession> openInventories = new ConcurrentHashMap<>();
     private final Map<UUID, LinkRequest> pendingLinkRequests = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedPlugin> pendingRemovalRequests = new ConcurrentHashMap<>();
-    private final Map<UUID, RenameSession> pendingRenameSessions = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedPlugin> pendingSuggestionRequests = new ConcurrentHashMap<>();
     private final PluginUpdateSettingsRepository updateSettingsRepository;
     private final PluginLinkSuggester linkSuggester;
+    private final AnvilTextPrompt anvilTextPrompt;
 
-    public PluginOverviewGui(PluginContext context, QuickInstallCoordinator coordinator) {
+    public PluginOverviewGui(PluginContext context, QuickInstallCoordinator coordinator, AnvilTextPrompt anvilTextPrompt) {
         this.context = Objects.requireNonNull(context, "context");
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
+        this.anvilTextPrompt = Objects.requireNonNull(anvilTextPrompt, "anvilTextPrompt");
         this.updateSettingsRepository = context.getPluginUpdateSettingsRepository();
         this.linkSuggester = new PluginLinkSuggester(context.getPlugin().getLogger());
     }
@@ -581,11 +581,6 @@ public class PluginOverviewGui implements Listener {
             return;
         }
 
-        if (event.getInventory().getType() == InventoryType.ANVIL) {
-            handleRenameClick(player, event);
-            return;
-        }
-
         InventorySession session = openInventories.get(player.getUniqueId());
         if (session == null) {
             return;
@@ -696,7 +691,6 @@ public class PluginOverviewGui implements Listener {
         openInventories.remove(playerId);
         pendingLinkRequests.remove(playerId);
         pendingRemovalRequests.remove(playerId);
-        pendingRenameSessions.remove(playerId);
         pendingSuggestionRequests.remove(playerId);
     }
 
@@ -1041,68 +1035,41 @@ public class PluginOverviewGui implements Listener {
             player.sendMessage(ChatColor.RED + "Für dieses Plugin konnte kein Dateipfad ermittelt werden.");
             return;
         }
-        pendingRenameSessions.put(player.getUniqueId(), new RenameSession(plugin, path));
-        AnvilInventory inventory = (AnvilInventory) Bukkit.createInventory(player, InventoryType.ANVIL,
-                ChatColor.DARK_PURPLE + "NU2L Umbenennen");
+
+        String currentName = stripJarExtension(path.getFileName().toString());
         ItemStack paper = new ItemStack(Material.PAPER);
         ItemMeta meta = paper.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(stripJarExtension(path.getFileName().toString()));
+            meta.setDisplayName(currentName);
             paper.setItemMeta(meta);
         }
-        inventory.setItem(0, paper);
-        player.openInventory(inventory);
+
+        String pluginName = plugin.getName();
+
+        anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
+                .title(ChatColor.DARK_PURPLE + "NU2L Umbenennen")
+                .initialText(currentName)
+                .inputItem(paper)
+                .previewFactory(this::createRenamePreview)
+                .validation(value -> {
+                    if (value == null || value.trim().isEmpty()) {
+                        return Optional.of(ChatColor.RED + "Bitte gib einen gültigen Namen ein.");
+                    }
+                    return Optional.empty();
+                })
+                .onConfirm((p, value) -> {
+                    coordinator.renameManagedPlugin(p, plugin, value);
+                    PluginLifecycleManager lifecycleManager = context.getPluginLifecycleManager();
+                    if (lifecycleManager != null && pluginName != null) {
+                        context.getScheduler().runTaskLater(context.getPlugin(), () ->
+                                lifecycleManager.findByName(pluginName)
+                                        .ifPresent(updated -> openPluginDetails(p, updated)), 2L);
+                    }
+                })
+                .onCancel(p -> p.sendMessage(ChatColor.YELLOW + "Umbenennen abgebrochen."))
+                .build());
+
         player.sendMessage(ChatColor.GRAY + "Gib einen neuen Dateinamen ein (\".jar\" wird automatisch ergänzt).");
-    }
-
-    @EventHandler
-    public void onPrepareAnvil(PrepareAnvilEvent event) {
-        if (!(event.getView().getPlayer() instanceof Player player)) {
-            return;
-        }
-        RenameSession session = pendingRenameSessions.get(player.getUniqueId());
-        if (session == null) {
-            return;
-        }
-        String renameText = event.getInventory().getRenameText();
-        if (renameText == null || renameText.trim().isEmpty()) {
-            event.setResult(null);
-            return;
-        }
-        ItemStack result = new ItemStack(Material.PAPER);
-        ItemMeta meta = result.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(ChatColor.GREEN + renameText.trim());
-            result.setItemMeta(meta);
-        }
-        event.setResult(result);
-    }
-
-    private void handleRenameClick(Player player, InventoryClickEvent event) {
-        RenameSession session = pendingRenameSessions.get(player.getUniqueId());
-        if (session == null) {
-            return;
-        }
-        if (event.getSlotType() == InventoryType.SlotType.RESULT) {
-            event.setCancelled(true);
-            AnvilInventory inventory = (AnvilInventory) event.getInventory();
-            String renameText = inventory.getRenameText();
-            if (renameText == null || renameText.trim().isEmpty()) {
-                player.sendMessage(ChatColor.RED + "Bitte gib einen gültigen Namen ein.");
-                return;
-            }
-            pendingRenameSessions.remove(player.getUniqueId());
-            player.closeInventory();
-            coordinator.renameManagedPlugin(player, session.plugin(), renameText.trim());
-            PluginLifecycleManager lifecycleManager = context.getPluginLifecycleManager();
-            if (lifecycleManager != null) {
-                context.getScheduler().runTaskLater(context.getPlugin(), () ->
-                        lifecycleManager.findByName(session.plugin().getName())
-                                .ifPresent(updated -> openPluginDetails(player, updated)), 2L);
-            }
-        } else if (event.getInventory().equals(event.getClickedInventory())) {
-            event.setCancelled(true);
-        }
     }
 
     private String stripJarExtension(String value) {
@@ -1157,9 +1124,6 @@ public class PluginOverviewGui implements Listener {
     private record LinkRequest(String pluginName, boolean standalone) {
     }
 
-    private record RenameSession(ManagedPlugin plugin, Path originalPath) {
-    }
-
     private boolean checkPermission(Player player, String permission) {
         if (permission == null || permission.isBlank()) {
             return true;
@@ -1169,5 +1133,19 @@ public class PluginOverviewGui implements Listener {
         }
         player.sendMessage(ChatColor.RED + "Dir fehlt die Berechtigung (" + permission + ").");
         return false;
+    }
+
+    private ItemStack createRenamePreview(String value) {
+        String sanitized = FileNameSanitizer.sanitizeJarFilename(value);
+        if (sanitized == null) {
+            return null;
+        }
+        ItemStack result = new ItemStack(Material.PAPER);
+        ItemMeta meta = result.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GREEN + sanitized);
+            result.setItemMeta(meta);
+        }
+        return result;
     }
 }

@@ -4,6 +4,7 @@ import eu.nurkert.neverUp2Late.command.NeverUp2LateCommand;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.gui.PluginOverviewGui;
+import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
@@ -84,7 +85,8 @@ public final class NeverUp2Late extends JavaPlugin {
         getServer().getPluginManager().registerEvents(installationHandler, this);
 
         QuickInstallCoordinator coordinator = new QuickInstallCoordinator(context);
-        PluginOverviewGui overviewGui = new PluginOverviewGui(context, coordinator);
+        AnvilTextPrompt anvilTextPrompt = new AnvilTextPrompt(this);
+        PluginOverviewGui overviewGui = new PluginOverviewGui(context, coordinator, anvilTextPrompt);
         NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator, overviewGui);
         PluginCommand pluginCommand = getCommand("nu2l");
         if (pluginCommand != null) {
@@ -94,6 +96,7 @@ public final class NeverUp2Late extends JavaPlugin {
             getLogger().warning("Failed to register /nu2l command; entry missing in plugin.yml");
         }
 
+        getServer().getPluginManager().registerEvents(anvilTextPrompt, this);
         getServer().getPluginManager().registerEvents(overviewGui, this);
     }
 
