@@ -28,7 +28,9 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.Plugin;
 
+import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -59,6 +61,7 @@ public class PluginOverviewGui implements Listener {
     private static final int DETAIL_UPDATE_SLOT = 20;
     private static final int DETAIL_RENAME_SLOT = 21;
     private static final int DETAIL_REMOVE_SLOT = 22;
+    private static final int DETAIL_QUICK_RENAME_SLOT = 23;
     private static final int DETAIL_BACK_SLOT = 26;
 
     private final PluginContext context;
@@ -144,6 +147,8 @@ public class PluginOverviewGui implements Listener {
         inventory.setItem(DETAIL_DISABLE_SLOT, createDisableUpdatesItem(plugin));
         inventory.setItem(DETAIL_UPDATE_SLOT, createUpdateSettingsItem(plugin));
         inventory.setItem(DETAIL_RENAME_SLOT, createRenameItem(plugin));
+        createQuickRenameItem(plugin).ifPresent(item ->
+                inventory.setItem(DETAIL_QUICK_RENAME_SLOT, item));
         inventory.setItem(DETAIL_REMOVE_SLOT, createRemoveItem(plugin));
         inventory.setItem(DETAIL_BACK_SLOT, createBackItem());
 
@@ -376,6 +381,47 @@ public class PluginOverviewGui implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private Optional<ItemStack> createQuickRenameItem(ManagedPlugin plugin) {
+        Path path = plugin.getPath();
+        if (path == null) {
+            return Optional.empty();
+        }
+
+        Optional<Plugin> loadedPlugin = plugin.getPlugin();
+        if (loadedPlugin.isEmpty()) {
+            return Optional.empty();
+        }
+
+        File dataFolder = loadedPlugin.get().getDataFolder();
+        if (dataFolder == null) {
+            return Optional.empty();
+        }
+
+        String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
+        if (sanitized == null) {
+            return Optional.empty();
+        }
+
+        String current = path.getFileName().toString();
+        if (sanitized.equals(current)) {
+            return Optional.empty();
+        }
+
+        ItemStack item = new ItemStack(Material.CHEST);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GREEN + "Mit Datenordner angleichen");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Benennt die Datei automatisch um,",
+                    ChatColor.GRAY + "damit sie wie der Datenordner heißt.",
+                    " ",
+                    ChatColor.DARK_GRAY + "Ziel: " + ChatColor.AQUA + sanitized
+            ));
+            item.setItemMeta(meta);
+        }
+        return Optional.of(item);
     }
 
     private ItemStack createBackItem() {
@@ -669,6 +715,13 @@ public class PluginOverviewGui implements Listener {
         }
         if (slot == DETAIL_RENAME_SLOT) {
             beginRename(player, plugin);
+            return;
+        }
+        if (slot == DETAIL_QUICK_RENAME_SLOT) {
+            ItemStack clickedItem = event.getCurrentItem();
+            if (clickedItem != null && clickedItem.getType() == Material.CHEST) {
+                quickRenameToDataDirectory(player, plugin);
+            }
             return;
         }
         if (slot == DETAIL_REMOVE_SLOT) {
@@ -1044,8 +1097,6 @@ public class PluginOverviewGui implements Listener {
             paper.setItemMeta(meta);
         }
 
-        String pluginName = plugin.getName();
-
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
                 .title(ChatColor.DARK_PURPLE + "NU2L Umbenennen")
                 .initialText(currentName)
@@ -1058,18 +1109,61 @@ public class PluginOverviewGui implements Listener {
                     return Optional.empty();
                 })
                 .onConfirm((p, value) -> {
-                    coordinator.renameManagedPlugin(p, plugin, value);
-                    PluginLifecycleManager lifecycleManager = context.getPluginLifecycleManager();
-                    if (lifecycleManager != null && pluginName != null) {
-                        context.getScheduler().runTaskLater(context.getPlugin(), () ->
-                                lifecycleManager.findByName(pluginName)
-                                        .ifPresent(updated -> openPluginDetails(p, updated)), 2L);
-                    }
+                    requestRename(p, plugin, value);
                 })
                 .onCancel(p -> p.sendMessage(ChatColor.YELLOW + "Umbenennen abgebrochen."))
                 .build());
 
         player.sendMessage(ChatColor.GRAY + "Gib einen neuen Dateinamen ein (\".jar\" wird automatisch ergänzt).");
+    }
+
+    private void requestRename(Player player, ManagedPlugin plugin, String requestedName) {
+        String pluginName = plugin.getName();
+        coordinator.renameManagedPlugin(player, plugin, requestedName);
+        PluginLifecycleManager lifecycleManager = context.getPluginLifecycleManager();
+        if (lifecycleManager != null && pluginName != null) {
+            context.getScheduler().runTaskLater(context.getPlugin(), () ->
+                    lifecycleManager.findByName(pluginName)
+                            .ifPresent(updated -> openPluginDetails(player, updated)), 2L);
+        }
+    }
+
+    private void quickRenameToDataDirectory(Player player, ManagedPlugin plugin) {
+        if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
+            return;
+        }
+
+        Path path = plugin.getPath();
+        if (path == null) {
+            player.sendMessage(ChatColor.RED + "Für dieses Plugin konnte kein Dateipfad ermittelt werden.");
+            return;
+        }
+
+        Optional<Plugin> loadedPlugin = plugin.getPlugin();
+        if (loadedPlugin.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "Das Plugin muss geladen sein, um den Datenordnernamen zu ermitteln.");
+            return;
+        }
+
+        File dataFolder = loadedPlugin.get().getDataFolder();
+        if (dataFolder == null) {
+            player.sendMessage(ChatColor.RED + "Es konnte kein Datenordner für dieses Plugin gefunden werden.");
+            return;
+        }
+
+        String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
+        if (sanitized == null) {
+            player.sendMessage(ChatColor.RED + "Der Datenordnername ist ungültig.");
+            return;
+        }
+
+        String current = path.getFileName().toString();
+        if (sanitized.equals(current)) {
+            player.sendMessage(ChatColor.GRAY + "Die Datei heißt bereits wie der Datenordner.");
+            return;
+        }
+
+        requestRename(player, plugin, sanitized);
     }
 
     private String stripJarExtension(String value) {
