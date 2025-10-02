@@ -84,11 +84,11 @@ public class PluginOverviewGui implements Listener {
 
     public void open(Player player) {
         if (!player.hasPermission(Permissions.GUI_OPEN)) {
-            player.sendMessage(ChatColor.RED + "Dir fehlt die Berechtigung, die NU2L-GUI zu öffnen.");
+            player.sendMessage(ChatColor.RED + "You do not have permission to open the NU2L GUI.");
             return;
         }
         if (context.getPluginLifecycleManager() == null) {
-            player.sendMessage(ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert.");
+            player.sendMessage(ChatColor.RED + "Plugin management is disabled.");
             return;
         }
         openOverview(player);
@@ -126,8 +126,8 @@ public class PluginOverviewGui implements Listener {
         player.openInventory(inventory);
 
         if (truncated) {
-            player.sendMessage(ChatColor.YELLOW + "Es werden nur die ersten " + availableSlots
-                    + " Plugins angezeigt (" + plugins.size() + " insgesamt).");
+            player.sendMessage(ChatColor.YELLOW + "Only the first " + availableSlots
+                    + " plugins are shown (" + plugins.size() + " total).");
         }
     }
 
@@ -169,28 +169,28 @@ public class PluginOverviewGui implements Listener {
                 if (version != null && !version.isBlank()) {
                     lore.add(ChatColor.GRAY + "Version: " + ChatColor.AQUA + version);
                 }
-                lore.add(ChatColor.GRAY + "Aktiviert: "
-                        + (loaded.isEnabled() ? ChatColor.GREEN + "Ja" : ChatColor.RED + "Nein"));
-            }, () -> lore.add(ChatColor.RED + "Nicht geladen"));
+                lore.add(ChatColor.GRAY + "Enabled: "
+                        + (loaded.isEnabled() ? ChatColor.GREEN + "Yes" : ChatColor.RED + "No"));
+            }, () -> lore.add(ChatColor.RED + "Not loaded"));
 
             Path path = plugin.getPath();
             if (path != null) {
-                lore.add(ChatColor.DARK_GRAY + "Datei: " + ChatColor.WHITE + path.getFileName());
+                lore.add(ChatColor.DARK_GRAY + "File: " + ChatColor.WHITE + path.getFileName());
                 findMatchingSource(plugin).ifPresentOrElse(source -> {
-                    lore.add(ChatColor.GRAY + "Update-Quelle: " + ChatColor.AQUA + source.getName());
-                    lore.add(ChatColor.YELLOW + "Klicke, um den Link zu aktualisieren.");
-            }, () -> lore.add(ChatColor.RED + "Keine Update-Quelle verknüpft – klicken, um Link zu setzen."));
+                    lore.add(ChatColor.GRAY + "Update source: " + ChatColor.AQUA + source.getName());
+                    lore.add(ChatColor.YELLOW + "Click to update the link.");
+            }, () -> lore.add(ChatColor.RED + "No update source linked – click to set one."));
         } else {
-            lore.add(ChatColor.RED + "Kein JAR-Pfad gefunden – Link nicht möglich.");
+            lore.add(ChatColor.RED + "No JAR path found – cannot link.");
         }
 
         PluginUpdateSettings settings = readSettings(plugin);
         if (!settings.autoUpdateEnabled()) {
-            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.RED + "Automatisch deaktiviert");
+            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.RED + "Automatic updates disabled");
         } else if (settings.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
-            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GREEN + "Automatisch neu laden");
+            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GREEN + "Automatically reload");
         } else {
-            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GOLD + "Serverneustart erforderlich");
+            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GOLD + "Server restart required");
         }
 
         meta.setLore(lore);
@@ -201,12 +201,12 @@ public class PluginOverviewGui implements Listener {
 
     private String statusLabel(ManagedPlugin plugin) {
         if (plugin.isEnabled()) {
-            return ChatColor.GREEN + "Aktiv";
+            return ChatColor.GREEN + "Active";
         }
         if (plugin.isLoaded()) {
-            return ChatColor.YELLOW + "Geladen";
+            return ChatColor.YELLOW + "Loaded";
         }
-        return ChatColor.RED + "Nicht geladen";
+        return ChatColor.RED + "Not loaded";
     }
 
     private ItemStack createFiller() {
@@ -235,20 +235,20 @@ public class PluginOverviewGui implements Listener {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             if (!plugin.isLoaded()) {
-                meta.setDisplayName(ChatColor.DARK_GRAY + "Aktivieren (nicht möglich)");
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Enable (not possible)");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Das Plugin ist derzeit nicht geladen.",
-                        ChatColor.GRAY + "Lade es, um es zu aktivieren."
+                        ChatColor.GRAY + "The plugin is not currently loaded.",
+                        ChatColor.GRAY + "Load it to enable it."
                 ));
             } else if (plugin.isEnabled()) {
-                meta.setDisplayName(ChatColor.RED + "Plugin deaktivieren");
+                meta.setDisplayName(ChatColor.RED + "Disable plugin");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Stoppt das Plugin, ohne es zu entladen."
+                        ChatColor.GRAY + "Stops the plugin without unloading it."
                 ));
             } else {
-                meta.setDisplayName(ChatColor.GREEN + "Plugin aktivieren");
+                meta.setDisplayName(ChatColor.GREEN + "Enable plugin");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Startet das Plugin nach dem Laden."
+                        ChatColor.GRAY + "Starts the plugin after it has been loaded."
                 ));
             }
             item.setItemMeta(meta);
@@ -262,15 +262,15 @@ public class PluginOverviewGui implements Listener {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             if (loaded) {
-                meta.setDisplayName(ChatColor.GOLD + "Plugin entladen");
+                meta.setDisplayName(ChatColor.GOLD + "Unload plugin");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Entlädt das Plugin vollständig.",
-                        ChatColor.GRAY + "Befreit Ressourcen und entfernt Listener."
+                        ChatColor.GRAY + "Fully unloads the plugin.",
+                        ChatColor.GRAY + "Frees resources and unregisters listeners."
                 ));
             } else {
-                meta.setDisplayName(ChatColor.AQUA + "Plugin laden");
+                meta.setDisplayName(ChatColor.AQUA + "Load plugin");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Lädt das Plugin aus der JAR-Datei und aktiviert es."
+                        ChatColor.GRAY + "Loads the plugin from the JAR file and enables it."
                 ));
             }
             item.setItemMeta(meta);
@@ -282,10 +282,10 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Update-Link festlegen");
+            meta.setDisplayName(ChatColor.AQUA + "Set update link");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Klicke, um eine neue Download-URL einzugeben.",
-                    ChatColor.GRAY + "Eigene Links ermöglichen Installation und Updates."
+                    ChatColor.GRAY + "Click to enter a new download URL.",
+                    ChatColor.GRAY + "Custom links allow installation and updates."
             ));
             item.setItemMeta(meta);
         }
@@ -301,25 +301,25 @@ public class PluginOverviewGui implements Listener {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             if (source.isPresent()) {
-                meta.setDisplayName(ChatColor.RED + "Automatische Updates deaktivieren");
+                meta.setDisplayName(ChatColor.RED + "Disable automatic updates");
                 List<String> lore = new ArrayList<>();
-                lore.add(ChatColor.GRAY + "Entfernt die Update-Quelle aus NU2L.");
-                lore.add(ChatColor.GRAY + "Das Plugin bleibt installiert.");
+                lore.add(ChatColor.GRAY + "Removes the update source from NU2L.");
+                lore.add(ChatColor.GRAY + "The plugin remains installed.");
                 String sourceName = source.get().getName();
                 if (sourceName != null && !sourceName.isBlank()) {
-                    lore.add(ChatColor.DARK_GRAY + "Quelle: " + ChatColor.AQUA + sourceName);
+                    lore.add(ChatColor.DARK_GRAY + "Source: " + ChatColor.AQUA + sourceName);
                 }
-                lore.add(ChatColor.YELLOW + "Klicken, um Updates zu deaktivieren.");
+                lore.add(ChatColor.YELLOW + "Click to disable updates.");
                 meta.setLore(lore);
             } else {
-                meta.setDisplayName(ChatColor.GREEN + "Keine Update-Verknüpfung aktiv");
+                meta.setDisplayName(ChatColor.GREEN + "No update link active");
                 List<String> lore = new ArrayList<>();
                 if (!settings.autoUpdateEnabled()) {
-                    lore.add(ChatColor.GRAY + "Automatische Updates sind deaktiviert.");
+                    lore.add(ChatColor.GRAY + "Automatic updates are disabled.");
                 } else {
-                    lore.add(ChatColor.GRAY + "Dieses Plugin wird aktuell nicht automatisch aktualisiert.");
+                    lore.add(ChatColor.GRAY + "This plugin is not currently updating automatically.");
                 }
-                lore.add(ChatColor.GRAY + "Nutze \"Update-Link festlegen\", um Updates zu aktivieren.");
+                lore.add(ChatColor.GRAY + "Use \"Set update link\" to enable updates.");
                 meta.setLore(lore);
             }
             item.setItemMeta(meta);
@@ -332,23 +332,23 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.COMPARATOR);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "Update-Verhalten anpassen");
+            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "Adjust update behavior");
             String current;
             if (!settings.autoUpdateEnabled()) {
-                current = ChatColor.RED + "Automatische Updates deaktiviert";
+                current = ChatColor.RED + "Automatic updates disabled";
             } else if (settings.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
-                current = ChatColor.GREEN + "Automatisch neu laden";
+                current = ChatColor.GREEN + "Automatically reload";
             } else {
-                current = ChatColor.GOLD + "Serverneustart nach Updates";
+                current = ChatColor.GOLD + "Restart server after updates";
             }
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Aktueller Modus:",
+                    ChatColor.GRAY + "Current mode:",
                     ChatColor.GRAY + " → " + current,
-                    ChatColor.GRAY + "Dateiname: "
+                    ChatColor.GRAY + "File name: "
                             + (settings.retainUpstreamFilename()
                             ? ChatColor.GREEN + "Upstream"
-                            : ChatColor.YELLOW + "Konfiguriert"),
-                    ChatColor.YELLOW + "Links/Rechts Klick für Optionen"
+                            : ChatColor.YELLOW + "Configured"),
+                    ChatColor.YELLOW + "Left/Right click for options"
             ));
             item.setItemMeta(meta);
         }
@@ -359,10 +359,10 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.TNT);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.RED + "Plugin entfernen");
+            meta.setDisplayName(ChatColor.RED + "Remove plugin");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Entlädt das Plugin, löscht die Datei",
-                    ChatColor.GRAY + "und entfernt die Update-Quelle."
+                    ChatColor.GRAY + "Unloads the plugin, deletes the file",
+                    ChatColor.GRAY + "and removes the update source."
             ));
             item.setItemMeta(meta);
         }
@@ -373,10 +373,10 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.NAME_TAG);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Datei umbenennen");
+            meta.setDisplayName(ChatColor.AQUA + "Rename file");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Ändert den Namen der JAR-Datei",
-                    ChatColor.GRAY + "und aktualisiert die Update-Quelle."
+                    ChatColor.GRAY + "Changes the JAR file name",
+                    ChatColor.GRAY + "and updates the linked source."
             ));
             item.setItemMeta(meta);
         }
@@ -412,12 +412,12 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.CHEST);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GREEN + "Mit Datenordner angleichen");
+            meta.setDisplayName(ChatColor.GREEN + "Match data folder name");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Benennt die Datei automatisch um,",
-                    ChatColor.GRAY + "damit sie wie der Datenordner heißt.",
+                    ChatColor.GRAY + "Automatically renames the file,",
+                    ChatColor.GRAY + "so it matches the data folder name.",
                     " ",
-                    ChatColor.DARK_GRAY + "Ziel: " + ChatColor.AQUA + sanitized
+                    ChatColor.DARK_GRAY + "Target: " + ChatColor.AQUA + sanitized
             ));
             item.setItemMeta(meta);
         }
@@ -428,8 +428,8 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.ARROW);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Zurück zur Übersicht");
-            meta.setLore(List.of(ChatColor.GRAY + "Schließt diese Ansicht und zeigt alle Plugins."));
+            meta.setDisplayName(ChatColor.YELLOW + "Back to overview");
+            meta.setLore(List.of(ChatColor.GRAY + "Closes this view and shows all plugins."));
             item.setItemMeta(meta);
         }
         return item;
@@ -439,10 +439,10 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.NETHER_STAR);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Neues Plugin installieren …");
+            meta.setDisplayName(ChatColor.AQUA + "Install new plugin…");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Klicke, um eine Download-URL einzugeben.",
-                    ChatColor.GRAY + "Die Installation läuft direkt über NU2L."
+                    ChatColor.GRAY + "Click to enter a download URL.",
+                    ChatColor.GRAY + "Installation runs directly through NU2L."
             ));
             item.setItemMeta(meta);
         }
@@ -455,38 +455,38 @@ public class PluginOverviewGui implements Listener {
         }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
         if (manager == null) {
-            player.sendMessage(ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert.");
+            player.sendMessage(ChatColor.RED + "Plugin management is disabled.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null) {
-            player.sendMessage(ChatColor.RED + "Pluginname konnte nicht ermittelt werden.");
+            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
             return;
         }
 
         try {
             if (!plugin.isLoaded()) {
-                player.sendMessage(ChatColor.RED + "Bitte lade das Plugin, bevor du es aktivierst.");
+                player.sendMessage(ChatColor.RED + "Please load the plugin before enabling it.");
             } else if (plugin.isEnabled()) {
                 if (manager.disablePlugin(pluginName)) {
                     player.sendMessage(ChatColor.YELLOW + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.YELLOW + " wurde deaktiviert.");
+                            + ChatColor.YELLOW + " has been disabled.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht deaktiviert werden.");
+                    player.sendMessage(ChatColor.RED + "Could not disable plugin.");
                 }
             } else {
                 if (manager.enablePlugin(pluginName)) {
                     player.sendMessage(ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.GREEN + " wurde aktiviert.");
+                            + ChatColor.GREEN + " has been enabled.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht aktiviert werden.");
+                    player.sendMessage(ChatColor.RED + "Could not enable plugin.");
                 }
             }
         } catch (PluginLifecycleException ex) {
             context.getPlugin().getLogger().log(Level.WARNING,
                     "Failed to toggle plugin " + pluginName, ex);
-            player.sendMessage(ChatColor.RED + "Aktion fehlgeschlagen: " + ex.getMessage());
+            player.sendMessage(ChatColor.RED + "Action failed: " + ex.getMessage());
         }
 
         openPluginDetails(player, plugin);
@@ -498,13 +498,13 @@ public class PluginOverviewGui implements Listener {
         }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
         if (manager == null) {
-            player.sendMessage(ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert.");
+            player.sendMessage(ChatColor.RED + "Plugin management is disabled.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null) {
-            player.sendMessage(ChatColor.RED + "Pluginname konnte nicht ermittelt werden.");
+            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
             return;
         }
 
@@ -512,27 +512,27 @@ public class PluginOverviewGui implements Listener {
             if (plugin.isLoaded()) {
                 if (manager.unloadPlugin(pluginName)) {
                     player.sendMessage(ChatColor.YELLOW + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.YELLOW + " wurde entladen.");
+                            + ChatColor.YELLOW + " has been unloaded.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht entladen werden.");
+                    player.sendMessage(ChatColor.RED + "Could not unload plugin.");
                 }
             } else {
                 Path path = plugin.getPath();
                 if (path == null) {
-                    player.sendMessage(ChatColor.RED + "Es ist kein JAR-Pfad für dieses Plugin bekannt.");
+                    player.sendMessage(ChatColor.RED + "No JAR path is known for this plugin.");
                     return;
                 }
                 if (manager.loadPlugin(path)) {
                     player.sendMessage(ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.GREEN + " wurde geladen und aktiviert.");
+                            + ChatColor.GREEN + " has been loaded and enabled.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht geladen werden.");
+                    player.sendMessage(ChatColor.RED + "Could not load plugin.");
                 }
             }
         } catch (PluginLifecycleException ex) {
             context.getPlugin().getLogger().log(Level.WARNING,
                     "Failed to toggle plugin load state for " + pluginName, ex);
-            player.sendMessage(ChatColor.RED + "Aktion fehlgeschlagen: " + ex.getMessage());
+            player.sendMessage(ChatColor.RED + "Action failed: " + ex.getMessage());
         }
 
         openPluginDetails(player, plugin);
@@ -547,13 +547,13 @@ public class PluginOverviewGui implements Listener {
             return;
         }
         if (updateSettingsRepository == null) {
-            player.sendMessage(ChatColor.RED + "Update-Einstellungen können derzeit nicht gespeichert werden.");
+            player.sendMessage(ChatColor.RED + "Update settings cannot be saved right now.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null || pluginName.isBlank()) {
-            player.sendMessage(ChatColor.RED + "Pluginname konnte nicht ermittelt werden.");
+            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
             return;
         }
 
@@ -565,15 +565,15 @@ public class PluginOverviewGui implements Listener {
         if (!current.autoUpdateEnabled()) {
             next = new PluginUpdateSettings(true, UpdateBehaviour.AUTO_RELOAD, current.retainUpstreamFilename());
             color = ChatColor.GREEN;
-            message = "Automatische Updates aktiviert. Das Plugin wird nach Updates neu geladen.";
+            message = "Automatic updates enabled. The plugin will reload after updates.";
         } else if (current.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
             next = new PluginUpdateSettings(true, UpdateBehaviour.REQUIRE_RESTART, current.retainUpstreamFilename());
             color = ChatColor.GOLD;
-            message = "Automatische Updates erfordern nun einen Serverneustart.";
+            message = "Automatic updates now require a server restart.";
         } else {
             next = new PluginUpdateSettings(false, UpdateBehaviour.REQUIRE_RESTART, current.retainUpstreamFilename());
             color = ChatColor.RED;
-            message = "Automatische Updates für dieses Plugin wurden deaktiviert.";
+            message = "Automatic updates for this plugin have been disabled.";
         }
 
         updateSettingsRepository.saveSettings(pluginName, next);
@@ -587,13 +587,13 @@ public class PluginOverviewGui implements Listener {
         }
 
         if (updateSettingsRepository == null) {
-            player.sendMessage(ChatColor.RED + "Update-Einstellungen können derzeit nicht gespeichert werden.");
+            player.sendMessage(ChatColor.RED + "Update settings cannot be saved right now.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null || pluginName.isBlank()) {
-            player.sendMessage(ChatColor.RED + "Pluginname konnte nicht ermittelt werden.");
+            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
             return;
         }
 
@@ -603,9 +603,9 @@ public class PluginOverviewGui implements Listener {
                 new PluginUpdateSettings(current.autoUpdateEnabled(), current.behaviour(), retain));
 
         if (retain) {
-            player.sendMessage(ChatColor.GREEN + "Upstream-Dateinamen werden künftig beibehalten (alte Dateien werden gelöscht).");
+            player.sendMessage(ChatColor.GREEN + "Upstream file names will now be kept (old files will be deleted).");
         } else {
-            player.sendMessage(ChatColor.YELLOW + "NU2L verwendet wieder feste Dateinamen aus der Konfiguration.");
+            player.sendMessage(ChatColor.YELLOW + "NU2L will once again use configured file names.");
         }
 
         openPluginDetails(player, plugin);
@@ -618,7 +618,7 @@ public class PluginOverviewGui implements Listener {
         player.closeInventory();
         openInventories.remove(player.getUniqueId());
         pendingLinkRequests.put(player.getUniqueId(), new LinkRequest(null, true));
-        player.sendMessage(ChatColor.AQUA + "Bitte gib die Download-URL des neuen Plugins im Chat ein oder tippe 'abbrechen'.");
+        player.sendMessage(ChatColor.AQUA + "Please enter the download URL of the new plugin in chat or type 'cancel'.");
     }
 
     @EventHandler
@@ -776,25 +776,25 @@ public class PluginOverviewGui implements Listener {
         }
 
         if (message.isBlank()) {
-            player.sendMessage(ChatColor.RED + "Bitte gib einen gültigen Link ein oder tippe 'abbrechen'.");
+            player.sendMessage(ChatColor.RED + "Please enter a valid link or type 'cancel'.");
             return;
         }
 
         if (message.equalsIgnoreCase("abbrechen") || message.equalsIgnoreCase("cancel")) {
             pendingLinkRequests.remove(playerId);
-            player.sendMessage(ChatColor.YELLOW + "Verknüpfung abgebrochen.");
+            player.sendMessage(ChatColor.YELLOW + "Linking cancelled.");
             return;
         }
 
         pendingLinkRequests.remove(playerId);
         if (request.standalone()) {
-            player.sendMessage(ChatColor.GREEN + "Starte Installation eines neuen Plugins …");
+            player.sendMessage(ChatColor.GREEN + "Starting installation of a new plugin…");
             coordinator.install(player, message);
             return;
         }
 
         String pluginName = request.pluginName();
-        player.sendMessage(ChatColor.GREEN + "Verarbeite Link für " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
+        player.sendMessage(ChatColor.GREEN + "Processing link for " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
         coordinator.installForPlugin(player, pluginName, message);
     }
 
@@ -809,7 +809,7 @@ public class PluginOverviewGui implements Listener {
 
         Path path = plugin.getPath();
         if (path == null) {
-            player.sendMessage(ChatColor.RED + "Für dieses Plugin konnte kein JAR gefunden werden.");
+            player.sendMessage(ChatColor.RED + "Could not find a JAR for this plugin.");
             return;
         }
 
@@ -826,7 +826,7 @@ public class PluginOverviewGui implements Listener {
         }
 
         pendingSuggestionRequests.put(playerId, plugin);
-        player.sendMessage(ChatColor.GRAY + "Suche nach passenden Quellen …");
+        player.sendMessage(ChatColor.GRAY + "Searching for matching sources…");
 
         context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
             List<PluginLinkSuggestion> suggestions;
@@ -858,14 +858,14 @@ public class PluginOverviewGui implements Listener {
         }
 
         if (suggestions == null || suggestions.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "Keine passenden Quellen gefunden. Bitte gib den Link manuell ein.");
+            player.sendMessage(ChatColor.YELLOW + "No matching sources found. Please enter the link manually.");
             promptManualLinkInput(player, plugin, Optional.empty());
             return;
         }
 
-        player.sendMessage(ChatColor.GREEN + "Es wurden " + suggestions.size()
-                + " mögliche Update-Quellen gefunden.");
-        player.sendMessage(ChatColor.GRAY + "Wähle einen Vorschlag aus oder trage einen Link manuell ein.");
+        player.sendMessage(ChatColor.GREEN + "Found " + suggestions.size()
+                + " potential update sources.");
+        player.sendMessage(ChatColor.GRAY + "Choose a suggestion or enter a link manually.");
         openLinkSuggestions(player, plugin, suggestions);
     }
 
@@ -879,7 +879,7 @@ public class PluginOverviewGui implements Listener {
         size = Math.min(size, MAX_SIZE);
 
         Inventory inventory = Bukkit.createInventory(null, size,
-                ChatColor.DARK_PURPLE + pluginName + " – Update-Quellen");
+                ChatColor.DARK_PURPLE + pluginName + " – Update sources");
 
         ItemStack filler = createFiller();
         for (int i = 0; i < size; i++) {
@@ -908,8 +908,8 @@ public class PluginOverviewGui implements Listener {
         player.closeInventory();
         openInventories.remove(player.getUniqueId());
         pendingLinkRequests.remove(player.getUniqueId());
-        player.sendMessage(ChatColor.GREEN + "Übernehme Vorschlag " + ChatColor.AQUA
-                + suggestion.provider() + ChatColor.GREEN + " für " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
+        player.sendMessage(ChatColor.GREEN + "Applying suggestion " + ChatColor.AQUA
+                + suggestion.provider() + ChatColor.GREEN + " for " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
         coordinator.installForPlugin(player, pluginName, suggestion.url());
     }
 
@@ -922,11 +922,11 @@ public class PluginOverviewGui implements Listener {
                 plugin.getPath() != null ? plugin.getPath().getFileName().toString() : "Plugin");
         pendingLinkRequests.put(playerId, new LinkRequest(pluginName, false));
 
-        player.sendMessage(ChatColor.AQUA + "Update-Link für " + pluginName + " festlegen.");
+        player.sendMessage(ChatColor.AQUA + "Set update link for " + pluginName + ".");
         existingSource.ifPresentOrElse(source ->
-                        player.sendMessage(ChatColor.GRAY + "Aktuelle Quelle: " + ChatColor.AQUA + source.getName()),
-                () -> player.sendMessage(ChatColor.GRAY + "Aktuell ist keine Quelle verknüpft."));
-        player.sendMessage(ChatColor.YELLOW + "Bitte gib die Download-URL im Chat ein oder tippe 'abbrechen'.");
+                        player.sendMessage(ChatColor.GRAY + "Current source: " + ChatColor.AQUA + source.getName()),
+                () -> player.sendMessage(ChatColor.GRAY + "No source is currently linked."));
+        player.sendMessage(ChatColor.YELLOW + "Please enter the download URL in chat or type 'cancel'.");
     }
 
     private List<String> buildSearchTerms(ManagedPlugin plugin) {
@@ -979,7 +979,7 @@ public class PluginOverviewGui implements Listener {
             String title = Objects.requireNonNullElse(suggestion.title(), suggestion.provider());
             meta.setDisplayName(ChatColor.AQUA + title + ChatColor.DARK_GRAY + " (" + suggestion.provider() + ")");
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + suggestion.provider() + " Vorschlag");
+            lore.add(ChatColor.GRAY + suggestion.provider() + " suggestion");
             for (String line : wrapText(suggestion.description(), 40)) {
                 lore.add(ChatColor.DARK_GRAY + line);
             }
@@ -991,7 +991,7 @@ public class PluginOverviewGui implements Listener {
             }
             lore.add(" ");
             lore.add(ChatColor.DARK_GRAY + suggestion.url());
-            lore.add(ChatColor.GREEN + "Klicken, um diesen Link zu übernehmen.");
+            lore.add(ChatColor.GREEN + "Click to use this link.");
             meta.setLore(lore);
             item.setItemMeta(meta);
         }
@@ -1002,10 +1002,10 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Link manuell eintragen");
+            meta.setDisplayName(ChatColor.AQUA + "Enter link manually");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Öffnet die Chat-Eingabe,",
-                    ChatColor.GRAY + "um eine URL selbst einzutragen."
+                    ChatColor.GRAY + "Opens chat input,",
+                    ChatColor.GRAY + "so you can enter a URL manually."
             ));
             item.setItemMeta(meta);
         }
@@ -1016,8 +1016,8 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.ARROW);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Zurück zu den Plugin-Details");
-            meta.setLore(List.of(ChatColor.GRAY + "Kehrt zu den Details des Plugins zurück."));
+            meta.setDisplayName(ChatColor.YELLOW + "Back to plugin details");
+            meta.setLore(List.of(ChatColor.GRAY + "Returns to the plugin details."));
             item.setItemMeta(meta);
         }
         return item;
@@ -1055,9 +1055,9 @@ public class PluginOverviewGui implements Listener {
         }
         pendingRemovalRequests.put(player.getUniqueId(), plugin);
         player.closeInventory();
-        player.sendMessage(ChatColor.RED + "Bist du sicher, dass du "
-                + ChatColor.AQUA + plugin.getName() + ChatColor.RED + " entfernen möchtest?");
-        player.sendMessage(ChatColor.YELLOW + "Tippe \"ja\" zum Bestätigen oder \"abbrechen\" zum Abbrechen.");
+        player.sendMessage(ChatColor.RED + "Are you sure you want to remove "
+                + ChatColor.AQUA + plugin.getName() + ChatColor.RED + "?");
+        player.sendMessage(ChatColor.YELLOW + "Type \"yes\" to confirm or \"cancel\" to abort.");
     }
 
     private void handleRemovalInput(Player player, ManagedPlugin plugin, String message) {
@@ -1067,7 +1067,7 @@ public class PluginOverviewGui implements Listener {
         if (trimmed.equalsIgnoreCase("ja") || trimmed.equalsIgnoreCase("yes")) {
             coordinator.removeManagedPlugin(player, plugin);
         } else {
-            player.sendMessage(ChatColor.YELLOW + "Entfernen abgebrochen.");
+            player.sendMessage(ChatColor.YELLOW + "Removal cancelled.");
         }
     }
 
@@ -1085,7 +1085,7 @@ public class PluginOverviewGui implements Listener {
         }
         Path path = plugin.getPath();
         if (path == null) {
-            player.sendMessage(ChatColor.RED + "Für dieses Plugin konnte kein Dateipfad ermittelt werden.");
+            player.sendMessage(ChatColor.RED + "Could not determine a file path for this plugin.");
             return;
         }
 
@@ -1098,23 +1098,23 @@ public class PluginOverviewGui implements Listener {
         }
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "NU2L Umbenennen")
+                .title(ChatColor.DARK_PURPLE + "NU2L Rename")
                 .initialText(currentName)
                 .inputItem(paper)
                 .previewFactory(this::createRenamePreview)
                 .validation(value -> {
                     if (value == null || value.trim().isEmpty()) {
-                        return Optional.of(ChatColor.RED + "Bitte gib einen gültigen Namen ein.");
+                        return Optional.of(ChatColor.RED + "Please enter a valid name.");
                     }
                     return Optional.empty();
                 })
                 .onConfirm((p, value) -> {
                     requestRename(p, plugin, value);
                 })
-                .onCancel(p -> p.sendMessage(ChatColor.YELLOW + "Umbenennen abgebrochen."))
+                .onCancel(p -> p.sendMessage(ChatColor.YELLOW + "Rename cancelled."))
                 .build());
 
-        player.sendMessage(ChatColor.GRAY + "Gib einen neuen Dateinamen ein (\".jar\" wird automatisch ergänzt).");
+        player.sendMessage(ChatColor.GRAY + "Enter a new file name (\".jar\" will be added automatically).");
     }
 
     private void requestRename(Player player, ManagedPlugin plugin, String requestedName) {
@@ -1135,31 +1135,31 @@ public class PluginOverviewGui implements Listener {
 
         Path path = plugin.getPath();
         if (path == null) {
-            player.sendMessage(ChatColor.RED + "Für dieses Plugin konnte kein Dateipfad ermittelt werden.");
+            player.sendMessage(ChatColor.RED + "Could not determine a file path for this plugin.");
             return;
         }
 
         Optional<Plugin> loadedPlugin = plugin.getPlugin();
         if (loadedPlugin.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "Das Plugin muss geladen sein, um den Datenordnernamen zu ermitteln.");
+            player.sendMessage(ChatColor.RED + "The plugin must be loaded to determine the data folder name.");
             return;
         }
 
         File dataFolder = loadedPlugin.get().getDataFolder();
         if (dataFolder == null) {
-            player.sendMessage(ChatColor.RED + "Es konnte kein Datenordner für dieses Plugin gefunden werden.");
+            player.sendMessage(ChatColor.RED + "Could not find a data folder for this plugin.");
             return;
         }
 
         String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
         if (sanitized == null) {
-            player.sendMessage(ChatColor.RED + "Der Datenordnername ist ungültig.");
+            player.sendMessage(ChatColor.RED + "The data folder name is invalid.");
             return;
         }
 
         String current = path.getFileName().toString();
         if (sanitized.equals(current)) {
-            player.sendMessage(ChatColor.GRAY + "Die Datei heißt bereits wie der Datenordner.");
+            player.sendMessage(ChatColor.GRAY + "The file is already named after the data folder.");
             return;
         }
 

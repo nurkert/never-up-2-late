@@ -171,7 +171,7 @@ public class UpdateHandler {
     public void runJobNow(UpdateSource source, CommandSender sender) {
         Objects.requireNonNull(source, "source");
         if (shuttingDown || !plugin.isEnabled()) {
-            notify(sender, ChatColor.RED + "Der Updater wird gerade deaktiviert. Bitte versuche es später erneut.");
+            notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
             return;
         }
         scheduler.runTaskAsynchronously(plugin, () -> executeManualRun(source, sender));
@@ -179,7 +179,7 @@ public class UpdateHandler {
 
     private void executeManualRun(UpdateSource source, CommandSender sender) {
         if (shuttingDown || !plugin.isEnabled()) {
-            notify(sender, ChatColor.RED + "Der Updater wird gerade deaktiviert. Bitte versuche es später erneut.");
+            notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
             return;
         }
         File pluginsFolder = plugin.getDataFolder().getParentFile();
@@ -189,13 +189,13 @@ public class UpdateHandler {
         UpdateContext context = new UpdateContext(source, destination, logger);
         configureRetention(context, destination);
 
-        notify(sender, ChatColor.YELLOW + "Prüfe " + displayName(source) + " auf neue Versionen …");
+        notify(sender, ChatColor.YELLOW + "Checking " + displayName(source) + " for new versions…");
 
         try {
             job.run(context);
             handleFilenameRetention(context);
             if (context.isCancelled()) {
-                String reason = context.getCancelReason().orElse("Installation abgebrochen.");
+                String reason = context.getCancelReason().orElse("Installation cancelled.");
                 notify(sender, ChatColor.GOLD + reason);
                 return;
             }
@@ -203,17 +203,17 @@ public class UpdateHandler {
             String version = context.getLatestVersion();
             String buildInfo = version != null ? "Version " + version : "Build " + context.getLatestBuild();
             String destinationFile = destination.getFileName() != null ? destination.getFileName().toString() : destination.toString();
-            notify(sender, ChatColor.GREEN + "Installation abgeschlossen: " + displayName(source) + " "
-                    + buildInfo + " → " + destinationFile + ". Bitte Server neu starten.");
+            notify(sender, ChatColor.GREEN + "Installation complete: " + displayName(source) + " "
+                    + buildInfo + " → " + destinationFile + ". Please restart the server.");
         } catch (UnknownHostException e) {
-            notify(sender, ChatColor.RED + "Download fehlgeschlagen: " + e.getMessage());
+            notify(sender, ChatColor.RED + "Download failed: " + e.getMessage());
             handleUnknownHost(source, e);
         } catch (IOException e) {
-            notify(sender, ChatColor.RED + "I/O-Fehler: " + e.getMessage());
+            notify(sender, ChatColor.RED + "I/O error: " + e.getMessage());
             logger.log(Level.WARNING,
                     "I/O error while installing {0}: {1}", new Object[]{source.getName(), e.getMessage()});
         } catch (Exception e) {
-            notify(sender, ChatColor.RED + "Unerwarteter Fehler: " + e.getMessage());
+            notify(sender, ChatColor.RED + "Unexpected error: " + e.getMessage());
             logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
         }
     }
@@ -227,7 +227,7 @@ public class UpdateHandler {
 
     private String displayName(UpdateSource source) {
         String name = source.getName();
-        return name == null ? "Unbekannte Quelle" : name;
+        return name == null ? "Unknown source" : name;
     }
 
     private boolean shouldSkipAutomaticUpdate(UpdateSource source, Path destination) {
