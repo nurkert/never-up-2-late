@@ -99,7 +99,13 @@ public final class NeverUp2Late extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
+        if (context != null) {
+            try {
+                context.getUpdateHandler().stop();
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.FINE, "Failed to stop update handler during shutdown", ex);
+            }
+        }
     }
 
     public PluginContext getContext() {

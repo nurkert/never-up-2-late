@@ -18,6 +18,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,6 +46,9 @@ public class UpdateHandler {
     private final String messagePrefix;
     private final PluginLifecycleManager pluginLifecycleManager;
     private final PluginUpdateSettingsRepository updateSettingsRepository;
+
+    private volatile boolean shuttingDown;
+    private BukkitTask scheduledTask;
 
     private boolean networkWarningShown;
 
@@ -76,15 +80,33 @@ public class UpdateHandler {
     public void start() {
         long intervalMinutes = configuration.getInt("updateInterval");
         long intervalTicks = Math.max(1L, intervalMinutes) * 20L * 60L;
-        scheduler.runTaskTimerAsynchronously(plugin, this::checkForUpdates, 0L, intervalTicks);
+        if (scheduledTask != null) {
+            scheduledTask.cancel();
+        }
+        shuttingDown = false;
+        scheduledTask = scheduler.runTaskTimerAsynchronously(plugin, this::checkForUpdates, 0L, intervalTicks);
+    }
+
+    public void stop() {
+        shuttingDown = true;
+        if (scheduledTask != null) {
+            scheduledTask.cancel();
+            scheduledTask = null;
+        }
     }
 
     private void checkForUpdates() {
+        if (shuttingDown || !plugin.isEnabled()) {
+            return;
+        }
         boolean networkIssueThisRun = false;
         File pluginsFolder = plugin.getDataFolder().getParentFile();
         File serverFolder = server.getWorldContainer().getAbsoluteFile();
 
         for (UpdateSource source : updateSourceRegistry.getSources()) {
+            if (shuttingDown || !plugin.isEnabled()) {
+                break;
+            }
             Path destination = resolveDestination(source, pluginsFolder, serverFolder);
             if (shouldSkipAutomaticUpdate(source, destination)) {
                 continue;
@@ -103,6 +125,10 @@ public class UpdateHandler {
                 logger.log(Level.WARNING,
                         "I/O error while updating {0}: {1}", new Object[]{source.getName(), e.getMessage()});
             } catch (Exception e) {
+                if (shuttingDown || !plugin.isEnabled()) {
+                    logger.log(Level.FINEST, "Update check aborted while plugin is disabling", e);
+                    break;
+                }
                 logger.log(Level.SEVERE, "Unexpected error while checking updates for " + source.getName(), e);
             }
         }
@@ -144,10 +170,18 @@ public class UpdateHandler {
 
     public void runJobNow(UpdateSource source, CommandSender sender) {
         Objects.requireNonNull(source, "source");
+        if (shuttingDown || !plugin.isEnabled()) {
+            notify(sender, ChatColor.RED + "Der Updater wird gerade deaktiviert. Bitte versuche es später erneut.");
+            return;
+        }
         scheduler.runTaskAsynchronously(plugin, () -> executeManualRun(source, sender));
     }
 
     private void executeManualRun(UpdateSource source, CommandSender sender) {
+        if (shuttingDown || !plugin.isEnabled()) {
+            notify(sender, ChatColor.RED + "Der Updater wird gerade deaktiviert. Bitte versuche es später erneut.");
+            return;
+        }
         File pluginsFolder = plugin.getDataFolder().getParentFile();
         File serverFolder = server.getWorldContainer().getAbsoluteFile();
         Path destination = resolveDestination(source, pluginsFolder, serverFolder);
