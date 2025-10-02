@@ -53,6 +53,7 @@ Die Datei `plugins/NeverUp2Late/config.yml` enthält globale Einstellungen und d
 |--------------------------|----------------------------------------------------------------------------|
 | `filenames.<name>`       | Standarddateiname einer Quelle (z. B. `paper.jar`).                        |
 | `updateInterval`         | Prüfintervall in Minuten (Standard: 30).                                   |
+| `pluginLifecycle.autoManage` | Aktiviert automatisches Neu-/Entladen aktualisierter Plugins (Standard: aus). |
 | `ignoreUnstable`         | Legacy-Schalter, wird noch als Fallback für alte Konfigurationen gelesen. |
 | `updates.ignoreUnstable` | Globale Standardeinstellung für Fetcher, die instabile Builds filtern.    |
 
@@ -64,6 +65,8 @@ filenames:
   paper: "paper.jar"
 
 updateInterval: 30
+pluginLifecycle:
+  autoManage: false
 ignoreUnstable: true
 
 updates:
@@ -126,4 +129,4 @@ Sektion für fetcher-spezifische Einstellungen. Eigene Fetcher können über den
 NeverUp2Late prüft alle Quellen in dem eingestellten Intervall und nutzt dabei einen dreistufigen Pipeline-Job (Fetch → Download
 → Installation). Fehler werden geloggt; Netzwerkprobleme führen zu einer Warnung und wiederholten Versuchen. Manuell gestartete
 Läufe – etwa nach einer Schnellinstallation – melden Erfolg, Fehler und den Ablagepfad direkt im Chat. Nach erfolgreicher
-Installation sollte der Server neu gestartet werden, um neue JARs zu laden.
+Installation sollte der Server neu gestartet werden, um neue JARs zu laden. Das automatische Neu-/Entladen aktualisierter Plugins ist standardmäßig deaktiviert und kann bei Bedarf über `pluginLifecycle.autoManage` eingeschaltet werden.

@@ -7,6 +7,12 @@ filenames:
 # Check interval in minutes
 updateInterval: 30
 
+# Controls automatic plugin lifecycle operations (reload/unload).
+pluginLifecycle:
+  # When true, NeverUp2Late will attempt to reload updated plugins automatically.
+  # The default is false to avoid interfering with plugins that do not support reloads.
+  autoManage: false
+
 # Ignore unstable builds (legacy location, still respected if updates.ignoreUnstable is absent)
 ignoreUnstable: true
 
