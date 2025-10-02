@@ -13,11 +13,13 @@ import java.lang.reflect.Field;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -177,16 +179,22 @@ class BukkitManagedPlugin implements ManagedPlugin {
                 Map<Object, SortedSet<RegisteredListener>> listeners =
                         (Map<Object, SortedSet<RegisteredListener>>) listenersField.get(pluginManager);
                 if (listeners != null) {
-                    for (SortedSet<RegisteredListener> set : listeners.values()) {
-                        if (set == null) {
+                    for (Map.Entry<Object, SortedSet<RegisteredListener>> entry : listeners.entrySet()) {
+                        SortedSet<RegisteredListener> set = entry.getValue();
+                        if (set == null || set.isEmpty()) {
                             continue;
                         }
-                        Iterator<RegisteredListener> iterator = set.iterator();
-                        while (iterator.hasNext()) {
-                            RegisteredListener listener = iterator.next();
-                            if (listener.getPlugin() == target) {
-                                iterator.remove();
+                        try {
+                            set.removeIf(listener -> listener.getPlugin() == target);
+                        } catch (UnsupportedOperationException ex) {
+                            Comparator<? super RegisteredListener> comparator = set.comparator();
+                            SortedSet<RegisteredListener> mutable = new TreeSet<>(comparator);
+                            for (RegisteredListener listener : set) {
+                                if (listener.getPlugin() != target) {
+                                    mutable.add(listener);
+                                }
                             }
+                            listeners.put(entry.getKey(), mutable);
                         }
                     }
                 }
