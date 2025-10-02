@@ -6,6 +6,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -27,11 +28,7 @@ public class HttpClient {
     private final Map<String, String> defaultHeaders;
 
     public HttpClient() {
-        this(java.net.http.HttpClient.newBuilder()
-                        .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
-                        .build(),
-                DEFAULT_REQUEST_TIMEOUT,
-                DEFAULT_HEADERS);
+        this(builder());
     }
 
     /**
@@ -40,11 +37,7 @@ public class HttpClient {
      * @param additionalHeaders headers that should be sent with every request
      */
     public HttpClient(Map<String, String> additionalHeaders) {
-        this(java.net.http.HttpClient.newBuilder()
-                        .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
-                        .build(),
-                DEFAULT_REQUEST_TIMEOUT,
-                mergeHeaders(additionalHeaders));
+        this(builder().headers(additionalHeaders));
     }
 
     protected HttpClient(java.net.http.HttpClient client, Duration requestTimeout, Map<String, String> defaultHeaders) {
@@ -53,22 +46,16 @@ public class HttpClient {
         this.defaultHeaders = Map.copyOf(defaultHeaders);
     }
 
+    private HttpClient(Builder builder) {
+        this(builder.client, builder.requestTimeout, builder.buildHeaders());
+    }
+
     protected Map<String, String> getDefaultHeaders() {
         return defaultHeaders;
     }
 
-    private static Map<String, String> mergeHeaders(Map<String, String> additionalHeaders) {
-        if (additionalHeaders == null || additionalHeaders.isEmpty()) {
-            return DEFAULT_HEADERS;
-        }
-
-        Map<String, String> merged = new java.util.LinkedHashMap<>(DEFAULT_HEADERS);
-        for (Map.Entry<String, String> entry : additionalHeaders.entrySet()) {
-            if (entry.getKey() != null && entry.getValue() != null) {
-                merged.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return Map.copyOf(merged);
+    public static Builder builder() {
+        return new Builder();
     }
 
     /**
@@ -99,5 +86,69 @@ public class HttpClient {
             return response.body();
         }
         throw new HttpException(url, statusCode, response.body());
+    }
+
+    public static final class Builder {
+
+        private java.net.http.HttpClient client;
+        private Duration requestTimeout;
+        private final Map<String, String> headers;
+
+        private Builder() {
+            this.client = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+                    .build();
+            this.requestTimeout = DEFAULT_REQUEST_TIMEOUT;
+            this.headers = new LinkedHashMap<>(DEFAULT_HEADERS);
+        }
+
+        public Builder client(java.net.http.HttpClient client) {
+            this.client = Objects.requireNonNull(client, "client");
+            return this;
+        }
+
+        public Builder requestTimeout(Duration requestTimeout) {
+            this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+            return this;
+        }
+
+        public Builder header(String key, String value) {
+            if (key == null) {
+                return this;
+            }
+            if (value == null) {
+                headers.remove(key);
+            } else {
+                headers.put(key, value);
+            }
+            return this;
+        }
+
+        public Builder headers(Map<String, String> additionalHeaders) {
+            if (additionalHeaders == null || additionalHeaders.isEmpty()) {
+                return this;
+            }
+            additionalHeaders.forEach(this::header);
+            return this;
+        }
+
+        public Builder removeHeader(String key) {
+            if (key != null) {
+                headers.remove(key);
+            }
+            return this;
+        }
+
+        public Builder accept(String mediaType) {
+            return header("Accept", mediaType);
+        }
+
+        private Map<String, String> buildHeaders() {
+            return Map.copyOf(headers);
+        }
+
+        public HttpClient build() {
+            return new HttpClient(this);
+        }
     }
 }

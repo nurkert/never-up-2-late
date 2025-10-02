@@ -34,7 +34,9 @@ public class HangarFetcher extends JsonUpdateFetcher {
     }
 
     public HangarFetcher(Config config) {
-        this(config, new HttpClient());
+        this(config, HttpClient.builder()
+                .accept("application/json")
+                .build());
     }
 
     HangarFetcher(Config config, HttpClient httpClient) {
