@@ -1,6 +1,10 @@
 package eu.nurkert.neverUp2Late.handlers;
 
 import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.UpdateBehaviour;
+import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
@@ -25,29 +29,35 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     private final Server server;
     private final List<PostUpdateAction> actions = new CopyOnWriteArrayList<>();
     private volatile UpdateCompletedEvent pendingEvent;
+    private final PluginUpdateSettingsRepository updateSettingsRepository;
 
-    public InstallationHandler(JavaPlugin plugin, PluginLifecycleManager pluginLifecycleManager) {
+    public InstallationHandler(JavaPlugin plugin,
+                               PluginLifecycleManager pluginLifecycleManager,
+                               PluginUpdateSettingsRepository updateSettingsRepository) {
         this(
                 plugin.getServer(),
                 new RestartCooldownRepository(plugin.getDataFolder(), plugin.getLogger()),
                 plugin.getLogger(),
-                pluginLifecycleManager
+                pluginLifecycleManager,
+                updateSettingsRepository
         );
     }
 
     public InstallationHandler(Server server,
                                RestartCooldownRepository restartCooldownRepository,
                                Logger logger) {
-        this(server, restartCooldownRepository, logger, null);
+        this(server, restartCooldownRepository, logger, null, null);
     }
 
     public InstallationHandler(Server server,
                                RestartCooldownRepository restartCooldownRepository,
                                Logger logger,
-                               PluginLifecycleManager pluginLifecycleManager) {
+                               PluginLifecycleManager pluginLifecycleManager,
+                               PluginUpdateSettingsRepository updateSettingsRepository) {
         this.server = server;
+        this.updateSettingsRepository = updateSettingsRepository;
         if (pluginLifecycleManager != null) {
-            actions.add(new PluginReloadAction(pluginLifecycleManager, logger));
+            actions.add(new PluginReloadAction(pluginLifecycleManager, logger, updateSettingsRepository));
         }
         registerAction(new ServerRestartAction(server, restartCooldownRepository, logger));
     }
@@ -152,10 +162,14 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     static class PluginReloadAction implements PostUpdateAction {
         private final PluginLifecycleManager lifecycleManager;
         private final Logger logger;
+        private final PluginUpdateSettingsRepository updateSettingsRepository;
 
-        PluginReloadAction(PluginLifecycleManager lifecycleManager, Logger logger) {
+        PluginReloadAction(PluginLifecycleManager lifecycleManager,
+                           Logger logger,
+                           PluginUpdateSettingsRepository updateSettingsRepository) {
             this.lifecycleManager = lifecycleManager;
             this.logger = logger;
+            this.updateSettingsRepository = updateSettingsRepository;
         }
 
         @Override
@@ -168,6 +182,13 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                 return true;
             }
             try {
+                ManagedPlugin plugin = lifecycleManager.findByPath(event.getDestination()).orElse(null);
+                if (plugin != null && updateSettingsRepository != null) {
+                    PluginUpdateSettings settings = updateSettingsRepository.getSettings(plugin.getName());
+                    if (settings.behaviour() != UpdateBehaviour.AUTO_RELOAD) {
+                        return true;
+                    }
+                }
                 boolean reloaded = lifecycleManager.reloadPlugin(event.getDestination());
                 if (reloaded) {
                     if (logger != null) {

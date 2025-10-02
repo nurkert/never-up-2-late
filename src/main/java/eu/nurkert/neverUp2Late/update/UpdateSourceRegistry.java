@@ -70,8 +70,10 @@ public class UpdateSourceRegistry {
                                               TargetDirectory targetDirectory,
                                               String filename,
                                               Map<String, Object> options) throws Exception {
-        UpdateFetcher fetcher = createFetcher(type, options);
-        UpdateSource source = new UpdateSource(name, fetcher, targetDirectory, filename);
+        ConfigurationSection optionsSection = prepareOptionsSection(createOptionsSection(options));
+        UpdateFetcher fetcher = instantiateFetcher(type, optionsSection);
+        String installedPlugin = extractInstalledPluginName(optionsSection);
+        UpdateSource source = new UpdateSource(name, fetcher, targetDirectory, filename, installedPlugin);
         sources.add(source);
         return source;
     }
@@ -139,7 +141,8 @@ public class UpdateSourceRegistry {
 
             try {
                 UpdateFetcher fetcher = instantiateFetcher(type, optionsSection);
-                sources.add(new UpdateSource(name, fetcher, targetDirectory, filename));
+                String installedPlugin = extractInstalledPluginName(optionsSection);
+                sources.add(new UpdateSource(name, fetcher, targetDirectory, filename, installedPlugin));
             } catch (Exception e) {
                 logger.log(Level.WARNING,
                         "Unable to create update fetcher for source {0}: {1}",
@@ -189,6 +192,18 @@ public class UpdateSourceRegistry {
 
         String configured = configuration.getString("filenames." + name);
         return (configured == null || configured.isBlank()) ? null : configured;
+    }
+
+    private String extractInstalledPluginName(ConfigurationSection optionsSection) {
+        if (optionsSection == null) {
+            return null;
+        }
+        String value = optionsSection.getString("installedPlugin");
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private ConfigurationSection createOptionsSection(Object rawOptions) {
@@ -342,12 +357,18 @@ public class UpdateSourceRegistry {
         private final UpdateFetcher fetcher;
         private final TargetDirectory targetDirectory;
         private final String filename;
+        private final String installedPluginName;
 
-        public UpdateSource(String name, UpdateFetcher fetcher, TargetDirectory targetDirectory, String filename) {
+        public UpdateSource(String name,
+                            UpdateFetcher fetcher,
+                            TargetDirectory targetDirectory,
+                            String filename,
+                            String installedPluginName) {
             this.name = name;
             this.fetcher = fetcher;
             this.targetDirectory = targetDirectory;
             this.filename = filename;
+            this.installedPluginName = installedPluginName;
         }
 
         public String getName() {
@@ -364,6 +385,10 @@ public class UpdateSourceRegistry {
 
         public String getFilename() {
             return filename;
+        }
+
+        public String getInstalledPluginName() {
+            return installedPluginName;
         }
     }
 }

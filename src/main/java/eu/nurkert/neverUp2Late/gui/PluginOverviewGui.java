@@ -2,7 +2,12 @@ package eu.nurkert.neverUp2Late.gui;
 
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.UpdateBehaviour;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import org.bukkit.Bukkit;
@@ -29,6 +34,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 
 /**
  * Creates a simple chest based GUI that lists all plugins currently managed by NU2L.
@@ -36,24 +42,42 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PluginOverviewGui implements Listener {
 
     private static final int MAX_SIZE = 54;
+    private static final int DETAIL_INVENTORY_SIZE = 27;
+    private static final int DETAIL_STATUS_SLOT = 10;
+    private static final int DETAIL_ENABLE_SLOT = 12;
+    private static final int DETAIL_LOAD_SLOT = 14;
+    private static final int DETAIL_LINK_SLOT = 16;
+    private static final int DETAIL_UPDATE_SLOT = 20;
+    private static final int DETAIL_BACK_SLOT = 26;
 
     private final PluginContext context;
     private final QuickInstallCoordinator coordinator;
     private final Map<UUID, InventorySession> openInventories = new ConcurrentHashMap<>();
     private final Map<UUID, LinkRequest> pendingLinkRequests = new ConcurrentHashMap<>();
+    private final PluginUpdateSettingsRepository updateSettingsRepository;
 
     public PluginOverviewGui(PluginContext context, QuickInstallCoordinator coordinator) {
         this.context = Objects.requireNonNull(context, "context");
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
+        this.updateSettingsRepository = context.getPluginUpdateSettingsRepository();
     }
 
     public void open(Player player) {
+        if (context.getPluginLifecycleManager() == null) {
+            player.sendMessage(ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert.");
+            return;
+        }
+        openOverview(player);
+    }
+
+    private void openOverview(Player player) {
         List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins()
                 .stream()
                 .sorted(Comparator.comparing(ManagedPlugin::getName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
 
-        int size = Math.max(9, ((plugins.size() + 8) / 9) * 9);
+        int requiredSlots = plugins.size() + 1;
+        int size = Math.max(9, ((requiredSlots + 8) / 9) * 9);
         size = Math.min(size, MAX_SIZE);
 
         Inventory inventory = Bukkit.createInventory(null, size, ChatColor.DARK_PURPLE + "NU2L Plugins");
@@ -64,20 +88,43 @@ public class PluginOverviewGui implements Listener {
         }
 
         Map<Integer, ManagedPlugin> slotMapping = new HashMap<>();
-        boolean truncated = plugins.size() > size;
-        for (int slot = 0; slot < size && slot < plugins.size(); slot++) {
+        int availableSlots = Math.max(0, size - 1);
+        boolean truncated = plugins.size() > availableSlots;
+        for (int slot = 0; slot < availableSlots && slot < plugins.size(); slot++) {
             ManagedPlugin plugin = plugins.get(slot);
             inventory.setItem(slot, createPluginItem(plugin));
             slotMapping.put(slot, plugin);
         }
 
-        openInventories.put(player.getUniqueId(), new InventorySession(inventory, Map.copyOf(slotMapping)));
+        inventory.setItem(size - 1, createInstallButton());
+
+        openInventories.put(player.getUniqueId(), InventorySession.overview(inventory, slotMapping));
         player.openInventory(inventory);
 
         if (truncated) {
-            player.sendMessage(ChatColor.YELLOW + "Es werden nur die ersten " + size
+            player.sendMessage(ChatColor.YELLOW + "Es werden nur die ersten " + availableSlots
                     + " Plugins angezeigt (" + plugins.size() + " insgesamt).");
         }
+    }
+
+    private void openPluginDetails(Player player, ManagedPlugin plugin) {
+        Inventory inventory = Bukkit.createInventory(null, DETAIL_INVENTORY_SIZE,
+                ChatColor.DARK_PURPLE + Objects.requireNonNullElse(plugin.getName(), "Plugin"));
+
+        ItemStack filler = createFiller();
+        for (int i = 0; i < DETAIL_INVENTORY_SIZE; i++) {
+            inventory.setItem(i, filler.clone());
+        }
+
+        inventory.setItem(DETAIL_STATUS_SLOT, createPluginItem(plugin));
+        inventory.setItem(DETAIL_ENABLE_SLOT, createEnableItem(plugin));
+        inventory.setItem(DETAIL_LOAD_SLOT, createLoadItem(plugin));
+        inventory.setItem(DETAIL_LINK_SLOT, createLinkItem(plugin));
+        inventory.setItem(DETAIL_UPDATE_SLOT, createUpdateSettingsItem(plugin));
+        inventory.setItem(DETAIL_BACK_SLOT, createBackItem());
+
+        openInventories.put(player.getUniqueId(), InventorySession.detail(inventory, plugin));
+        player.openInventory(inventory);
     }
 
     private ItemStack createPluginItem(ManagedPlugin plugin) {
@@ -103,16 +150,25 @@ public class PluginOverviewGui implements Listener {
                 findMatchingSource(plugin).ifPresentOrElse(source -> {
                     lore.add(ChatColor.GRAY + "Update-Quelle: " + ChatColor.AQUA + source.getName());
                     lore.add(ChatColor.YELLOW + "Klicke, um den Link zu aktualisieren.");
-                }, () -> lore.add(ChatColor.RED + "Keine Update-Quelle verknüpft – klicken, um Link zu setzen."));
-            } else {
-                lore.add(ChatColor.RED + "Kein JAR-Pfad gefunden – Link nicht möglich.");
-            }
-
-            meta.setLore(lore);
-            item.setItemMeta(meta);
+            }, () -> lore.add(ChatColor.RED + "Keine Update-Quelle verknüpft – klicken, um Link zu setzen."));
+        } else {
+            lore.add(ChatColor.RED + "Kein JAR-Pfad gefunden – Link nicht möglich.");
         }
-        return item;
+
+        PluginUpdateSettings settings = readSettings(plugin);
+        if (!settings.autoUpdateEnabled()) {
+            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.RED + "Automatisch deaktiviert");
+        } else if (settings.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
+            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GREEN + "Automatisch neu laden");
+        } else {
+            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GOLD + "Serverneustart erforderlich");
+        }
+
+        meta.setLore(lore);
+        item.setItemMeta(meta);
     }
+    return item;
+}
 
     private String statusLabel(ManagedPlugin plugin) {
         if (plugin.isEnabled()) {
@@ -132,6 +188,254 @@ public class PluginOverviewGui implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private PluginUpdateSettings readSettings(ManagedPlugin plugin) {
+        if (updateSettingsRepository == null) {
+            return PluginUpdateSettings.defaultSettings();
+        }
+        String name = plugin.getName();
+        if (name == null || name.isBlank()) {
+            return PluginUpdateSettings.defaultSettings();
+        }
+        return updateSettingsRepository.getSettings(name);
+    }
+
+    private ItemStack createEnableItem(ManagedPlugin plugin) {
+        ItemStack item = new ItemStack(plugin.isEnabled() ? Material.RED_DYE : Material.LIME_DYE);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            if (!plugin.isLoaded()) {
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Aktivieren (nicht möglich)");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "Das Plugin ist derzeit nicht geladen.",
+                        ChatColor.GRAY + "Lade es, um es zu aktivieren."
+                ));
+            } else if (plugin.isEnabled()) {
+                meta.setDisplayName(ChatColor.RED + "Plugin deaktivieren");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "Stoppt das Plugin, ohne es zu entladen."
+                ));
+            } else {
+                meta.setDisplayName(ChatColor.GREEN + "Plugin aktivieren");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "Startet das Plugin nach dem Laden."
+                ));
+            }
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createLoadItem(ManagedPlugin plugin) {
+        boolean loaded = plugin.isLoaded();
+        ItemStack item = new ItemStack(loaded ? Material.BARRIER : Material.EMERALD_BLOCK);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            if (loaded) {
+                meta.setDisplayName(ChatColor.GOLD + "Plugin entladen");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "Entlädt das Plugin vollständig.",
+                        ChatColor.GRAY + "Befreit Ressourcen und entfernt Listener."
+                ));
+            } else {
+                meta.setDisplayName(ChatColor.AQUA + "Plugin laden");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "Lädt das Plugin aus der JAR-Datei und aktiviert es."
+                ));
+            }
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createLinkItem(ManagedPlugin plugin) {
+        ItemStack item = new ItemStack(Material.PAPER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.AQUA + "Update-Link festlegen");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Klicke, um eine neue Download-URL einzugeben.",
+                    ChatColor.GRAY + "Eigene Links ermöglichen Installation und Updates."
+            ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createUpdateSettingsItem(ManagedPlugin plugin) {
+        PluginUpdateSettings settings = readSettings(plugin);
+        ItemStack item = new ItemStack(Material.COMPARATOR);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "Update-Verhalten anpassen");
+            String current;
+            if (!settings.autoUpdateEnabled()) {
+                current = ChatColor.RED + "Automatische Updates deaktiviert";
+            } else if (settings.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
+                current = ChatColor.GREEN + "Automatisch neu laden";
+            } else {
+                current = ChatColor.GOLD + "Serverneustart nach Updates";
+            }
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Aktueller Modus:",
+                    ChatColor.GRAY + " → " + current,
+                    ChatColor.YELLOW + "Klicke, um zum nächsten Modus zu wechseln."
+            ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createBackItem() {
+        ItemStack item = new ItemStack(Material.ARROW);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.YELLOW + "Zurück zur Übersicht");
+            meta.setLore(List.of(ChatColor.GRAY + "Schließt diese Ansicht und zeigt alle Plugins."));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createInstallButton() {
+        ItemStack item = new ItemStack(Material.NETHER_STAR);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.AQUA + "Neues Plugin installieren …");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Klicke, um eine Download-URL einzugeben.",
+                    ChatColor.GRAY + "Die Installation läuft direkt über NU2L."
+            ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private void toggleEnable(Player player, ManagedPlugin plugin) {
+        PluginLifecycleManager manager = context.getPluginLifecycleManager();
+        if (manager == null) {
+            player.sendMessage(ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert.");
+            return;
+        }
+
+        String pluginName = plugin.getName();
+        if (pluginName == null) {
+            player.sendMessage(ChatColor.RED + "Pluginname konnte nicht ermittelt werden.");
+            return;
+        }
+
+        try {
+            if (!plugin.isLoaded()) {
+                player.sendMessage(ChatColor.RED + "Bitte lade das Plugin, bevor du es aktivierst.");
+            } else if (plugin.isEnabled()) {
+                if (manager.disablePlugin(pluginName)) {
+                    player.sendMessage(ChatColor.YELLOW + "Plugin " + ChatColor.AQUA + pluginName
+                            + ChatColor.YELLOW + " wurde deaktiviert.");
+                } else {
+                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht deaktiviert werden.");
+                }
+            } else {
+                if (manager.enablePlugin(pluginName)) {
+                    player.sendMessage(ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName
+                            + ChatColor.GREEN + " wurde aktiviert.");
+                } else {
+                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht aktiviert werden.");
+                }
+            }
+        } catch (PluginLifecycleException ex) {
+            context.getPlugin().getLogger().log(Level.WARNING,
+                    "Failed to toggle plugin " + pluginName, ex);
+            player.sendMessage(ChatColor.RED + "Aktion fehlgeschlagen: " + ex.getMessage());
+        }
+
+        openPluginDetails(player, plugin);
+    }
+
+    private void toggleLoad(Player player, ManagedPlugin plugin) {
+        PluginLifecycleManager manager = context.getPluginLifecycleManager();
+        if (manager == null) {
+            player.sendMessage(ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert.");
+            return;
+        }
+
+        String pluginName = plugin.getName();
+        if (pluginName == null) {
+            player.sendMessage(ChatColor.RED + "Pluginname konnte nicht ermittelt werden.");
+            return;
+        }
+
+        try {
+            if (plugin.isLoaded()) {
+                if (manager.unloadPlugin(pluginName)) {
+                    player.sendMessage(ChatColor.YELLOW + "Plugin " + ChatColor.AQUA + pluginName
+                            + ChatColor.YELLOW + " wurde entladen.");
+                } else {
+                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht entladen werden.");
+                }
+            } else {
+                Path path = plugin.getPath();
+                if (path == null) {
+                    player.sendMessage(ChatColor.RED + "Es ist kein JAR-Pfad für dieses Plugin bekannt.");
+                    return;
+                }
+                if (manager.loadPlugin(path)) {
+                    player.sendMessage(ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName
+                            + ChatColor.GREEN + " wurde geladen und aktiviert.");
+                } else {
+                    player.sendMessage(ChatColor.RED + "Plugin konnte nicht geladen werden.");
+                }
+            }
+        } catch (PluginLifecycleException ex) {
+            context.getPlugin().getLogger().log(Level.WARNING,
+                    "Failed to toggle plugin load state for " + pluginName, ex);
+            player.sendMessage(ChatColor.RED + "Aktion fehlgeschlagen: " + ex.getMessage());
+        }
+
+        openPluginDetails(player, plugin);
+    }
+
+    private void cycleUpdateSettings(Player player, ManagedPlugin plugin) {
+        if (updateSettingsRepository == null) {
+            player.sendMessage(ChatColor.RED + "Update-Einstellungen können derzeit nicht gespeichert werden.");
+            return;
+        }
+
+        String pluginName = plugin.getName();
+        if (pluginName == null || pluginName.isBlank()) {
+            player.sendMessage(ChatColor.RED + "Pluginname konnte nicht ermittelt werden.");
+            return;
+        }
+
+        PluginUpdateSettings current = readSettings(plugin);
+        PluginUpdateSettings next;
+        ChatColor color;
+        String message;
+
+        if (!current.autoUpdateEnabled()) {
+            next = new PluginUpdateSettings(true, UpdateBehaviour.AUTO_RELOAD);
+            color = ChatColor.GREEN;
+            message = "Automatische Updates aktiviert. Das Plugin wird nach Updates neu geladen.";
+        } else if (current.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
+            next = new PluginUpdateSettings(true, UpdateBehaviour.REQUIRE_RESTART);
+            color = ChatColor.GOLD;
+            message = "Automatische Updates erfordern nun einen Serverneustart.";
+        } else {
+            next = new PluginUpdateSettings(false, UpdateBehaviour.REQUIRE_RESTART);
+            color = ChatColor.RED;
+            message = "Automatische Updates für dieses Plugin wurden deaktiviert.";
+        }
+
+        updateSettingsRepository.saveSettings(pluginName, next);
+        player.sendMessage(color + message);
+        openPluginDetails(player, plugin);
+    }
+
+    private void beginStandaloneInstall(Player player) {
+        player.closeInventory();
+        openInventories.remove(player.getUniqueId());
+        pendingLinkRequests.put(player.getUniqueId(), new LinkRequest(null, true));
+        player.sendMessage(ChatColor.AQUA + "Bitte gib die Download-URL des neuen Plugins im Chat ein oder tippe 'abbrechen'.");
     }
 
     @EventHandler
@@ -155,12 +459,48 @@ public class PluginOverviewGui implements Listener {
         }
 
         event.setCancelled(true);
-        ManagedPlugin plugin = session.plugins().get(event.getRawSlot());
+
+        if (session.view() == View.OVERVIEW) {
+            int installSlot = session.inventory().getSize() - 1;
+            if (event.getRawSlot() == installSlot) {
+                beginStandaloneInstall(player);
+                return;
+            }
+
+            ManagedPlugin plugin = session.plugins().get(event.getRawSlot());
+            if (plugin == null) {
+                return;
+            }
+
+            openPluginDetails(player, plugin);
+            return;
+        }
+
+        ManagedPlugin plugin = session.plugin();
         if (plugin == null) {
             return;
         }
 
-        beginLinking(player, plugin);
+        int slot = event.getRawSlot();
+        if (slot == DETAIL_BACK_SLOT) {
+            openOverview(player);
+            return;
+        }
+        if (slot == DETAIL_ENABLE_SLOT) {
+            toggleEnable(player, plugin);
+            return;
+        }
+        if (slot == DETAIL_LOAD_SLOT) {
+            toggleLoad(player, plugin);
+            return;
+        }
+        if (slot == DETAIL_LINK_SLOT) {
+            beginLinking(player, plugin);
+            return;
+        }
+        if (slot == DETAIL_UPDATE_SLOT) {
+            cycleUpdateSettings(player, plugin);
+        }
     }
 
     @EventHandler
@@ -208,8 +548,15 @@ public class PluginOverviewGui implements Listener {
         }
 
         pendingLinkRequests.remove(playerId);
-        player.sendMessage(ChatColor.GREEN + "Verarbeite Link für " + ChatColor.AQUA + request.pluginName() + ChatColor.GREEN + " …");
-        coordinator.installForPlugin(player, request.pluginName(), message);
+        if (request.standalone()) {
+            player.sendMessage(ChatColor.GREEN + "Starte Installation eines neuen Plugins …");
+            coordinator.install(player, message);
+            return;
+        }
+
+        String pluginName = request.pluginName();
+        player.sendMessage(ChatColor.GREEN + "Verarbeite Link für " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
+        coordinator.installForPlugin(player, pluginName, message);
     }
 
     private void beginLinking(Player player, ManagedPlugin plugin) {
@@ -223,7 +570,7 @@ public class PluginOverviewGui implements Listener {
         }
 
         String pluginName = plugin.getName();
-        pendingLinkRequests.put(player.getUniqueId(), new LinkRequest(pluginName));
+        pendingLinkRequests.put(player.getUniqueId(), new LinkRequest(pluginName, false));
 
         player.sendMessage(ChatColor.AQUA + "Update-Link für " + pluginName + " festlegen.");
         findMatchingSource(plugin).ifPresentOrElse(source ->
@@ -245,9 +592,24 @@ public class PluginOverviewGui implements Listener {
                 .findFirst();
     }
 
-    private record InventorySession(Inventory inventory, Map<Integer, ManagedPlugin> plugins) {
+    private enum View {
+        OVERVIEW,
+        DETAIL
     }
 
-    private record LinkRequest(String pluginName) {
+    private record InventorySession(Inventory inventory,
+                                    View view,
+                                    Map<Integer, ManagedPlugin> plugins,
+                                    ManagedPlugin plugin) {
+        static InventorySession overview(Inventory inventory, Map<Integer, ManagedPlugin> plugins) {
+            return new InventorySession(inventory, View.OVERVIEW, Map.copyOf(plugins), null);
+        }
+
+        static InventorySession detail(Inventory inventory, ManagedPlugin plugin) {
+            return new InventorySession(inventory, View.DETAIL, Map.of(), plugin);
+        }
+    }
+
+    private record LinkRequest(String pluginName, boolean standalone) {
     }
 }

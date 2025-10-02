@@ -1,5 +1,9 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
+import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.DownloadUpdateStep;
 import eu.nurkert.neverUp2Late.update.FetchUpdateStep;
 import eu.nurkert.neverUp2Late.update.InstallUpdateStep;
@@ -37,6 +41,8 @@ public class UpdateHandler {
     private final VersionComparator versionComparator;
     private final Logger logger;
     private final String messagePrefix;
+    private final PluginLifecycleManager pluginLifecycleManager;
+    private final PluginUpdateSettingsRepository updateSettingsRepository;
 
     private boolean networkWarningShown;
 
@@ -47,7 +53,9 @@ public class UpdateHandler {
                          InstallationHandler installationHandler,
                          UpdateSourceRegistry updateSourceRegistry,
                          ArtifactDownloader artifactDownloader,
-                         VersionComparator versionComparator) {
+                         VersionComparator versionComparator,
+                         PluginLifecycleManager pluginLifecycleManager,
+                         PluginUpdateSettingsRepository updateSettingsRepository) {
         this.plugin = plugin;
         this.server = plugin.getServer();
         this.scheduler = scheduler;
@@ -59,6 +67,8 @@ public class UpdateHandler {
         this.versionComparator = versionComparator;
         this.logger = plugin.getLogger();
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
+        this.pluginLifecycleManager = pluginLifecycleManager;
+        this.updateSettingsRepository = updateSettingsRepository;
     }
 
     public void start() {
@@ -74,6 +84,9 @@ public class UpdateHandler {
 
         for (UpdateSource source : updateSourceRegistry.getSources()) {
             Path destination = resolveDestination(source, pluginsFolder, serverFolder);
+            if (shouldSkipAutomaticUpdate(source, destination)) {
+                continue;
+            }
             UpdateJob job = createDefaultJob();
             UpdateContext context = new UpdateContext(source, destination, logger);
 
@@ -175,5 +188,35 @@ public class UpdateHandler {
     private String displayName(UpdateSource source) {
         String name = source.getName();
         return name == null ? "Unbekannte Quelle" : name;
+    }
+
+    private boolean shouldSkipAutomaticUpdate(UpdateSource source, Path destination) {
+        if (updateSettingsRepository == null) {
+            return false;
+        }
+        if (source.getTargetDirectory() != TargetDirectory.PLUGINS) {
+            return false;
+        }
+
+        String pluginName = resolvePluginName(source, destination);
+        if (pluginName == null) {
+            return false;
+        }
+
+        PluginUpdateSettings settings = updateSettingsRepository.getSettings(pluginName);
+        return !settings.autoUpdateEnabled();
+    }
+
+    private String resolvePluginName(UpdateSource source, Path destination) {
+        String installedPlugin = source.getInstalledPluginName();
+        if (installedPlugin != null && !installedPlugin.isBlank()) {
+            return installedPlugin;
+        }
+        if (pluginLifecycleManager == null || destination == null) {
+            return null;
+        }
+        return pluginLifecycleManager.findByPath(destination)
+                .map(ManagedPlugin::getName)
+                .orElse(null);
     }
 }
