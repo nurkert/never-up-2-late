@@ -24,6 +24,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -315,11 +316,10 @@ public class QuickInstallCoordinator {
 
     private InstallationPlan buildHangarPlan(URI uri, String originalUrl, String host) {
         List<String> segments = pathSegments(uri.getPath());
-        if (segments.size() < 2) {
-            throw new IllegalArgumentException("Hangar-URL muss das Format /Owner/Projekt haben.");
-        }
-        String owner = decode(segments.get(0));
-        String slug = decode(segments.get(1));
+        OwnerSlug ownerSlug = extractOwnerAndSlug(segments, List.of("plugins", "plugin", "project"))
+                .orElseThrow(() -> new IllegalArgumentException("Hangar-URL muss das Format /Owner/Projekt haben."));
+        String owner = ownerSlug.owner();
+        String slug = ownerSlug.slug();
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("project", owner + "/" + slug);
         options.put("platform", "PAPER");
@@ -345,10 +345,7 @@ public class QuickInstallCoordinator {
 
     private InstallationPlan buildModrinthPlan(URI uri, String originalUrl, String host) {
         List<String> segments = pathSegments(uri.getPath());
-        String slug = segments.stream()
-                .map(this::decode)
-                .filter(segment -> !segment.equalsIgnoreCase("plugin") && !segment.equalsIgnoreCase("project"))
-                .reduce((first, second) -> second)
+        String slug = extractModrinthSlug(segments)
                 .orElseThrow(() -> new IllegalArgumentException("Modrinth-URL konnte nicht ausgewertet werden."));
 
         Map<String, Object> options = new LinkedHashMap<>();
@@ -373,13 +370,87 @@ public class QuickInstallCoordinator {
         return plan;
     }
 
+    static Optional<String> extractModrinthSlug(List<String> segments) {
+        String slug = null;
+        boolean expectSlug = false;
+
+        for (String rawSegment : segments) {
+            String segment = decode(rawSegment);
+            if (segment.isBlank()) {
+                continue;
+            }
+
+            if (expectSlug) {
+                slug = segment;
+                break;
+            }
+
+            if (segment.equalsIgnoreCase("plugin") || segment.equalsIgnoreCase("project")) {
+                expectSlug = true;
+                continue;
+            }
+
+            if (slug == null) {
+                slug = segment;
+                break;
+            }
+        }
+
+        return Optional.ofNullable(trimToNull(slug));
+    }
+
+    static Optional<OwnerSlug> extractOwnerAndSlug(List<String> segments, Collection<String> segmentsToIgnore) {
+        if (segments == null || segments.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Set<String> ignore = new HashSet<>();
+        if (segmentsToIgnore != null) {
+            for (String segment : segmentsToIgnore) {
+                if (segment != null && !segment.isBlank()) {
+                    ignore.add(segment.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+
+        String owner = null;
+        String slug = null;
+
+        for (String rawSegment : segments) {
+            String segment = decode(rawSegment);
+            if (segment.isBlank()) {
+                continue;
+            }
+
+            String normalized = segment.toLowerCase(Locale.ROOT);
+            if (ignore.contains(normalized)) {
+                continue;
+            }
+
+            if (owner == null) {
+                owner = segment;
+                continue;
+            }
+
+            slug = segment;
+            break;
+        }
+
+        owner = trimToNull(owner);
+        slug = trimToNull(slug);
+        if (owner == null || slug == null) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new OwnerSlug(owner, slug));
+    }
+
     private InstallationPlan buildGithubPlan(URI uri, String originalUrl, String host) {
         List<String> segments = pathSegments(uri.getPath());
-        if (segments.size() < 2) {
-            throw new IllegalArgumentException("GitHub-URL muss das Format /Owner/Repository haben.");
-        }
-        String owner = decode(segments.get(0));
-        String repository = decode(segments.get(1));
+        OwnerSlug ownerSlug = extractOwnerAndSlug(segments, List.of("repos", "projects", "users", "orgs"))
+                .orElseThrow(() -> new IllegalArgumentException("GitHub-URL muss das Format /Owner/Repository haben."));
+        String owner = ownerSlug.owner();
+        String repository = ownerSlug.slug();
 
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("owner", owner);
@@ -563,7 +634,7 @@ public class QuickInstallCoordinator {
         }
     }
 
-    private String trimToNull(String value) {
+    private static String trimToNull(String value) {
         if (value == null) {
             return null;
         }
@@ -612,7 +683,7 @@ public class QuickInstallCoordinator {
         return segments;
     }
 
-    private String decode(String value) {
+    private static String decode(String value) {
         return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
@@ -665,6 +736,24 @@ public class QuickInstallCoordinator {
         private PendingSelection {
             Objects.requireNonNull(plan, "plan");
             assets = List.copyOf(assets);
+        }
+    }
+
+    static final class OwnerSlug {
+        private final String owner;
+        private final String slug;
+
+        OwnerSlug(String owner, String slug) {
+            this.owner = owner;
+            this.slug = slug;
+        }
+
+        String owner() {
+            return owner;
+        }
+
+        String slug() {
+            return slug;
         }
     }
 
