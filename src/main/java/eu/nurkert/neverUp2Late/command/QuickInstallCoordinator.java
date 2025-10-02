@@ -59,6 +59,14 @@ public class QuickInstallCoordinator {
     }
 
     public void install(CommandSender sender, String rawUrl) {
+        install(sender, rawUrl, null);
+    }
+
+    public void installForPlugin(CommandSender sender, String pluginName, String rawUrl) {
+        install(sender, rawUrl, pluginName);
+    }
+
+    private void install(CommandSender sender, String rawUrl, String forcedPluginName) {
         String url = rawUrl != null ? rawUrl.trim() : "";
         if (url.isEmpty()) {
             send(sender, ChatColor.RED + "Bitte gib eine gültige URL an.");
@@ -84,10 +92,15 @@ public class QuickInstallCoordinator {
         }
 
         plan.setSourceName(ensureUniqueName(plan.getSuggestedName()));
-        detectInstalledPlugin(plan).ifPresent(installed -> {
-            plan.setInstalledPluginName(installed);
-            send(sender, ChatColor.GRAY + "Verknüpfe mit installiertem Plugin: " + installed);
-        });
+        if (forcedPluginName != null && !forcedPluginName.isBlank()) {
+            plan.setInstalledPluginName(forcedPluginName);
+            send(sender, ChatColor.GRAY + "Verknüpfe mit ausgewähltem Plugin: " + forcedPluginName);
+        } else {
+            detectInstalledPlugin(plan).ifPresent(installed -> {
+                plan.setInstalledPluginName(installed);
+                send(sender, ChatColor.GRAY + "Verknüpfe mit installiertem Plugin: " + installed);
+            });
+        }
 
         send(sender, ChatColor.AQUA + "Quelle erkannt: " + plan.getDisplayName() + " (" + plan.getProvider() + ")");
 
