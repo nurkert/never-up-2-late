@@ -30,13 +30,13 @@ public final class NeverUp2Late extends JavaPlugin {
         FileConfiguration configuration = getConfig();
 
         UpdateStateRepository updateStateRepository = UpdateStateRepository.forPlugin(this);
-        LegacyConfigMigrator migrator = new LegacyConfigMigrator(configuration, updateStateRepository, getLogger());
+        PluginUpdateSettingsRepository updateSettingsRepository = PluginUpdateSettingsRepository.forPlugin(this);
+        LegacyConfigMigrator migrator = new LegacyConfigMigrator(configuration, updateStateRepository, updateSettingsRepository, getLogger());
         if (migrator.migrate()) {
             saveConfig();
         }
 
         PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(updateStateRepository);
-        PluginUpdateSettingsRepository updateSettingsRepository = PluginUpdateSettingsRepository.forPlugin(this);
         boolean lifecycleEnabled = configuration.getBoolean("pluginLifecycle.autoManage", false);
         PluginLifecycleManager pluginLifecycleManager = null;
         if (lifecycleEnabled) {
