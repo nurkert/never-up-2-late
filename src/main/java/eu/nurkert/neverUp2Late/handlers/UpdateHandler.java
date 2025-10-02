@@ -41,7 +41,7 @@ public class UpdateHandler {
     private final VersionComparator versionComparator;
     private final Logger logger;
     private final String messagePrefix;
-    private final PluginLifecycleManager pluginLifecycleManager;
+    private volatile PluginLifecycleManager pluginLifecycleManager;
     private final PluginUpdateSettingsRepository updateSettingsRepository;
 
     private boolean networkWarningShown;
@@ -69,6 +69,10 @@ public class UpdateHandler {
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
         this.pluginLifecycleManager = pluginLifecycleManager;
         this.updateSettingsRepository = updateSettingsRepository;
+    }
+
+    public synchronized void setPluginLifecycleManager(PluginLifecycleManager pluginLifecycleManager) {
+        this.pluginLifecycleManager = pluginLifecycleManager;
     }
 
     public void start() {

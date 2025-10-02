@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.command;
 
+import eu.nurkert.neverUp2Late.core.ConfigurationHelper;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.fetcher.AssetPatternBuilder;
 import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
@@ -237,28 +238,15 @@ public class QuickInstallCoordinator {
     }
 
     private void writeConfiguration(InstallationPlan plan) {
-        ConfigurationSection section = configuration.getConfigurationSection("updates.sources");
-        if (section != null && !section.getKeys(false).isEmpty()) {
-            if (section.contains(plan.getSourceName())) {
-                section.set(plan.getSourceName(), null);
-            }
-            ConfigurationSection newSection = section.createSection(plan.getSourceName());
-            populateSection(newSection, plan);
-        } else {
-            List<Map<?, ?>> entries = new ArrayList<>(configuration.getMapList("updates.sources"));
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("name", plan.getSourceName());
-            entry.put("type", plan.getFetcherType());
-            entry.put("target", plan.getTargetDirectory().name());
-            entry.put("filename", plan.getFilename());
-            if (!plan.getOptions().isEmpty()) {
-                entry.put("options", new LinkedHashMap<>(plan.getOptions()));
-            }
-            entries.removeIf(map -> plan.getSourceName().equalsIgnoreCase(Objects.toString(map.get("name"), "")));
-            entries.add(entry);
-            configuration.set("updates.sources", entries);
+        ConfigurationSection section = ConfigurationHelper.ensureSourcesSection(configuration);
+        if (section.contains(plan.getSourceName())) {
+            section.set(plan.getSourceName(), null);
         }
+        ConfigurationSection newSection = section.createSection(plan.getSourceName());
+        populateSection(newSection, plan);
+        newSection.set("enabled", true);
         plugin.saveConfig();
+        updateSourceRegistry.reloadFromConfiguration();
     }
 
     private void populateSection(ConfigurationSection newSection, InstallationPlan plan) {

@@ -12,6 +12,8 @@ pluginLifecycle:
   # When true, NeverUp2Late will attempt to reload updated plugins automatically.
   # The default is false to avoid interfering with plugins that do not support reloads.
   autoManage: false
+  # Automatically load newly installed plugins when plugin lifecycle management is enabled.
+  autoLoadOnInstall: true
 
 # Ignore unstable builds (legacy location, still respected if updates.ignoreUnstable is absent)
 ignoreUnstable: true
@@ -21,20 +23,21 @@ updates:
   ignoreUnstable: true
 
   # Configure the update sources that should be checked.
-  # - name: identifier used for persistence and filename lookups
-  # - type: either a simple alias (e.g. "paper") or the fully qualified UpdateFetcher class name
-  # - target: "server" to place the jar next to the server executable or "plugins" for the plugins directory
-  # - filename: optional override for the downloaded jar name (defaults to entries under filenames.<name>)
+  # Entries can be toggled directly from the in-game GUI.
   sources:
-    - name: paper
+    paper:
+      name: paper
       type: paper
       target: server
       filename: "paper.jar"
+      enabled: true
 
-    - name: geyser
+    geyser:
+      name: geyser
       type: geyser
       target: plugins
       filename: "Geyser-Spigot.jar"
+      enabled: true
 
     # The example below illustrates how to configure a GitHub release source.
     # Uncomment and adjust the values to track a real project.

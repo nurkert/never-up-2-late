@@ -30,36 +30,76 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     private final List<PostUpdateAction> actions = new CopyOnWriteArrayList<>();
     private volatile UpdateCompletedEvent pendingEvent;
     private final PluginUpdateSettingsRepository updateSettingsRepository;
+    private final Logger logger;
+    private volatile PluginLifecycleManager pluginLifecycleManager;
+    private volatile PluginReloadAction pluginReloadAction;
+    private volatile boolean autoLoadOnInstall;
 
     public InstallationHandler(JavaPlugin plugin,
                                PluginLifecycleManager pluginLifecycleManager,
-                               PluginUpdateSettingsRepository updateSettingsRepository) {
+                               PluginUpdateSettingsRepository updateSettingsRepository,
+                               boolean autoLoadOnInstall) {
         this(
                 plugin.getServer(),
                 new RestartCooldownRepository(plugin.getDataFolder(), plugin.getLogger()),
                 plugin.getLogger(),
                 pluginLifecycleManager,
-                updateSettingsRepository
+                updateSettingsRepository,
+                autoLoadOnInstall
         );
     }
 
     public InstallationHandler(Server server,
                                RestartCooldownRepository restartCooldownRepository,
                                Logger logger) {
-        this(server, restartCooldownRepository, logger, null, null);
+        this(server, restartCooldownRepository, logger, null, null, false);
     }
 
     public InstallationHandler(Server server,
                                RestartCooldownRepository restartCooldownRepository,
                                Logger logger,
                                PluginLifecycleManager pluginLifecycleManager,
-                               PluginUpdateSettingsRepository updateSettingsRepository) {
+                               PluginUpdateSettingsRepository updateSettingsRepository,
+                               boolean autoLoadOnInstall) {
         this.server = server;
         this.updateSettingsRepository = updateSettingsRepository;
+        this.logger = logger;
+        this.autoLoadOnInstall = autoLoadOnInstall;
         if (pluginLifecycleManager != null) {
-            actions.add(new PluginReloadAction(pluginLifecycleManager, logger, updateSettingsRepository));
+            attachPluginLifecycleManager(pluginLifecycleManager, updateSettingsRepository);
         }
         registerAction(new ServerRestartAction(server, restartCooldownRepository, logger));
+    }
+
+    public synchronized void attachPluginLifecycleManager(PluginLifecycleManager manager,
+                                                          PluginUpdateSettingsRepository settingsRepository) {
+        this.pluginLifecycleManager = manager;
+        if (pluginReloadAction != null) {
+            actions.remove(pluginReloadAction);
+            pluginReloadAction = null;
+        }
+        if (manager == null) {
+            return;
+        }
+        PluginReloadAction action = new PluginReloadAction(settingsRepository);
+        pluginReloadAction = action;
+        actions.add(0, action);
+    }
+
+    public synchronized void detachPluginLifecycleManager() {
+        pluginLifecycleManager = null;
+        if (pluginReloadAction != null) {
+            actions.remove(pluginReloadAction);
+            pluginReloadAction = null;
+        }
+    }
+
+    public void setAutoLoadOnInstall(boolean autoLoadOnInstall) {
+        this.autoLoadOnInstall = autoLoadOnInstall;
+    }
+
+    public boolean isAutoLoadOnInstall() {
+        return autoLoadOnInstall;
     }
 
     public void registerAction(PostUpdateAction action) {
@@ -159,21 +199,19 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
         }
     }
 
-    static class PluginReloadAction implements PostUpdateAction {
-        private final PluginLifecycleManager lifecycleManager;
-        private final Logger logger;
+    class PluginReloadAction implements PostUpdateAction {
         private final PluginUpdateSettingsRepository updateSettingsRepository;
 
-        PluginReloadAction(PluginLifecycleManager lifecycleManager,
-                           Logger logger,
-                           PluginUpdateSettingsRepository updateSettingsRepository) {
-            this.lifecycleManager = lifecycleManager;
-            this.logger = logger;
+        PluginReloadAction(PluginUpdateSettingsRepository updateSettingsRepository) {
             this.updateSettingsRepository = updateSettingsRepository;
         }
 
         @Override
         public boolean execute(UpdateCompletedEvent event) {
+            PluginLifecycleManager lifecycleManager = pluginLifecycleManager;
+            if (lifecycleManager == null) {
+                return true;
+            }
             UpdateSource source = event.getSource();
             if (source == null || source.getTargetDirectory() != TargetDirectory.PLUGINS) {
                 return true;
@@ -183,7 +221,11 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
             }
             try {
                 ManagedPlugin plugin = lifecycleManager.findByPath(event.getDestination()).orElse(null);
-                if (plugin != null && updateSettingsRepository != null) {
+                boolean wasLoaded = plugin != null && plugin.isLoaded();
+                if (!wasLoaded && !autoLoadOnInstall) {
+                    return true;
+                }
+                if (wasLoaded && updateSettingsRepository != null && plugin != null) {
                     PluginUpdateSettings settings = updateSettingsRepository.getSettings(plugin.getName());
                     if (settings.behaviour() != UpdateBehaviour.AUTO_RELOAD) {
                         return true;

@@ -28,17 +28,21 @@ public class UpdateSourceRegistry {
 
     private final Logger logger;
     private final FileConfiguration configuration;
-    private final boolean ignoreUnstableGlobal;
+    private volatile boolean ignoreUnstableGlobal;
     private final CopyOnWriteArrayList<UpdateSource> sources = new CopyOnWriteArrayList<>();
 
     public UpdateSourceRegistry(Logger logger, FileConfiguration configuration) {
         this.logger = logger;
         this.configuration = configuration;
+        reloadFromConfiguration();
+    }
+
+    public synchronized void reloadFromConfiguration() {
         this.ignoreUnstableGlobal = configuration.getBoolean(
                 "updates.ignoreUnstable",
                 configuration.getBoolean("ignoreUnstable", true)
         );
-
+        sources.clear();
         loadSources();
     }
 
@@ -101,6 +105,9 @@ public class UpdateSourceRegistry {
                 if (optionsSection != null) {
                     sourceMap.put("options", optionsSection.getValues(true));
                 }
+                if (sourceSection.contains("enabled")) {
+                    sourceMap.put("enabled", sourceSection.get("enabled"));
+                }
                 configuredSources.add(sourceMap);
             }
         }
@@ -125,6 +132,11 @@ public class UpdateSourceRegistry {
             String type = asString(entry.get("type"));
             if (type == null || type.isBlank()) {
                 logger.log(Level.WARNING, "Update source {0} is missing a type; skipping.", name);
+                continue;
+            }
+
+            if (!isEnabled(entry.get("enabled"))) {
+                logger.log(Level.INFO, "Update source {0} is disabled via configuration; skipping.", name);
                 continue;
             }
 
@@ -157,17 +169,29 @@ public class UpdateSourceRegistry {
         paper.put("name", "paper");
         paper.put("type", "paper");
         paper.put("target", TargetDirectory.SERVER.name());
+        paper.put("enabled", true);
 
         Map<String, Object> geyser = new HashMap<>();
         geyser.put("name", "geyser");
         geyser.put("type", "geyser");
         geyser.put("target", TargetDirectory.PLUGINS.name());
+        geyser.put("enabled", true);
 
         return Arrays.asList(paper, geyser);
     }
 
     private String asString(Object value) {
         return value != null ? value.toString() : null;
+    }
+
+    private boolean isEnabled(Object rawValue) {
+        if (rawValue == null) {
+            return true;
+        }
+        if (rawValue instanceof Boolean bool) {
+            return bool;
+        }
+        return Boolean.parseBoolean(rawValue.toString());
     }
 
     private TargetDirectory parseTargetDirectory(String targetValue, String sourceName) {

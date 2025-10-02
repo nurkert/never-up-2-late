@@ -2,8 +2,10 @@ package eu.nurkert.neverUp2Late;
 
 import eu.nurkert.neverUp2Late.command.NeverUp2LateCommand;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
+import eu.nurkert.neverUp2Late.core.ConfigurationHelper;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.gui.PluginOverviewGui;
+import eu.nurkert.neverUp2Late.gui.SettingsGui;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
@@ -37,7 +39,17 @@ public final class NeverUp2Late extends JavaPlugin {
 
         PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(updateStateRepository);
         PluginUpdateSettingsRepository updateSettingsRepository = PluginUpdateSettingsRepository.forPlugin(this);
+
+        boolean migratedSources = configuration.getConfigurationSection("updates.sources") == null
+                && configuration.getMapList("updates.sources") != null
+                && !configuration.getMapList("updates.sources").isEmpty();
+        ConfigurationHelper.ensureSourcesSection(configuration);
+        if (migratedSources) {
+            saveConfig();
+        }
+
         boolean lifecycleEnabled = configuration.getBoolean("pluginLifecycle.autoManage", false);
+        boolean autoLoadOnInstall = configuration.getBoolean("pluginLifecycle.autoLoadOnInstall", true);
         PluginLifecycleManager pluginLifecycleManager = null;
         if (lifecycleEnabled) {
             pluginLifecycleManager = new PluginManagerApi(
@@ -50,7 +62,12 @@ public final class NeverUp2Late extends JavaPlugin {
             getLogger().fine("Plugin lifecycle management is disabled (pluginLifecycle.autoManage=false).");
         }
 
-        InstallationHandler installationHandler = new InstallationHandler(this, pluginLifecycleManager, updateSettingsRepository);
+        InstallationHandler installationHandler = new InstallationHandler(
+                this,
+                pluginLifecycleManager,
+                updateSettingsRepository,
+                autoLoadOnInstall
+        );
         UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
         ArtifactDownloader artifactDownloader = new ArtifactDownloader();
         VersionComparator versionComparator = new VersionComparator();
@@ -84,7 +101,9 @@ public final class NeverUp2Late extends JavaPlugin {
         getServer().getPluginManager().registerEvents(installationHandler, this);
 
         QuickInstallCoordinator coordinator = new QuickInstallCoordinator(context);
-        PluginOverviewGui overviewGui = new PluginOverviewGui(context, coordinator);
+        SettingsGui settingsGui = new SettingsGui(context);
+        PluginOverviewGui overviewGui = new PluginOverviewGui(context, coordinator, settingsGui);
+        settingsGui.setOverviewGui(overviewGui);
         NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator, overviewGui);
         PluginCommand pluginCommand = getCommand("nu2l");
         if (pluginCommand != null) {
@@ -95,6 +114,7 @@ public final class NeverUp2Late extends JavaPlugin {
         }
 
         getServer().getPluginManager().registerEvents(overviewGui, this);
+        getServer().getPluginManager().registerEvents(settingsGui, this);
     }
 
     @Override

@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.gui;
 
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
+import eu.nurkert.neverUp2Late.gui.SettingsGui;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.UpdateBehaviour;
@@ -55,28 +56,36 @@ public class PluginOverviewGui implements Listener {
     private final Map<UUID, InventorySession> openInventories = new ConcurrentHashMap<>();
     private final Map<UUID, LinkRequest> pendingLinkRequests = new ConcurrentHashMap<>();
     private final PluginUpdateSettingsRepository updateSettingsRepository;
+    private final SettingsGui settingsGui;
 
-    public PluginOverviewGui(PluginContext context, QuickInstallCoordinator coordinator) {
+    public PluginOverviewGui(PluginContext context, QuickInstallCoordinator coordinator, SettingsGui settingsGui) {
         this.context = Objects.requireNonNull(context, "context");
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
+        this.settingsGui = Objects.requireNonNull(settingsGui, "settingsGui");
         this.updateSettingsRepository = context.getPluginUpdateSettingsRepository();
     }
 
     public void open(Player player) {
-        if (context.getPluginLifecycleManager() == null) {
-            player.sendMessage(ChatColor.RED + "Die Plugin-Verwaltung ist deaktiviert.");
-            return;
+        if (!context.isPluginLifecycleEnabled()) {
+            player.sendMessage(ChatColor.YELLOW + "Die Plugin-Verwaltung ist deaktiviert. Aktiviere sie in den Einstellungen.");
         }
         openOverview(player);
     }
 
+    public void reopenOverview(Player player) {
+        openOverview(player);
+    }
+
     private void openOverview(Player player) {
-        List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins()
-                .stream()
+        PluginLifecycleManager manager = context.getPluginLifecycleManager();
+        List<ManagedPlugin> plugins = manager == null
+                ? List.of()
+                : manager.getManagedPlugins().stream()
                 .sorted(Comparator.comparing(ManagedPlugin::getName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
 
-        int requiredSlots = plugins.size() + 1;
+        int reservedSlots = 2;
+        int requiredSlots = plugins.size() + reservedSlots;
         int size = Math.max(9, ((requiredSlots + 8) / 9) * 9);
         size = Math.min(size, MAX_SIZE);
 
@@ -88,7 +97,7 @@ public class PluginOverviewGui implements Listener {
         }
 
         Map<Integer, ManagedPlugin> slotMapping = new HashMap<>();
-        int availableSlots = Math.max(0, size - 1);
+        int availableSlots = Math.max(0, size - reservedSlots);
         boolean truncated = plugins.size() > availableSlots;
         for (int slot = 0; slot < availableSlots && slot < plugins.size(); slot++) {
             ManagedPlugin plugin = plugins.get(slot);
@@ -96,7 +105,12 @@ public class PluginOverviewGui implements Listener {
             slotMapping.put(slot, plugin);
         }
 
+        inventory.setItem(size - 2, createSettingsButton());
         inventory.setItem(size - 1, createInstallButton());
+
+        if (manager == null) {
+            inventory.setItem(0, createLifecycleDisabledItem());
+        }
 
         openInventories.put(player.getUniqueId(), InventorySession.overview(inventory, slotMapping));
         player.openInventory(inventory);
@@ -312,6 +326,34 @@ public class PluginOverviewGui implements Listener {
         return item;
     }
 
+    private ItemStack createSettingsButton() {
+        ItemStack item = new ItemStack(Material.REPEATER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.AQUA + "Einstellungen öffnen");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Verwalte globale NU2L-Konfigurationen.",
+                    ChatColor.YELLOW + "Klicke, um die Einstellungen zu öffnen."
+            ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createLifecycleDisabledItem() {
+        ItemStack item = new ItemStack(Material.BARRIER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.RED + "Plugin-Verwaltung deaktiviert");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Aktiviere sie über den Einstellungen-Button.",
+                    ChatColor.GRAY + "Nur dann können Plugins hier verwaltet werden."
+            ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
     private void toggleEnable(Player player, ManagedPlugin plugin) {
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
         if (manager == null) {
@@ -462,8 +504,15 @@ public class PluginOverviewGui implements Listener {
 
         if (session.view() == View.OVERVIEW) {
             int installSlot = session.inventory().getSize() - 1;
+            int settingsSlot = session.inventory().getSize() - 2;
             if (event.getRawSlot() == installSlot) {
                 beginStandaloneInstall(player);
+                return;
+            }
+            if (event.getRawSlot() == settingsSlot) {
+                player.closeInventory();
+                openInventories.remove(player.getUniqueId());
+                settingsGui.open(player);
                 return;
             }
 
