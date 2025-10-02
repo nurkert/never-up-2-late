@@ -1001,7 +1001,6 @@ public class QuickInstallCoordinator {
                 return;
             }
 
-            boolean wasEnabled = target.isEnabled();
             boolean wasLoaded = target.isLoaded();
             String pluginName = Optional.ofNullable(target.getName()).orElse("Plugin");
 
@@ -1051,20 +1050,10 @@ public class QuickInstallCoordinator {
 
             pluginLifecycleManager.updateManagedPluginPath(currentPath, targetPath);
 
-            if (wasLoaded) {
-                try {
-                    pluginLifecycleManager.loadPlugin(targetPath);
-                    if (wasEnabled) {
-                        pluginLifecycleManager.enablePlugin(pluginName);
-                    }
-                } catch (PluginLifecycleException ex) {
-                    send(sender, ChatColor.YELLOW + "Plugin was renamed but could not be reloaded: " + ex.getMessage());
-                    logger.log(Level.WARNING, "Failed to reload plugin after rename", ex);
-                    return;
-                }
-            }
-
             send(sender, ChatColor.GREEN + "Renamed plugin file to " + ChatColor.AQUA + sanitized + ChatColor.GREEN + ".");
+            if (wasLoaded) {
+                send(sender, ChatColor.YELLOW + "Please reload or restart the server to activate the plugin again.");
+            }
         });
     }
 
