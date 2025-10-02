@@ -34,7 +34,8 @@ import java.util.logging.Level;
  */
 public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
-    private static final String API_TEMPLATE = "https://api.github.com/repos/%s/%s/releases";
+    private static final String RELEASES_API_TEMPLATE = "https://api.github.com/repos/%s/%s/releases";
+    private static final String TAGS_API_TEMPLATE = "https://api.github.com/repos/%s/%s/tags";
     private static final Map<String, String> GITHUB_HEADERS = Map.of(
             "Accept", "application/vnd.github+json",
             "X-GitHub-Api-Version", "2022-11-28"
@@ -74,40 +75,22 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
     @Override
     public void loadLatestBuildInfo() throws Exception {
-        Release[] releaseArray = getJson(buildUrl(), Release[].class);
+        Release[] releaseArray = getJson(buildReleasesUrl(), Release[].class);
         List<Release> releases = releaseArray != null ? List.of(releaseArray) : List.of();
-        if (releases.isEmpty()) {
-            throw new IOException("No releases returned for " + owner + "/" + repository);
-        }
 
-        Release latest = releases.stream()
+        Optional<Release> latestRelease = releases.stream()
                 .filter(release -> !release.draft())
                 .filter(release -> allowPrerelease || !release.prerelease())
                 .max(Comparator
                         .comparing(GithubReleaseFetcher::publishedAtOrMin)
-                        .thenComparingLong(Release::id))
-                .orElseThrow(() -> new IOException("No suitable releases found for " + owner + "/" + repository));
+                        .thenComparingLong(Release::id));
 
-        String tagName = trimToNull(latest.tagName());
-        if (tagName == null) {
-            throw new IOException("Latest release for " + owner + "/" + repository + " is missing a tag name");
+        if (latestRelease.isPresent()) {
+            processRelease(latestRelease.get());
+            return;
         }
 
-        List<Asset> assets = latest.assets();
-        List<Asset> matchingAssets = findMatchingAssets(tagName, assets);
-
-        if (matchingAssets.isEmpty()) {
-            throw new IOException("No asset download URL"
-                    + (assetPattern != null ? " matching pattern " + assetPattern.pattern() : "")
-                    + " for release " + tagName);
-        }
-
-        Asset selected = matchingAssets.get(0);
-        this.selectedAsset = selected;
-        this.selectedAssetIsArchive = isArchiveAsset(selected);
-
-        int build = Math.toIntExact(latest.id());
-        setLatestBuildInfo(tagName, build, selected.browserDownloadUrl());
+        loadFromTags();
     }
 
     @Override
@@ -298,8 +281,106 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private String buildUrl() {
-        return String.format(API_TEMPLATE, owner, repository);
+    private void processRelease(Release latest) throws IOException, AssetSelectionRequiredException {
+        String tagName = trimToNull(latest.tagName());
+        if (tagName == null) {
+            throw new IOException("Latest release for " + owner + "/" + repository + " is missing a tag name");
+        }
+
+        List<Asset> assets = latest.assets();
+        List<Asset> matchingAssets = findMatchingAssets(tagName, assets);
+
+        if (matchingAssets.isEmpty()) {
+            Asset zipball = assets.isEmpty() ? buildArchiveAsset(tagName) : null;
+            if (zipball != null) {
+                setArchiveSelection(zipball);
+                int build = Math.toIntExact(latest.id());
+                setLatestBuildInfo(tagName, build, zipball.browserDownloadUrl());
+                return;
+            }
+
+            throw new IOException("No asset download URL"
+                    + (assetPattern != null ? " matching pattern " + assetPattern.pattern() : "")
+                    + " for release " + tagName);
+        }
+
+        Asset selected = matchingAssets.get(0);
+        setSelection(selected);
+
+        int build = Math.toIntExact(latest.id());
+        setLatestBuildInfo(tagName, build, selected.browserDownloadUrl());
+    }
+
+    private void loadFromTags() throws IOException {
+        Tag[] tagArray = getJson(buildTagsUrl(), Tag[].class);
+        List<Tag> tags = tagArray != null ? List.of(tagArray) : List.of();
+        if (tags.isEmpty()) {
+            throw new IOException("No releases or tags returned for " + owner + "/" + repository);
+        }
+
+        Tag latestTag = tags.get(0);
+        String tagName = trimToNull(latestTag.name());
+        if (tagName == null) {
+            throw new IOException("Latest tag for " + owner + "/" + repository + " is missing a name");
+        }
+
+        Asset archiveAsset = buildArchiveAsset(tagName);
+        if (archiveAsset == null) {
+            throw new IOException("Unable to determine download URL for tag " + tagName);
+        }
+
+        setArchiveSelection(archiveAsset);
+
+        int build = buildNumberFromSha(latestTag.commit());
+        setLatestBuildInfo(tagName, build, archiveAsset.browserDownloadUrl());
+    }
+
+    private void setSelection(Asset selected) {
+        this.selectedAsset = selected;
+        this.selectedAssetIsArchive = isArchiveAsset(selected);
+    }
+
+    private void setArchiveSelection(Asset asset) {
+        this.selectedAsset = asset;
+        this.selectedAssetIsArchive = true;
+    }
+
+    private Asset buildArchiveAsset(String tagName) {
+        String archiveUrl = buildArchiveUrl(tagName);
+        if (archiveUrl == null) {
+            return null;
+        }
+        return new Asset(tagName + ".zip", archiveUrl);
+    }
+
+    private int buildNumberFromSha(TagCommit commit) {
+        if (commit == null) {
+            return 1;
+        }
+        String sha = trimToNull(commit.sha());
+        if (sha == null) {
+            return 1;
+        }
+        String shortSha = sha.length() > 8 ? sha.substring(0, 8) : sha;
+        try {
+            long value = Long.parseUnsignedLong(shortSha, 16);
+            int build = (int) (value & 0x7fffffffL);
+            return build == 0 ? 1 : build;
+        } catch (NumberFormatException ex) {
+            return 1;
+        }
+    }
+
+    private String buildArchiveUrl(String tagName) {
+        return String.format("https://github.com/%s/%s/archive/refs/tags/%s.zip", owner, repository, tagName);
+    }
+
+    private String buildReleasesUrl() {
+        return String.format(RELEASES_API_TEMPLATE, owner, repository);
+    }
+
+    private String buildTagsUrl() {
+        return String.format(TAGS_API_TEMPLATE, owner, repository);
     }
 
     private record Release(
@@ -324,6 +405,17 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
             name = trimToNull(name);
             browserDownloadUrl = trimToNull(browserDownloadUrl);
         }
+    }
+
+    private record Tag(
+            @JsonProperty("name") String name,
+            @JsonProperty("commit") TagCommit commit
+    ) {
+    }
+
+    private record TagCommit(
+            @JsonProperty("sha") String sha
+    ) {
     }
 
     private static final class GithubArchiveDownloadProcessor implements DownloadProcessor {
