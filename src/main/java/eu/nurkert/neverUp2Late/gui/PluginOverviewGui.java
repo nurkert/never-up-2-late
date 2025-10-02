@@ -68,6 +68,8 @@ public class PluginOverviewGui implements Listener {
     public void open(Player player) {
         if (!context.isPluginLifecycleEnabled()) {
             player.sendMessage(ChatColor.YELLOW + "Die Plugin-Verwaltung ist deaktiviert. Aktiviere sie in den Einstellungen.");
+            settingsGui.open(player);
+            return;
         }
         openOverview(player);
     }
