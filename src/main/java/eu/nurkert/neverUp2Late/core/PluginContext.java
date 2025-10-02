@@ -4,6 +4,7 @@ import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
@@ -22,6 +23,7 @@ public class PluginContext {
     private final InstallationHandler installationHandler;
     private final eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry;
     private final PluginLifecycleManager pluginLifecycleManager;
+    private final PluginUpdateSettingsRepository pluginUpdateSettingsRepository;
 
     public PluginContext(JavaPlugin plugin,
                          BukkitScheduler scheduler,
@@ -30,7 +32,8 @@ public class PluginContext {
                          UpdateHandler updateHandler,
                          InstallationHandler installationHandler,
                          eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry,
-                         PluginLifecycleManager pluginLifecycleManager) {
+                         PluginLifecycleManager pluginLifecycleManager,
+                         PluginUpdateSettingsRepository pluginUpdateSettingsRepository) {
         this.plugin = plugin;
         this.scheduler = scheduler;
         this.configuration = configuration;
@@ -39,6 +42,7 @@ public class PluginContext {
         this.installationHandler = installationHandler;
         this.updateSourceRegistry = updateSourceRegistry;
         this.pluginLifecycleManager = pluginLifecycleManager;
+        this.pluginUpdateSettingsRepository = pluginUpdateSettingsRepository;
     }
 
     public JavaPlugin getPlugin() {
@@ -71,5 +75,9 @@ public class PluginContext {
 
     public PluginLifecycleManager getPluginLifecycleManager() {
         return pluginLifecycleManager;
+    }
+
+    public PluginUpdateSettingsRepository getPluginUpdateSettingsRepository() {
+        return pluginUpdateSettingsRepository;
     }
 }

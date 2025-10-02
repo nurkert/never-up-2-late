@@ -17,6 +17,7 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import eu.nurkert.neverUp2Late.persistence.LegacyConfigMigrator;
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository;
 
 public final class NeverUp2Late extends JavaPlugin {
@@ -35,6 +36,7 @@ public final class NeverUp2Late extends JavaPlugin {
         }
 
         PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(updateStateRepository);
+        PluginUpdateSettingsRepository updateSettingsRepository = PluginUpdateSettingsRepository.forPlugin(this);
         boolean lifecycleEnabled = configuration.getBoolean("pluginLifecycle.autoManage", false);
         PluginLifecycleManager pluginLifecycleManager = null;
         if (lifecycleEnabled) {
@@ -48,7 +50,7 @@ public final class NeverUp2Late extends JavaPlugin {
             getLogger().fine("Plugin lifecycle management is disabled (pluginLifecycle.autoManage=false).");
         }
 
-        InstallationHandler installationHandler = new InstallationHandler(this, pluginLifecycleManager);
+        InstallationHandler installationHandler = new InstallationHandler(this, pluginLifecycleManager, updateSettingsRepository);
         UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
         ArtifactDownloader artifactDownloader = new ArtifactDownloader();
         VersionComparator versionComparator = new VersionComparator();
@@ -61,7 +63,9 @@ public final class NeverUp2Late extends JavaPlugin {
                 installationHandler,
                 updateSourceRegistry,
                 artifactDownloader,
-                versionComparator
+                versionComparator,
+                pluginLifecycleManager,
+                updateSettingsRepository
         );
 
         context = new PluginContext(
@@ -72,7 +76,8 @@ public final class NeverUp2Late extends JavaPlugin {
                 updateHandler,
                 installationHandler,
                 updateSourceRegistry,
-                pluginLifecycleManager
+                pluginLifecycleManager,
+                updateSettingsRepository
         );
 
         updateHandler.start();

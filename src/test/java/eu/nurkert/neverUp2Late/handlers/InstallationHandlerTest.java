@@ -91,7 +91,7 @@ class InstallationHandlerTest {
         StubLifecycleManager lifecycleManager = new StubLifecycleManager();
         lifecycleManager.reloadResult = true;
 
-        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager);
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null);
         UpdateCompletedEvent event = createEvent();
 
         handler.onUpdateCompleted(event);
@@ -112,7 +112,7 @@ class InstallationHandlerTest {
         StubLifecycleManager lifecycleManager = new StubLifecycleManager();
         lifecycleManager.reloadResult = false;
 
-        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager);
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null);
 
         handler.onUpdateCompleted(createEvent());
 
@@ -147,7 +147,7 @@ class InstallationHandlerTest {
     }
 
     private UpdateCompletedEvent createEvent() {
-        UpdateSource source = new UpdateSource("test", null, TargetDirectory.PLUGINS, "test.jar");
+        UpdateSource source = new UpdateSource("test", null, TargetDirectory.PLUGINS, "test.jar", null);
         return new UpdateCompletedEvent(source, Path.of("plugins/test.jar"), "1.0", 1, Path.of("plugins/test.jar"), "");
     }
 
