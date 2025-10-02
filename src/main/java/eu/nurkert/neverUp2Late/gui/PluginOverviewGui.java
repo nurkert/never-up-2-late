@@ -52,6 +52,7 @@ public class PluginOverviewGui implements Listener {
     private static final int DETAIL_ENABLE_SLOT = 12;
     private static final int DETAIL_LOAD_SLOT = 14;
     private static final int DETAIL_LINK_SLOT = 16;
+    private static final int DETAIL_DISABLE_SLOT = 18;
     private static final int DETAIL_UPDATE_SLOT = 20;
     private static final int DETAIL_RENAME_SLOT = 21;
     private static final int DETAIL_REMOVE_SLOT = 22;
@@ -133,6 +134,7 @@ public class PluginOverviewGui implements Listener {
         inventory.setItem(DETAIL_ENABLE_SLOT, createEnableItem(plugin));
         inventory.setItem(DETAIL_LOAD_SLOT, createLoadItem(plugin));
         inventory.setItem(DETAIL_LINK_SLOT, createLinkItem(plugin));
+        inventory.setItem(DETAIL_DISABLE_SLOT, createDisableUpdatesItem(plugin));
         inventory.setItem(DETAIL_UPDATE_SLOT, createUpdateSettingsItem(plugin));
         inventory.setItem(DETAIL_RENAME_SLOT, createRenameItem(plugin));
         inventory.setItem(DETAIL_REMOVE_SLOT, createRemoveItem(plugin));
@@ -273,6 +275,41 @@ public class PluginOverviewGui implements Listener {
                     ChatColor.GRAY + "Klicke, um eine neue Download-URL einzugeben.",
                     ChatColor.GRAY + "Eigene Links ermöglichen Installation und Updates."
             ));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createDisableUpdatesItem(ManagedPlugin plugin) {
+        Optional<UpdateSource> source = findMatchingSource(plugin);
+        PluginUpdateSettings settings = readSettings(plugin);
+
+        Material material = source.isPresent() ? Material.BARRIER : Material.LIME_DYE;
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            if (source.isPresent()) {
+                meta.setDisplayName(ChatColor.RED + "Automatische Updates deaktivieren");
+                List<String> lore = new ArrayList<>();
+                lore.add(ChatColor.GRAY + "Entfernt die Update-Quelle aus NU2L.");
+                lore.add(ChatColor.GRAY + "Das Plugin bleibt installiert.");
+                String sourceName = source.get().getName();
+                if (sourceName != null && !sourceName.isBlank()) {
+                    lore.add(ChatColor.DARK_GRAY + "Quelle: " + ChatColor.AQUA + sourceName);
+                }
+                lore.add(ChatColor.YELLOW + "Klicken, um Updates zu deaktivieren.");
+                meta.setLore(lore);
+            } else {
+                meta.setDisplayName(ChatColor.GREEN + "Keine Update-Verknüpfung aktiv");
+                List<String> lore = new ArrayList<>();
+                if (!settings.autoUpdateEnabled()) {
+                    lore.add(ChatColor.GRAY + "Automatische Updates sind deaktiviert.");
+                } else {
+                    lore.add(ChatColor.GRAY + "Dieses Plugin wird aktuell nicht automatisch aktualisiert.");
+                }
+                lore.add(ChatColor.GRAY + "Nutze \"Update-Link festlegen\", um Updates zu aktivieren.");
+                meta.setLore(lore);
+            }
             item.setItemMeta(meta);
         }
         return item;
@@ -596,6 +633,10 @@ public class PluginOverviewGui implements Listener {
             beginLinking(player, plugin);
             return;
         }
+        if (slot == DETAIL_DISABLE_SLOT) {
+            disableAutoUpdates(player, plugin);
+            return;
+        }
         if (slot == DETAIL_UPDATE_SLOT) {
             if (event.isRightClick()) {
                 toggleFilenameRetention(player, plugin);
@@ -725,6 +766,14 @@ public class PluginOverviewGui implements Listener {
         } else {
             player.sendMessage(ChatColor.YELLOW + "Entfernen abgebrochen.");
         }
+    }
+
+    private void disableAutoUpdates(Player player, ManagedPlugin plugin) {
+        if (!checkPermission(player, Permissions.GUI_MANAGE_LINK)) {
+            return;
+        }
+        coordinator.disableAutomaticUpdates(player, plugin);
+        openPluginDetails(player, plugin);
     }
 
     private void beginRename(Player player, ManagedPlugin plugin) {
