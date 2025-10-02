@@ -13,15 +13,25 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import eu.nurkert.neverUp2Late.persistence.LegacyConfigMigrator;
+import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository;
+
 public final class NeverUp2Late extends JavaPlugin {
 
     private PluginContext context;
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();
         FileConfiguration configuration = getConfig();
 
-        PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(this);
+        UpdateStateRepository updateStateRepository = UpdateStateRepository.forPlugin(this);
+        LegacyConfigMigrator migrator = new LegacyConfigMigrator(configuration, updateStateRepository, getLogger());
+        if (migrator.migrate()) {
+            saveConfig();
+        }
+
+        PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(updateStateRepository);
         InstallationHandler installationHandler = new InstallationHandler(this);
         UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
         ArtifactDownloader artifactDownloader = new ArtifactDownloader();
