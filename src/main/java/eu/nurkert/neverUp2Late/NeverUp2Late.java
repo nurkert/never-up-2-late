@@ -79,7 +79,7 @@ public final class NeverUp2Late extends JavaPlugin {
         getServer().getPluginManager().registerEvents(installationHandler, this);
 
         QuickInstallCoordinator coordinator = new QuickInstallCoordinator(context);
-        PluginOverviewGui overviewGui = new PluginOverviewGui(context);
+        PluginOverviewGui overviewGui = new PluginOverviewGui(context, coordinator);
         NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator, overviewGui);
         PluginCommand pluginCommand = getCommand("nu2l");
         if (pluginCommand != null) {
@@ -88,6 +88,8 @@ public final class NeverUp2Late extends JavaPlugin {
         } else {
             getLogger().warning("Failed to register /nu2l command; entry missing in plugin.yml");
         }
+
+        getServer().getPluginManager().registerEvents(overviewGui, this);
     }
 
     @Override
