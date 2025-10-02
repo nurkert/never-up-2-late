@@ -7,6 +7,8 @@ import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
+import eu.nurkert.neverUp2Late.plugin.PluginManagerApi;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.VersionComparator;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -32,7 +34,14 @@ public final class NeverUp2Late extends JavaPlugin {
         }
 
         PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(updateStateRepository);
-        InstallationHandler installationHandler = new InstallationHandler(this);
+        PluginLifecycleManager pluginLifecycleManager = new PluginManagerApi(
+                getServer().getPluginManager(),
+                getDataFolder().getParentFile(),
+                getLogger()
+        );
+        pluginLifecycleManager.registerLoadedPlugins(this);
+
+        InstallationHandler installationHandler = new InstallationHandler(this, pluginLifecycleManager);
         UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
         ArtifactDownloader artifactDownloader = new ArtifactDownloader();
         VersionComparator versionComparator = new VersionComparator();
@@ -55,7 +64,8 @@ public final class NeverUp2Late extends JavaPlugin {
                 persistentPluginHandler,
                 updateHandler,
                 installationHandler,
-                updateSourceRegistry
+                updateSourceRegistry,
+                pluginLifecycleManager
         );
 
         updateHandler.start();

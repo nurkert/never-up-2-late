@@ -1,6 +1,7 @@
 package eu.nurkert.neverUp2Late.handlers;
 
 import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
@@ -15,10 +16,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InstallationHandlerTest {
 
@@ -75,6 +78,46 @@ class InstallationHandlerTest {
 
         secondHandler.onUpdateCompleted(createEvent());
         assertEquals(0, secondShutdownCalls.get(), "Cooldown should prevent immediate restart loop");
+    }
+
+    @Test
+    void skipsRestartWhenReloadSucceeds() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Collection<Player> players = new ArrayList<>();
+        Logger logger = Logger.getLogger("test");
+
+        Server server = createServer(players, shutdownCalls, logger);
+        RestartCooldownRepository repository = createRepository(logger);
+        StubLifecycleManager lifecycleManager = new StubLifecycleManager();
+        lifecycleManager.reloadResult = true;
+
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager);
+        UpdateCompletedEvent event = createEvent();
+
+        handler.onUpdateCompleted(event);
+
+        assertTrue(lifecycleManager.reloadCalled, "Plugin reload should be attempted");
+        assertEquals(0, shutdownCalls.get(), "Server restart should be skipped when reload succeeds");
+        assertEquals(event.getDestination(), lifecycleManager.lastReloadPath);
+    }
+
+    @Test
+    void restartsWhenReloadFails() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Collection<Player> players = new ArrayList<>();
+        Logger logger = Logger.getLogger("test");
+
+        Server server = createServer(players, shutdownCalls, logger);
+        RestartCooldownRepository repository = createRepository(logger);
+        StubLifecycleManager lifecycleManager = new StubLifecycleManager();
+        lifecycleManager.reloadResult = false;
+
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager);
+
+        handler.onUpdateCompleted(createEvent());
+
+        assertTrue(lifecycleManager.reloadCalled, "Plugin reload should be attempted");
+        assertEquals(1, shutdownCalls.get(), "Server restart should occur when reload fails");
     }
 
     private RestartCooldownRepository createRepository(Logger logger) throws IOException {
@@ -148,5 +191,67 @@ class InstallationHandlerTest {
             return '\0';
         }
         throw new IllegalStateException("Unsupported primitive type: " + returnType);
+    }
+
+    private static class StubLifecycleManager implements PluginLifecycleManager {
+        boolean reloadCalled;
+        boolean reloadResult;
+        Path lastReloadPath;
+
+        @Override
+        public void registerPlugin(org.bukkit.plugin.Plugin plugin) {
+        }
+
+        @Override
+        public void registerLoadedPlugins(org.bukkit.plugin.Plugin self) {
+        }
+
+        @Override
+        public Collection<eu.nurkert.neverUp2Late.plugin.ManagedPlugin> getManagedPlugins() {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public java.util.Optional<eu.nurkert.neverUp2Late.plugin.ManagedPlugin> findByName(String name) {
+            return java.util.Optional.empty();
+        }
+
+        @Override
+        public java.util.Optional<eu.nurkert.neverUp2Late.plugin.ManagedPlugin> findByPath(Path path) {
+            return java.util.Optional.empty();
+        }
+
+        @Override
+        public boolean reloadPlugin(String name) {
+            reloadCalled = true;
+            return reloadResult;
+        }
+
+        @Override
+        public boolean reloadPlugin(Path path) {
+            reloadCalled = true;
+            lastReloadPath = path;
+            return reloadResult;
+        }
+
+        @Override
+        public boolean enablePlugin(String name) {
+            return false;
+        }
+
+        @Override
+        public boolean disablePlugin(String name) {
+            return false;
+        }
+
+        @Override
+        public boolean unloadPlugin(String name) {
+            return false;
+        }
+
+        @Override
+        public boolean loadPlugin(Path path) {
+            return false;
+        }
     }
 }

@@ -3,6 +3,7 @@ package eu.nurkert.neverUp2Late.core;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
@@ -20,6 +21,7 @@ public class PluginContext {
     private final UpdateHandler updateHandler;
     private final InstallationHandler installationHandler;
     private final eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry;
+    private final PluginLifecycleManager pluginLifecycleManager;
 
     public PluginContext(JavaPlugin plugin,
                          BukkitScheduler scheduler,
@@ -27,7 +29,8 @@ public class PluginContext {
                          PersistentPluginHandler persistentPluginHandler,
                          UpdateHandler updateHandler,
                          InstallationHandler installationHandler,
-                         eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry) {
+                         eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry,
+                         PluginLifecycleManager pluginLifecycleManager) {
         this.plugin = plugin;
         this.scheduler = scheduler;
         this.configuration = configuration;
@@ -35,6 +38,7 @@ public class PluginContext {
         this.updateHandler = updateHandler;
         this.installationHandler = installationHandler;
         this.updateSourceRegistry = updateSourceRegistry;
+        this.pluginLifecycleManager = pluginLifecycleManager;
     }
 
     public JavaPlugin getPlugin() {
@@ -63,5 +67,9 @@ public class PluginContext {
 
     public eu.nurkert.neverUp2Late.update.UpdateSourceRegistry getUpdateSourceRegistry() {
         return updateSourceRegistry;
+    }
+
+    public PluginLifecycleManager getPluginLifecycleManager() {
+        return pluginLifecycleManager;
     }
 }

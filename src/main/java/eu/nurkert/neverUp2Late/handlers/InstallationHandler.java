@@ -1,8 +1,12 @@
 package eu.nurkert.neverUp2Late.handlers;
 
 import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
+import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
 import eu.nurkert.neverUp2Late.update.UpdateCompletionListener;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import org.bukkit.Server;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -22,16 +26,29 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     private final List<PostUpdateAction> actions = new CopyOnWriteArrayList<>();
     private volatile UpdateCompletedEvent pendingEvent;
 
-    public InstallationHandler(JavaPlugin plugin) {
+    public InstallationHandler(JavaPlugin plugin, PluginLifecycleManager pluginLifecycleManager) {
         this(
                 plugin.getServer(),
                 new RestartCooldownRepository(plugin.getDataFolder(), plugin.getLogger()),
-                plugin.getLogger()
+                plugin.getLogger(),
+                pluginLifecycleManager
         );
     }
 
-    public InstallationHandler(Server server, RestartCooldownRepository restartCooldownRepository, Logger logger) {
+    public InstallationHandler(Server server,
+                               RestartCooldownRepository restartCooldownRepository,
+                               Logger logger) {
+        this(server, restartCooldownRepository, logger, null);
+    }
+
+    public InstallationHandler(Server server,
+                               RestartCooldownRepository restartCooldownRepository,
+                               Logger logger,
+                               PluginLifecycleManager pluginLifecycleManager) {
         this.server = server;
+        if (pluginLifecycleManager != null) {
+            actions.add(new PluginReloadAction(pluginLifecycleManager, logger));
+        }
         registerAction(new ServerRestartAction(server, restartCooldownRepository, logger));
     }
 
@@ -60,7 +77,10 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     private void executeActions(UpdateCompletedEvent event) {
         for (PostUpdateAction action : actions) {
             try {
-                action.execute(event);
+                boolean shouldContinue = action.execute(event);
+                if (!shouldContinue) {
+                    break;
+                }
             } catch (Exception ex) {
                 server.getLogger().log(Level.SEVERE, "Failed to execute post update action " + action, ex);
             }
@@ -68,7 +88,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     }
 
     public interface PostUpdateAction {
-        void execute(UpdateCompletedEvent event) throws Exception;
+        boolean execute(UpdateCompletedEvent event) throws Exception;
     }
 
     public static class ServerRestartAction implements PostUpdateAction {
@@ -88,7 +108,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
         }
 
         @Override
-        public void execute(UpdateCompletedEvent event) {
+        public boolean execute(UpdateCompletedEvent event) {
             long now = System.currentTimeMillis();
 
             while (true) {
@@ -109,7 +129,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                                     seconds
                             )
                     );
-                    return;
+                    return false;
                 }
 
                 if (lastRestartTime.compareAndSet(lastRestart, now)) {
@@ -120,11 +140,57 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
 
             logger.log(Level.INFO, "Restarting server to complete plugin update.");
             server.shutdown();
+            return false;
         }
 
         @Override
         public String toString() {
             return "ServerRestartAction";
+        }
+    }
+
+    static class PluginReloadAction implements PostUpdateAction {
+        private final PluginLifecycleManager lifecycleManager;
+        private final Logger logger;
+
+        PluginReloadAction(PluginLifecycleManager lifecycleManager, Logger logger) {
+            this.lifecycleManager = lifecycleManager;
+            this.logger = logger;
+        }
+
+        @Override
+        public boolean execute(UpdateCompletedEvent event) {
+            UpdateSource source = event.getSource();
+            if (source == null || source.getTargetDirectory() != TargetDirectory.PLUGINS) {
+                return true;
+            }
+            if (event.getDestination() == null) {
+                return true;
+            }
+            try {
+                boolean reloaded = lifecycleManager.reloadPlugin(event.getDestination());
+                if (reloaded) {
+                    if (logger != null) {
+                        logger.log(Level.INFO,
+                                "Reloaded plugin from {0} without requiring a server restart.",
+                                event.getDestination());
+                    }
+                    return false;
+                }
+            } catch (PluginLifecycleException ex) {
+                if (logger != null) {
+                    logger.log(Level.WARNING,
+                            "Failed to reload plugin from {0}: {1}",
+                            new Object[]{event.getDestination(), ex.getMessage()});
+                    logger.log(Level.FINE, "Plugin reload failure", ex);
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "PluginReloadAction";
         }
     }
 }
