@@ -147,7 +147,10 @@ public class QuickInstallCoordinator {
 
         AssetSelectionRequiredException.ReleaseAsset asset = pending.assets().get(index - 1);
         String assetName = assetLabel(asset);
-        String pattern = AssetPatternBuilder.build(assetName);
+        List<String> candidateNames = pending.assets().stream()
+                .map(this::assetLabel)
+                .toList();
+        String pattern = AssetPatternBuilder.build(assetName, candidateNames);
 
         pending.plan().getOptions().put("assetPattern", pattern);
         pendingSelections.remove(key);

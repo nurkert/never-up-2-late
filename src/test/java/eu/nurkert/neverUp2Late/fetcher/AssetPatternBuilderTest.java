@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.fetcher;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -29,5 +30,16 @@ class AssetPatternBuilderTest {
     @Test
     void rejectsBlankInput() {
         assertThrows(IllegalArgumentException.class, () -> AssetPatternBuilder.build("   "));
+    }
+
+    @Test
+    void keepsSelectedVariantDistinctFromOtherAssets() {
+        String selected = "DynamicLights-1.3.0-FOR-MC1.20.jar";
+        String pattern = AssetPatternBuilder.build(selected,
+                List.of(selected, "DynamicLights-1.3.0-FOR-MC1.19.jar"));
+
+        Pattern compiled = Pattern.compile(pattern);
+        assertTrue(compiled.matcher("DynamicLights-1.4.0-FOR-MC1.20.jar").matches());
+        assertFalse(compiled.matcher("DynamicLights-1.4.0-FOR-MC1.19.jar").matches());
     }
 }
