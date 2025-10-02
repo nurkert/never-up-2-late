@@ -48,6 +48,19 @@ public class QuickInstallCoordinator {
     private final Logger logger;
     private final String messagePrefix;
     private final Map<String, PendingSelection> pendingSelections = new ConcurrentHashMap<>();
+    private static final Set<String> GENERIC_FILENAMES = Set.of(
+            "download",
+            "latest",
+            "paper",
+            "spigot",
+            "folia",
+            "velocity",
+            "waterfall",
+            "bungeecord",
+            "purpur",
+            "server",
+            "plugin"
+    );
 
     public QuickInstallCoordinator(PluginContext context) {
         this.plugin = context.getPlugin();
@@ -565,6 +578,14 @@ public class QuickInstallCoordinator {
             }
             if (!candidate.contains(".")) {
                 candidate = candidate + ".jar";
+            }
+            String candidateBase = candidate;
+            int dotIndex = candidateBase.indexOf('.');
+            if (dotIndex > 0) {
+                candidateBase = candidateBase.substring(0, dotIndex);
+            }
+            if (GENERIC_FILENAMES.contains(candidateBase.toLowerCase(Locale.ROOT))) {
+                return fallback;
             }
             return candidate;
         } catch (Exception e) {
