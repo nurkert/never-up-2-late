@@ -35,6 +35,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
     private final boolean preferPrimaryFile;
     private final boolean requireBuildNumber;
     private final String installedPluginName;
+    private final String maxGameVersion;
 
     public ModrinthFetcher(ConfigurationSection options) {
         this(Config.fromConfiguration(options));
@@ -56,6 +57,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         this.preferPrimaryFile = config.preferPrimaryFile;
         this.requireBuildNumber = config.requireBuildNumber;
         this.installedPluginName = config.installedPluginName;
+        this.maxGameVersion = config.maxGameVersion;
     }
 
     @Override
@@ -113,6 +115,9 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
     }
 
     private String determineTargetGameVersion(Collection<VersionResponse> versions) throws IOException {
+        Comparator<String> comparator = semanticVersionComparator();
+        String maximumGameVersion = determineMaximumGameVersion();
+
         if (preferredGameVersions.isEmpty()) {
             Set<String> available = versions.stream()
                     .flatMap(version -> version.gameVersions().stream())
@@ -122,7 +127,10 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             if (available.isEmpty()) {
                 return null;
             }
-            return requireLatestVersion(available);
+
+            Set<String> compatible = filterByMaximumVersion(available, maximumGameVersion, comparator);
+            Set<String> candidates = compatible.isEmpty() ? available : compatible;
+            return requireLatestVersion(candidates);
         }
 
         Set<String> matching = versions.stream()
@@ -135,7 +143,49 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             throw new IOException("No game versions available matching preferences " + preferredGameVersions);
         }
 
-        return requireLatestVersion(matching);
+        Set<String> compatible = filterByMaximumVersion(matching, maximumGameVersion, comparator);
+        Set<String> candidates = compatible.isEmpty() ? matching : compatible;
+        return requireLatestVersion(candidates);
+    }
+
+    private Set<String> filterByMaximumVersion(Set<String> versions, String maximum, Comparator<String> comparator) {
+        if (maximum == null || versions.isEmpty()) {
+            return versions;
+        }
+        return versions.stream()
+                .filter(version -> comparator.compare(version, maximum) <= 0)
+                .collect(Collectors.toSet());
+    }
+
+    private String determineMaximumGameVersion() {
+        if (maxGameVersion != null) {
+            return maxGameVersion;
+        }
+
+        String serverVersion = extractServerGameVersion();
+        return normalize(serverVersion);
+    }
+
+    private String extractServerGameVersion() {
+        try {
+            String fullVersion = Bukkit.getVersion();
+            if (fullVersion == null) {
+                return null;
+            }
+
+            int start = fullVersion.indexOf("MC: ");
+            if (start == -1) {
+                return fullVersion;
+            }
+
+            int end = fullVersion.indexOf(')', start);
+            if (end == -1) {
+                return fullVersion.substring(start + 4).trim();
+            }
+            return fullVersion.substring(start + 4, end).trim();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     private int resolveBuildNumber(VersionResponse version) throws IOException {
@@ -252,6 +302,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         private final boolean preferPrimaryFile;
         private final boolean requireBuildNumber;
         private final String installedPluginName;
+        private final String maxGameVersion;
 
         private Config(ConfigBuilder builder) {
             this.projectSlug = Objects.requireNonNull(trimToNull(builder.projectSlug), "projectSlug");
@@ -262,6 +313,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             this.preferPrimaryFile = builder.preferPrimaryFile;
             this.requireBuildNumber = builder.requireBuildNumber;
             this.installedPluginName = trimToNull(builder.installedPluginName);
+            this.maxGameVersion = builder.maxGameVersion;
         }
 
         public static Config fromConfiguration(ConfigurationSection options) {
@@ -275,6 +327,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             builder.preferPrimaryFile(options.getBoolean("preferPrimaryFile", true));
             builder.requireBuildNumber(options.getBoolean("requireBuildNumber", false));
             builder.installedPlugin(options.getString("installedPlugin"));
+            builder.maxGameVersion(options.getString("maxGameVersion"));
             return builder.build();
         }
 
@@ -296,6 +349,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         private boolean preferPrimaryFile = true;
         private boolean requireBuildNumber = false;
         private String installedPluginName;
+        private String maxGameVersion;
 
         private ConfigBuilder(String projectSlug) {
             this.projectSlug = projectSlug;
@@ -333,6 +387,11 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
 
         public ConfigBuilder installedPlugin(String installedPlugin) {
             this.installedPluginName = installedPlugin;
+            return this;
+        }
+
+        public ConfigBuilder maxGameVersion(String maxGameVersion) {
+            this.maxGameVersion = normalize(maxGameVersion);
             return this;
         }
 

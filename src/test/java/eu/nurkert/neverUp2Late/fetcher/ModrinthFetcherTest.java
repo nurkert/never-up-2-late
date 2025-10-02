@@ -147,6 +147,49 @@ class ModrinthFetcherTest {
         assertEquals("https://example.com/1.5.0.jar", fetcher.getLatestDownloadUrl());
     }
 
+    @Test
+    void limitsGameVersionToConfiguredMaximum() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.modrinth.com/v2/project/geyser/version",
+                """
+                        [
+                          {
+                            \"id\": \"1\",
+                            \"version_number\": \"2.1.0\",
+                            \"status\": \"listed\",
+                            \"date_published\": \"2024-10-01T10:15:30Z\",
+                            \"game_versions\": [\"1.21.9\"],
+                            \"loaders\": [\"paper\"],
+                            \"files\": [
+                              { \"url\": \"https://example.com/2.1.0.jar\", \"primary\": true }
+                            ]
+                          },
+                          {
+                            \"id\": \"2\",
+                            \"version_number\": \"2.0.0\",
+                            \"status\": \"listed\",
+                            \"date_published\": \"2024-09-15T10:15:30Z\",
+                            \"game_versions\": [\"1.21.8\"],
+                            \"loaders\": [\"paper\"],
+                            \"files\": [
+                              { \"url\": \"https://example.com/2.0.0.jar\", \"primary\": true }
+                            ]
+                          }
+                        ]
+                        """);
+
+        ModrinthFetcher.Config config = ModrinthFetcher.builder("geyser")
+                .loaders(List.of("paper"))
+                .maxGameVersion("1.21.8")
+                .build();
+
+        ModrinthFetcher fetcher = new ModrinthFetcher(config, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("2.0.0", fetcher.getLatestVersion());
+        assertEquals("https://example.com/2.0.0.jar", fetcher.getLatestDownloadUrl());
+    }
+
     private static class StubHttpClient extends HttpClient {
         private final Map<String, String> responses;
 
