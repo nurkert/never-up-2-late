@@ -60,6 +60,7 @@ public class InitialSetupManager implements Listener {
     private static final int DOWNLOAD_CONTINUE_SLOT = 15;
     private static final int RESTART_NOW_SLOT = 11;
     private static final int RESTART_LATER_SLOT = 15;
+    private static final int[] STAGE_HEADER_SLOTS = {0, 1, 2};
 
     private final PluginContext context;
     private final SetupStateRepository setupStateRepository;
@@ -245,6 +246,9 @@ public class InitialSetupManager implements Listener {
         }
         SetupSession session = sessions.get(player.getUniqueId());
         if (session != null && session.inventory != null && session.inventory.equals(event.getInventory())) {
+            if (session.awaitingInput) {
+                return;
+            }
             sessions.remove(player.getUniqueId());
         }
     }
@@ -264,6 +268,7 @@ public class InitialSetupManager implements Listener {
     }
 
     private void rebuildInventory(Player player, SetupSession session) {
+        session.awaitingInput = false;
         switch (session.stage) {
             case CONFIGURE -> buildConfigureInventory(player, session);
             case DOWNLOAD -> buildDownloadInventory(player, session);
@@ -272,11 +277,8 @@ public class InitialSetupManager implements Listener {
     }
 
     private void buildConfigureInventory(Player player, SetupSession session) {
-        Inventory inventory = Bukkit.createInventory(null, INVENTORY_SIZE, ChatColor.DARK_PURPLE + "NU2L Setup – Quellen");
-        ItemStack filler = createFiller();
-        for (int slot = 0; slot < INVENTORY_SIZE; slot++) {
-            inventory.setItem(slot, filler);
-        }
+        session.awaitingInput = false;
+        Inventory inventory = createStageInventory(Stage.CONFIGURE, ChatColor.DARK_PURPLE + "NU2L Setup – Quellen");
 
         ItemStack info = new ItemStack(Material.WRITABLE_BOOK);
         ItemMeta meta = info.getItemMeta();
@@ -326,11 +328,8 @@ public class InitialSetupManager implements Listener {
     }
 
     private void buildDownloadInventory(Player player, SetupSession session) {
-        Inventory inventory = Bukkit.createInventory(null, INVENTORY_SIZE, ChatColor.DARK_PURPLE + "NU2L Setup – Downloads");
-        ItemStack filler = createFiller();
-        for (int slot = 0; slot < INVENTORY_SIZE; slot++) {
-            inventory.setItem(slot, filler);
-        }
+        session.awaitingInput = false;
+        Inventory inventory = createStageInventory(Stage.DOWNLOAD, ChatColor.DARK_PURPLE + "NU2L Setup – Downloads");
 
         ItemStack info = new ItemStack(Material.MAP);
         ItemMeta meta = info.getItemMeta();
@@ -377,11 +376,8 @@ public class InitialSetupManager implements Listener {
     }
 
     private void buildRestartInventory(Player player, SetupSession session) {
-        Inventory inventory = Bukkit.createInventory(null, INVENTORY_SIZE, ChatColor.DARK_PURPLE + "NU2L Setup – Neustart");
-        ItemStack filler = createFiller();
-        for (int slot = 0; slot < INVENTORY_SIZE; slot++) {
-            inventory.setItem(slot, filler);
-        }
+        session.awaitingInput = false;
+        Inventory inventory = createStageInventory(Stage.RESTART, ChatColor.DARK_PURPLE + "NU2L Setup – Neustart");
 
         ItemStack info = new ItemStack(Material.CLOCK);
         ItemMeta meta = info.getItemMeta();
@@ -460,8 +456,55 @@ public class InitialSetupManager implements Listener {
         return item;
     }
 
+    private Inventory createStageInventory(Stage stage, String title) {
+        Inventory inventory = Bukkit.createInventory(null, INVENTORY_SIZE, title);
+        ItemStack filler = createFiller();
+        for (int slot = 0; slot < INVENTORY_SIZE; slot++) {
+            inventory.setItem(slot, filler);
+        }
+        applyStageHeader(inventory, stage);
+        return inventory;
+    }
+
+    private void applyStageHeader(Inventory inventory, Stage activeStage) {
+        Stage[] stages = Stage.values();
+        for (int index = 0; index < stages.length && index < STAGE_HEADER_SLOTS.length; index++) {
+            Stage stage = stages[index];
+            int slot = STAGE_HEADER_SLOTS[index];
+            inventory.setItem(slot, createStageIndicator(stage, activeStage, index + 1, stages.length));
+        }
+    }
+
+    private ItemStack createStageIndicator(Stage stage, Stage activeStage, int step, int totalSteps) {
+        Material material;
+        ChatColor color;
+        if (stage == activeStage) {
+            material = Material.LIGHT_BLUE_STAINED_GLASS_PANE;
+            color = ChatColor.AQUA;
+        } else if (stage.ordinal() < activeStage.ordinal()) {
+            material = Material.LIME_STAINED_GLASS_PANE;
+            color = ChatColor.GREEN;
+        } else {
+            material = Material.GRAY_STAINED_GLASS_PANE;
+            color = ChatColor.GRAY;
+        }
+
+        ItemStack indicator = new ItemStack(material);
+        ItemMeta meta = indicator.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(color + "Schritt " + step + "/" + totalSteps + ": " + stage.title());
+            List<String> lore = new ArrayList<>();
+            for (String line : stage.description()) {
+                lore.add(ChatColor.GRAY + line);
+            }
+            meta.setLore(lore);
+            indicator.setItemMeta(meta);
+        }
+        return indicator;
+    }
+
     private ItemStack createFiller() {
-        ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemStack filler = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
         ItemMeta meta = filler.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(" ");
@@ -597,6 +640,8 @@ public class InitialSetupManager implements Listener {
     }
 
     private void promptFilename(Player player, SetupSession session, SourceConfiguration source, int slot) {
+        session.awaitingInput = true;
+
         Prompt prompt = AnvilTextPrompt.Prompt.builder()
                 .title(ChatColor.DARK_PURPLE + "Dateinamen anpassen")
                 .initialText(source.filename)
@@ -612,17 +657,32 @@ public class InitialSetupManager implements Listener {
                 .onConfirm((player1, value) -> {
                     source.filename = value.trim();
                     updateSourceDetection(source);
+                    session.awaitingInput = false;
                     session.inventory.setItem(slot, createSourceItem(source));
                     player1.sendMessage(ChatColor.GREEN + "Dateiname für " + ChatColor.AQUA
                             + source.displayName() + ChatColor.GREEN + " aktualisiert.");
+                    reopenStageInventory(player1, session);
                 })
-                .onCancel(p -> sessions.computeIfPresent(p.getUniqueId(), (uuid, s) -> {
+                .onCancel(player1 -> {
+                    session.awaitingInput = false;
                     updateSourceDetection(source);
                     session.inventory.setItem(slot, createSourceItem(source));
-                    return s;
-                }))
+                    reopenStageInventory(player1, session);
+                })
                 .build();
         anvilTextPrompt.open(player, prompt);
+    }
+
+    private void reopenStageInventory(Player player, SetupSession session) {
+        if (session.inventory == null || !player.isOnline()) {
+            return;
+        }
+        if (!Bukkit.isPrimaryThread()) {
+            plugin.getServer().getScheduler().runTask(plugin, () -> reopenStageInventory(player, session));
+            return;
+        }
+        sessions.put(player.getUniqueId(), session);
+        player.openInventory(session.inventory);
     }
 
     private void updateSourceDetection(SourceConfiguration source) {
@@ -879,9 +939,34 @@ public class InitialSetupManager implements Listener {
     }
 
     private enum Stage {
-        CONFIGURE,
-        DOWNLOAD,
-        RESTART
+        CONFIGURE("Quellen auswählen", List.of(
+                "Aktiviere Update-Quellen und passe Dateinamen an.",
+                "Alle Änderungen werden sofort gespeichert."
+        )),
+        DOWNLOAD("Downloads starten", List.of(
+                "Starte eine einmalige Aktualisierung für aktive Quellen.",
+                "Dieser Schritt stellt sicher, dass alles bereit ist."
+        )),
+        RESTART("Neustart", List.of(
+                "Aktiviere automatische Aktualisierungen.",
+                "Entscheide, ob der Server jetzt oder später neu startet."
+        ));
+
+        private final String title;
+        private final List<String> description;
+
+        Stage(String title, List<String> description) {
+            this.title = title;
+            this.description = description;
+        }
+
+        public String title() {
+            return title;
+        }
+
+        public List<String> description() {
+            return description;
+        }
     }
 
     private static final class SetupSession {
@@ -890,6 +975,7 @@ public class InitialSetupManager implements Listener {
         private final Map<Integer, SourceConfiguration> slotMapping = new HashMap<>();
         private Inventory inventory;
         private boolean downloadsTriggered;
+        private boolean awaitingInput;
 
         private SetupSession(Stage stage, List<SourceConfiguration> sources) {
             this.stage = stage;
