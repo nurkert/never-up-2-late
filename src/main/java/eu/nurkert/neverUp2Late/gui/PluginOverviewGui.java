@@ -114,13 +114,13 @@ public class PluginOverviewGui implements Listener {
 
         String trimmed = query != null ? query.trim() : "";
         if (trimmed.length() < 3) {
-            player.sendMessage(ChatColor.RED + "Bitte gib mindestens drei Zeichen ein.");
+            player.sendMessage(ChatColor.RED + "Please enter at least three characters.");
             return;
         }
 
         UUID playerId = player.getUniqueId();
         pendingInstallSearches.put(playerId, trimmed);
-        player.sendMessage(ChatColor.GRAY + "Suche nach " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
+        player.sendMessage(ChatColor.GRAY + "Searching for " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
 
         context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
             List<PluginLinkSuggestion> suggestions;
@@ -661,7 +661,7 @@ public class PluginOverviewGui implements Listener {
             return;
         }
         openStandaloneInstall(player, List.of(), null);
-        player.sendMessage(ChatColor.GRAY + "Suche nach neuen Plugins auf Modrinth oder Hangar oder gebe einen direkten Link an.");
+        player.sendMessage(ChatColor.GRAY + "Search for new plugins on Modrinth or Hangar, or provide a direct link.");
     }
 
     @EventHandler
@@ -989,7 +989,7 @@ public class PluginOverviewGui implements Listener {
                 .toList();
 
         Inventory inventory = Bukkit.createInventory(null, INSTALL_INVENTORY_SIZE,
-                ChatColor.DARK_PURPLE + "NU2L – Neues Plugin");
+                ChatColor.DARK_PURPLE + "NU2L – New plugin");
 
         ItemStack filler = createFiller();
         for (int i = 0; i < INSTALL_INVENTORY_SIZE; i++) {
@@ -1017,19 +1017,19 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.WRITTEN_BOOK);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Plugin-Suche");
+            meta.setDisplayName(ChatColor.AQUA + "Plugin search");
             List<String> lore = new ArrayList<>();
             if (searchTerm == null || searchTerm.isBlank()) {
-                lore.add(ChatColor.GRAY + "Nutze die Suche, um Modrinth oder Hangar zu durchsuchen.");
+                lore.add(ChatColor.GRAY + "Use the search to browse Modrinth or Hangar.");
             } else if (resultCount == 0) {
-                lore.add(ChatColor.YELLOW + "Keine Treffer für: " + ChatColor.WHITE + searchTerm);
-                lore.add(ChatColor.GRAY + "Passe den Suchbegriff an oder versuche einen Direktlink.");
+                lore.add(ChatColor.YELLOW + "No results for: " + ChatColor.WHITE + searchTerm);
+                lore.add(ChatColor.GRAY + "Adjust the search term or try a direct link.");
             } else {
-                lore.add(ChatColor.GREEN + "Gefundene Projekte: " + ChatColor.WHITE + resultCount);
-                lore.add(ChatColor.GRAY + "Klicke einen Eintrag, um die JAR herunterzuladen.");
+                lore.add(ChatColor.GREEN + "Projects found: " + ChatColor.WHITE + resultCount);
+                lore.add(ChatColor.GRAY + "Click an entry to download the JAR.");
             }
             lore.add(" ");
-            lore.add(ChatColor.DARK_GRAY + "Die Plugins werden nicht automatisch aktiviert.");
+            lore.add(ChatColor.DARK_GRAY + "Plugins are not activated automatically.");
             meta.setLore(lore);
             item.setItemMeta(meta);
         }
@@ -1040,13 +1040,13 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.COMPASS);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GREEN + "Plugin suchen");
+            meta.setDisplayName(ChatColor.GREEN + "Search for a plugin");
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Öffnet ein Texteingabefeld.");
-            lore.add(ChatColor.GRAY + "Suche gleichzeitig auf Modrinth und Hangar.");
+            lore.add(ChatColor.GRAY + "Opens a text input.");
+            lore.add(ChatColor.GRAY + "Searches Modrinth and Hangar simultaneously.");
             if (searchTerm != null && !searchTerm.isBlank()) {
                 lore.add(" ");
-                lore.add(ChatColor.DARK_GRAY + "Letzte Suche: " + ChatColor.WHITE + searchTerm);
+                lore.add(ChatColor.DARK_GRAY + "Last search: " + ChatColor.WHITE + searchTerm);
             }
             meta.setLore(lore);
             item.setItemMeta(meta);
@@ -1058,10 +1058,10 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Direktlink eingeben");
+            meta.setDisplayName(ChatColor.YELLOW + "Enter direct link");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Öffnet einen Anvil-Dialog",
-                    ChatColor.GRAY + "für direkte Download-Links."
+                    ChatColor.GRAY + "Opens an anvil dialog",
+                    ChatColor.GRAY + "for direct download links."
             ));
             item.setItemMeta(meta);
         }
@@ -1072,8 +1072,8 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.ARROW);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Zurück zur Übersicht");
-            meta.setLore(List.of(ChatColor.GRAY + "Schließt die Installation und zeigt alle Plugins."));
+            meta.setDisplayName(ChatColor.YELLOW + "Back to overview");
+            meta.setLore(List.of(ChatColor.GRAY + "Closes the install view and shows all plugins."));
             item.setItemMeta(meta);
         }
         return item;
@@ -1087,12 +1087,12 @@ public class PluginOverviewGui implements Listener {
         player.closeInventory();
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "NU2L Suche")
+                .title(ChatColor.DARK_PURPLE + "NU2L search")
                 .initialText(previousTerm != null ? previousTerm : "")
                 .validation(value -> {
                     String trimmed = value != null ? value.trim() : "";
                     if (trimmed.length() < 3) {
-                        return Optional.of(ChatColor.RED + "Bitte gib mindestens drei Zeichen ein.");
+                        return Optional.of(ChatColor.RED + "Please enter at least three characters.");
                     }
                     return Optional.empty();
                 })
@@ -1107,14 +1107,14 @@ public class PluginOverviewGui implements Listener {
                                          String previousTerm) {
         String trimmed = query != null ? query.trim() : "";
         if (trimmed.length() < 3) {
-            player.sendMessage(ChatColor.RED + "Bitte gib mindestens drei Zeichen ein.");
+            player.sendMessage(ChatColor.RED + "Please enter at least three characters.");
             openStandaloneInstall(player, previousSuggestions, previousTerm);
             return;
         }
 
         UUID playerId = player.getUniqueId();
         pendingInstallSearches.put(playerId, trimmed);
-        player.sendMessage(ChatColor.GRAY + "Suche nach " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
+        player.sendMessage(ChatColor.GRAY + "Searching for " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
 
         context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
             List<PluginLinkSuggestion> suggestions;
@@ -1147,9 +1147,9 @@ public class PluginOverviewGui implements Listener {
 
         List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : suggestions;
         if (entries.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "Keine Treffer gefunden. Versuche einen anderen Begriff.");
+            player.sendMessage(ChatColor.YELLOW + "No results found. Try another term.");
         } else {
-            player.sendMessage(ChatColor.GREEN + "Gefundene Projekte: " + entries.size());
+            player.sendMessage(ChatColor.GREEN + "Projects found: " + entries.size());
         }
 
         openStandaloneInstall(player, entries, searchTerm);
@@ -1163,7 +1163,7 @@ public class PluginOverviewGui implements Listener {
         player.closeInventory();
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "NU2L Direktlink")
+                .title(ChatColor.DARK_PURPLE + "NU2L direct link")
                 .initialText("https://")
                 .onConfirm((p, value) -> installStandaloneFromUrl(p, value))
                 .onCancel(p -> openStandaloneInstall(p, previous, previousTerm))
@@ -1174,8 +1174,8 @@ public class PluginOverviewGui implements Listener {
         player.closeInventory();
         openInventories.remove(player.getUniqueId());
         String title = Objects.requireNonNullElse(suggestion.title(), suggestion.provider());
-        player.sendMessage(ChatColor.GREEN + "Installiere " + ChatColor.AQUA
-                + suggestion.provider() + ChatColor.GREEN + " Projekt " + ChatColor.AQUA
+        player.sendMessage(ChatColor.GREEN + "Installing " + ChatColor.AQUA
+                + suggestion.provider() + ChatColor.GREEN + " project " + ChatColor.AQUA
                 + title + ChatColor.GREEN + " …");
         coordinator.install(player, suggestion.url());
     }
@@ -1183,10 +1183,10 @@ public class PluginOverviewGui implements Listener {
     private void installStandaloneFromUrl(Player player, String value) {
         String trimmed = value != null ? value.trim() : "";
         if (trimmed.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "Bitte gib einen gültigen Download-Link ein.");
+            player.sendMessage(ChatColor.RED + "Please provide a valid download link.");
             return;
         }
-        player.sendMessage(ChatColor.GREEN + "Starte Installation über direkten Link…");
+        player.sendMessage(ChatColor.GREEN + "Starting installation from direct link…");
         coordinator.install(player, trimmed);
     }
 
