@@ -5,6 +5,7 @@ import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.persistence.SetupStateRepository;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
@@ -24,6 +25,7 @@ public class PluginContext {
     private final eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry;
     private final PluginLifecycleManager pluginLifecycleManager;
     private final PluginUpdateSettingsRepository pluginUpdateSettingsRepository;
+    private final SetupStateRepository setupStateRepository;
 
     public PluginContext(JavaPlugin plugin,
                          BukkitScheduler scheduler,
@@ -33,7 +35,8 @@ public class PluginContext {
                          InstallationHandler installationHandler,
                          eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry,
                          PluginLifecycleManager pluginLifecycleManager,
-                         PluginUpdateSettingsRepository pluginUpdateSettingsRepository) {
+                         PluginUpdateSettingsRepository pluginUpdateSettingsRepository,
+                         SetupStateRepository setupStateRepository) {
         this.plugin = plugin;
         this.scheduler = scheduler;
         this.configuration = configuration;
@@ -43,6 +46,7 @@ public class PluginContext {
         this.updateSourceRegistry = updateSourceRegistry;
         this.pluginLifecycleManager = pluginLifecycleManager;
         this.pluginUpdateSettingsRepository = pluginUpdateSettingsRepository;
+        this.setupStateRepository = setupStateRepository;
     }
 
     public JavaPlugin getPlugin() {
@@ -79,5 +83,9 @@ public class PluginContext {
 
     public PluginUpdateSettingsRepository getPluginUpdateSettingsRepository() {
         return pluginUpdateSettingsRepository;
+    }
+
+    public SetupStateRepository getSetupStateRepository() {
+        return setupStateRepository;
     }
 }
