@@ -670,6 +670,9 @@ public class QuickInstallCoordinator {
         if (host.contains("modrinth.com")) {
             return buildModrinthPlan(uri, originalUrl, host);
         }
+        if (host.contains("spigotmc.org") || host.contains("api.spiget.org")) {
+            return buildSpigotPlan(uri, originalUrl, host);
+        }
         if (host.contains("github.com")) {
             return buildGithubPlan(uri, originalUrl, host);
         }
@@ -779,6 +782,42 @@ public class QuickInstallCoordinator {
         return plan;
     }
 
+    private InstallationPlan buildSpigotPlan(URI uri, String originalUrl, String host) {
+        List<String> segments = pathSegments(uri.getPath());
+        SpigotResource resource = extractSpigotResource(segments)
+                .orElseThrow(() -> new IllegalArgumentException("Could not parse SpigotMC URL."));
+
+        long resourceId = resource.resourceId();
+        String slug = resource.slug();
+
+        Map<String, Object> options = new LinkedHashMap<>();
+        options.put("resourceId", resourceId);
+        applyCompatibilityPreference(options);
+
+        String defaultFilename = resolveDefaultFilename(slug, slug + "-" + resourceId, "resource-" + resourceId);
+
+        String providerLabel = host != null && host.contains("api.spiget.org") ? "Spiget API" : "SpigotMC";
+
+        InstallationPlan plan = new InstallationPlan(
+                originalUrl,
+                providerLabel,
+                host,
+                "spigot",
+                slug,
+                toDisplayName(slug),
+                TargetDirectory.PLUGINS,
+                options,
+                defaultFilename
+        );
+        plan.addPluginNameCandidate(slug);
+        plan.addPluginNameCandidate(toDisplayName(slug));
+        if (!slug.equalsIgnoreCase("resource-" + resourceId)) {
+            plan.addPluginNameCandidate(slug.replace('-', ' '));
+        }
+        plan.addPluginNameCandidate(String.valueOf(resourceId));
+        return plan;
+    }
+
     private OptionalLong fetchCurseforgeProjectId(URI uri, List<String> segments, int slugIndex) throws IOException {
         String projectUrl = buildCurseforgeProjectUrl(uri, segments, slugIndex);
         try {
@@ -865,6 +904,84 @@ public class QuickInstallCoordinator {
         }
 
         return Optional.ofNullable(trimToNull(slug));
+    }
+
+    static Optional<SpigotResource> extractSpigotResource(List<String> segments) {
+        if (segments == null || segments.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Long resourceId = null;
+        String slug = null;
+
+        for (int i = 0; i < segments.size(); i++) {
+            String decoded = decode(segments.get(i));
+            String trimmed = trimToNull(decoded);
+            if (trimmed == null) {
+                continue;
+            }
+
+            String normalized = trimmed.toLowerCase(Locale.ROOT);
+            if ("resources".equals(normalized) || "resource".equals(normalized)) {
+                for (int j = i + 1; j < segments.size(); j++) {
+                    SpigotResource parsed = parseSpigotResourceSegment(segments.get(j));
+                    if (parsed != null) {
+                        resourceId = parsed.resourceId();
+                        slug = parsed.slug();
+                        break;
+                    }
+                }
+                if (resourceId != null) {
+                    break;
+                }
+                continue;
+            }
+
+            if (resourceId == null) {
+                SpigotResource parsed = parseSpigotResourceSegment(segments.get(i));
+                if (parsed != null) {
+                    resourceId = parsed.resourceId();
+                    slug = parsed.slug();
+                    break;
+                }
+            }
+        }
+
+        if (resourceId == null) {
+            return Optional.empty();
+        }
+
+        String finalSlug = slug;
+        if (finalSlug == null || finalSlug.isBlank()) {
+            finalSlug = "resource-" + resourceId;
+        }
+
+        return Optional.of(new SpigotResource(resourceId, finalSlug));
+    }
+
+    private static SpigotResource parseSpigotResourceSegment(String rawSegment) {
+        String decoded = decode(rawSegment);
+        String candidate = trimToNull(decoded);
+        if (candidate == null) {
+            return null;
+        }
+
+        int dotIndex = candidate.lastIndexOf('.');
+        if (dotIndex > 0 && dotIndex + 1 < candidate.length()) {
+            String idPart = candidate.substring(dotIndex + 1);
+            if (isNumeric(idPart)) {
+                long id = Long.parseLong(idPart);
+                String slugPart = trimToNull(candidate.substring(0, dotIndex));
+                return new SpigotResource(id, slugPart);
+            }
+        }
+
+        if (isNumeric(candidate)) {
+            long id = Long.parseLong(candidate);
+            return new SpigotResource(id, null);
+        }
+
+        return null;
     }
 
     static Optional<CurseforgeProjectPath> extractCurseforgeProject(List<String> segments) {
@@ -1578,6 +1695,24 @@ public class QuickInstallCoordinator {
 
         String owner() {
             return owner;
+        }
+
+        String slug() {
+            return slug;
+        }
+    }
+
+    static final class SpigotResource {
+        private final long resourceId;
+        private final String slug;
+
+        SpigotResource(long resourceId, String slug) {
+            this.resourceId = resourceId;
+            this.slug = slug;
+        }
+
+        long resourceId() {
+            return resourceId;
         }
 
         String slug() {
