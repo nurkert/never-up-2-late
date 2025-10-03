@@ -14,6 +14,11 @@ import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -31,8 +36,9 @@ class InstallationHandlerTest {
         Collection<Player> players = new ArrayList<>();
         Logger logger = Logger.getLogger("test");
 
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
         Server server = createServer(players, shutdownCalls, logger);
-        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger);
+        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger, null, null, clock);
 
         handler.onUpdateCompleted(createEvent());
 
@@ -46,12 +52,14 @@ class InstallationHandlerTest {
         players.add(createPlayer());
         Logger logger = Logger.getLogger("test");
 
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
         Server server = createServer(players, shutdownCalls, logger);
-        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger);
+        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger, null, null, clock);
 
         handler.onUpdateCompleted(createEvent());
         assertEquals(0, shutdownCalls.get(), "Restart must be deferred while players are online");
 
+        players.clear();
         handler.onPlayerLeave(new PlayerQuitEvent(createPlayer(), ""));
         assertEquals(1, shutdownCalls.get(), "Restart should happen once the last player leaves");
     }
@@ -63,10 +71,11 @@ class InstallationHandlerTest {
         directory.toFile().deleteOnExit();
 
         RestartCooldownRepository repository = new RestartCooldownRepository(directory.toFile(), logger);
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
 
         AtomicInteger firstShutdownCalls = new AtomicInteger();
         Server firstServer = createServer(new ArrayList<>(), firstShutdownCalls, logger);
-        InstallationHandler firstHandler = new InstallationHandler(firstServer, repository, logger);
+        InstallationHandler firstHandler = new InstallationHandler(firstServer, repository, logger, null, null, clock);
 
         firstHandler.onUpdateCompleted(createEvent());
         assertEquals(1, firstShutdownCalls.get(), "Initial restart should be triggered");
@@ -74,7 +83,7 @@ class InstallationHandlerTest {
         AtomicInteger secondShutdownCalls = new AtomicInteger();
         RestartCooldownRepository reloadedRepository = new RestartCooldownRepository(directory.toFile(), logger);
         Server secondServer = createServer(new ArrayList<>(), secondShutdownCalls, logger);
-        InstallationHandler secondHandler = new InstallationHandler(secondServer, reloadedRepository, logger);
+        InstallationHandler secondHandler = new InstallationHandler(secondServer, reloadedRepository, logger, null, null, clock);
 
         secondHandler.onUpdateCompleted(createEvent());
         assertEquals(0, secondShutdownCalls.get(), "Cooldown should prevent immediate restart loop");
@@ -86,12 +95,13 @@ class InstallationHandlerTest {
         Collection<Player> players = new ArrayList<>();
         Logger logger = Logger.getLogger("test");
 
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
         Server server = createServer(players, shutdownCalls, logger);
         RestartCooldownRepository repository = createRepository(logger);
         StubLifecycleManager lifecycleManager = new StubLifecycleManager();
         lifecycleManager.reloadResult = true;
 
-        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null);
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null, clock);
         UpdateCompletedEvent event = createEvent();
 
         handler.onUpdateCompleted(event);
@@ -107,17 +117,55 @@ class InstallationHandlerTest {
         Collection<Player> players = new ArrayList<>();
         Logger logger = Logger.getLogger("test");
 
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
         Server server = createServer(players, shutdownCalls, logger);
         RestartCooldownRepository repository = createRepository(logger);
         StubLifecycleManager lifecycleManager = new StubLifecycleManager();
         lifecycleManager.reloadResult = false;
 
-        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null);
+        InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null, clock);
 
         handler.onUpdateCompleted(createEvent());
 
         assertTrue(lifecycleManager.reloadCalled, "Plugin reload should be attempted");
         assertEquals(1, shutdownCalls.get(), "Server restart should occur when reload fails");
+    }
+
+    @Test
+    void defersPluginRestartOutsideMaintenanceWindow() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Collection<Player> players = new ArrayList<>();
+        Logger logger = Logger.getLogger("test");
+
+        MutableClock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 1, 0));
+        Server server = createServer(players, shutdownCalls, logger);
+        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger, null, null, clock);
+
+        handler.onUpdateCompleted(createEvent());
+        assertEquals(0, shutdownCalls.get(), "Restart should be deferred outside the maintenance window");
+
+        clock.advance(Duration.ofHours(3));
+        handler.tryExecutePendingEvent();
+
+        assertEquals(1, shutdownCalls.get(), "Restart should occur once the maintenance window opens");
+    }
+
+    @Test
+    void allowsImmediateRestartForGeyserAndPaper() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Collection<Player> players = new ArrayList<>();
+        Logger logger = Logger.getLogger("test");
+
+        MutableClock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 1, 0));
+        Server server = createServer(players, shutdownCalls, logger);
+
+        InstallationHandler geyserHandler = new InstallationHandler(server, createRepository(logger), logger, null, null, clock);
+        geyserHandler.onUpdateCompleted(createEvent("geyser", TargetDirectory.PLUGINS));
+
+        InstallationHandler paperHandler = new InstallationHandler(server, createRepository(logger), logger, null, null, clock);
+        paperHandler.onUpdateCompleted(createEvent("paper", TargetDirectory.SERVER));
+
+        assertEquals(2, shutdownCalls.get(), "Geyser and Paper updates should restart immediately");
     }
 
     private RestartCooldownRepository createRepository(Logger logger) throws IOException {
@@ -147,8 +195,15 @@ class InstallationHandlerTest {
     }
 
     private UpdateCompletedEvent createEvent() {
-        UpdateSource source = new UpdateSource("test", null, TargetDirectory.PLUGINS, "test.jar", null);
-        return new UpdateCompletedEvent(source, Path.of("plugins/test.jar"), "1.0", 1, Path.of("plugins/test.jar"), "");
+        return createEvent("test", TargetDirectory.PLUGINS);
+    }
+
+    private UpdateCompletedEvent createEvent(String name, TargetDirectory targetDirectory) {
+        UpdateSource source = new UpdateSource(name, null, targetDirectory, name + ".jar", null);
+        Path destination = targetDirectory == TargetDirectory.SERVER
+                ? Path.of(name + ".jar")
+                : Path.of("plugins/" + name + ".jar");
+        return new UpdateCompletedEvent(source, destination, "1.0", 1, destination, "");
     }
 
     private Player createPlayer() {
@@ -257,6 +312,40 @@ class InstallationHandlerTest {
         @Override
         public java.util.Optional<eu.nurkert.neverUp2Late.plugin.ManagedPlugin> updateManagedPluginPath(Path oldPath, Path newPath) {
             return java.util.Optional.empty();
+        }
+    }
+
+    private static class MutableClock extends Clock {
+        private Instant currentInstant;
+        private final ZoneId zoneId;
+
+        private MutableClock(Instant instant, ZoneId zoneId) {
+            this.currentInstant = instant;
+            this.zoneId = zoneId;
+        }
+
+        static MutableClock fixedAt(LocalDateTime dateTime) {
+            ZoneId zone = ZoneId.systemDefault();
+            return new MutableClock(dateTime.atZone(zone).toInstant(), zone);
+        }
+
+        void advance(Duration duration) {
+            currentInstant = currentInstant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return zoneId;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return new MutableClock(currentInstant, zone);
+        }
+
+        @Override
+        public Instant instant() {
+            return currentInstant;
         }
     }
 }
