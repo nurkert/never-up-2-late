@@ -144,6 +144,8 @@ filenames:
 updateInterval: 30
 pluginLifecycle:
   autoManage: true
+quickInstall:
+  ignoreCompatibilityWarnings: false
 
 updates:
   ignoreUnstable: true
@@ -163,6 +165,8 @@ Key options:
 - `setup.skipWizard` – When `true`, NeverUp2Late skips the interactive wizard and applies default sources on startup.
 - `updateInterval` – Minutes between scheduled update checks.
 - `pluginLifecycle.autoManage` – Enables automatic plugin reloads and lifecycle controls. Set to `false` to keep manual restarts.
+- `quickInstall.ignoreCompatibilityWarnings` – When `true`, the quick install workflow skips Minecraft-version compatibility
+  checks reported by providers like Modrinth and installs the latest build regardless.
 - `filenames.<name>` – Default filename for a source if `updates.sources[].filename` is omitted.
 - `updates.ignoreUnstable` – Global default for filtering unstable/prerelease builds; individual sources can override it.
 - `updates.sources` – Array of source descriptors, each providing `name`, `type`, `target` (`server` or `plugins`), optional

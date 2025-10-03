@@ -19,6 +19,12 @@ pluginLifecycle:
   # The default is now true so the GUI is usable without manual configuration.
   autoManage: true
 
+# Control compatibility checks when linking update sources via /nu2l or the GUI.
+quickInstall:
+  # When true, NeverUp2Late ignores compatibility warnings reported by metadata providers
+  # (for example when a Modrinth project targets a newer Minecraft version).
+  ignoreCompatibilityWarnings: false
+
 # Configure how many backups NeverUp2Late keeps per update source before pruning
 # the oldest entries. Set to 0 to keep all backups.
 backups:
