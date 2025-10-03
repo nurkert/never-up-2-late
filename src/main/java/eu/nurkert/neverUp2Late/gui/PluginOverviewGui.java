@@ -163,7 +163,9 @@ public class PluginOverviewGui implements Listener {
     }
 
     private ItemStack createPluginItem(ManagedPlugin plugin) {
-        ItemStack item = new ItemStack(Material.ENCHANTED_BOOK);
+        Optional<UpdateSource> source = findMatchingSource(plugin);
+        Material material = source.isPresent() ? Material.ENCHANTED_BOOK : Material.BOOK;
+        ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.GOLD + plugin.getName());
@@ -182,28 +184,28 @@ public class PluginOverviewGui implements Listener {
             Path path = plugin.getPath();
             if (path != null) {
                 lore.add(ChatColor.DARK_GRAY + "File: " + ChatColor.WHITE + path.getFileName());
-                findMatchingSource(plugin).ifPresentOrElse(source -> {
-                    lore.add(ChatColor.GRAY + "Update source: " + ChatColor.AQUA + source.getName());
+                source.ifPresentOrElse(linkedSource -> {
+                    lore.add(ChatColor.GRAY + "Update source: " + ChatColor.AQUA + linkedSource.getName());
                     lore.add(ChatColor.YELLOW + "Click to update the link.");
-            }, () -> lore.add(ChatColor.RED + "No update source linked – click to set one."));
-        } else {
-            lore.add(ChatColor.RED + "No JAR path found – cannot link.");
-        }
+                }, () -> lore.add(ChatColor.RED + "No update source linked – click to set one."));
+            } else {
+                lore.add(ChatColor.RED + "No JAR path found – cannot link.");
+            }
 
-        PluginUpdateSettings settings = readSettings(plugin);
-        if (!settings.autoUpdateEnabled()) {
-            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.RED + "Automatic updates disabled");
-        } else if (settings.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
-            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GREEN + "Automatically reload");
-        } else {
-            lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GOLD + "Server restart required");
-        }
+            PluginUpdateSettings settings = readSettings(plugin);
+            if (!settings.autoUpdateEnabled()) {
+                lore.add(ChatColor.GRAY + "Updates: " + ChatColor.RED + "Automatic updates disabled");
+            } else if (settings.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
+                lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GREEN + "Automatically reload");
+            } else {
+                lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GOLD + "Server restart required");
+            }
 
-        meta.setLore(lore);
-        item.setItemMeta(meta);
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
-    return item;
-}
 
     private String statusLabel(ManagedPlugin plugin) {
         if (plugin.isEnabled()) {
