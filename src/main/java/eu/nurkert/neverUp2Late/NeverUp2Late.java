@@ -19,11 +19,15 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import eu.nurkert.neverUp2Late.persistence.LegacyConfigMigrator;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.persistence.SetupStateRepository;
 import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository;
+import eu.nurkert.neverUp2Late.persistence.SetupStateRepository.SetupPhase;
+import eu.nurkert.neverUp2Late.setup.InitialSetupManager;
 
 public final class NeverUp2Late extends JavaPlugin {
 
     private PluginContext context;
+    private InitialSetupManager setupManager;
 
     @Override
     public void onEnable() {
@@ -32,6 +36,7 @@ public final class NeverUp2Late extends JavaPlugin {
 
         UpdateStateRepository updateStateRepository = UpdateStateRepository.forPlugin(this);
         PluginUpdateSettingsRepository updateSettingsRepository = PluginUpdateSettingsRepository.forPlugin(this);
+        SetupStateRepository setupStateRepository = SetupStateRepository.forPlugin(this);
         LegacyConfigMigrator migrator = new LegacyConfigMigrator(configuration, updateStateRepository, updateSettingsRepository, getLogger());
         if (migrator.migrate()) {
             saveConfig();
@@ -78,16 +83,23 @@ public final class NeverUp2Late extends JavaPlugin {
                 installationHandler,
                 updateSourceRegistry,
                 pluginLifecycleManager,
-                updateSettingsRepository
+                updateSettingsRepository,
+                setupStateRepository
         );
 
-        updateHandler.start();
+        AnvilTextPrompt anvilTextPrompt = new AnvilTextPrompt(this);
+        setupManager = new InitialSetupManager(context, setupStateRepository, anvilTextPrompt);
+        if (setupStateRepository.getPhase() == SetupPhase.COMPLETED) {
+            updateHandler.start();
+        } else {
+            setupManager.enableSetupMode();
+            getLogger().info("NeverUp2Late wartet auf die erste Einrichtung. Spieler mit neverup2late.setup erhalten automatisch eine Anleitung.");
+        }
         getServer().getPluginManager().registerEvents(installationHandler, this);
 
         QuickInstallCoordinator coordinator = new QuickInstallCoordinator(context);
-        AnvilTextPrompt anvilTextPrompt = new AnvilTextPrompt(this);
         PluginOverviewGui overviewGui = new PluginOverviewGui(context, coordinator, anvilTextPrompt);
-        NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator, overviewGui);
+        NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator, overviewGui, setupManager);
         PluginCommand pluginCommand = getCommand("nu2l");
         if (pluginCommand != null) {
             pluginCommand.setExecutor(command);
@@ -98,6 +110,7 @@ public final class NeverUp2Late extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(anvilTextPrompt, this);
         getServer().getPluginManager().registerEvents(overviewGui, this);
+        getServer().getPluginManager().registerEvents(setupManager, this);
     }
 
     @Override

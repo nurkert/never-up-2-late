@@ -30,11 +30,13 @@ updates:
       type: paper
       target: server
       filename: "paper.jar"
+      enabled: true
 
     - name: geyser
       type: geyser
       target: plugins
       filename: "Geyser-Spigot.jar"
+      enabled: true
 
     # The example below illustrates how to configure a GitHub release source.
     # Uncomment and adjust the values to track a real project.

@@ -47,6 +47,11 @@ public class UpdateSourceRegistry {
         return Collections.unmodifiableList(sources);
     }
 
+    public synchronized void reload() {
+        sources.clear();
+        loadSources();
+    }
+
     public Optional<UpdateSource> findSource(String name) {
         if (name == null || name.isBlank()) {
             return Optional.empty();
@@ -163,6 +168,12 @@ public class UpdateSourceRegistry {
                 continue;
             }
 
+            boolean enabled = parseEnabled(entry.get("enabled"));
+            if (!enabled) {
+                logger.log(Level.FINE, "Update source {0} is disabled via configuration; skipping.", name);
+                continue;
+            }
+
             String filename = determineFilename(name, asString(entry.get("filename")));
             if (filename == null) {
                 logger.log(Level.WARNING,
@@ -185,6 +196,16 @@ public class UpdateSourceRegistry {
                 logger.log(Level.FINE, "Fetcher creation failed", e);
             }
         }
+    }
+
+    private boolean parseEnabled(Object value) {
+        if (value == null) {
+            return true;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return Boolean.parseBoolean(value.toString());
     }
 
     private List<Map<?, ?>> createLegacyDefaults() {

@@ -9,6 +9,9 @@ commands:
     usage: "/<command> <url>"
     permission: neverup2late.install
 permissions:
+  neverup2late.setup:
+    description: Allows completing the initial setup wizard.
+    default: op
   neverup2late.install:
     description: Allows using the /nu2l command to install new update sources.
     default: op

@@ -16,4 +16,5 @@ public final class Permissions {
     public static final String GUI_MANAGE_SETTINGS = "neverup2late.gui.manage.settings";
     public static final String GUI_MANAGE_RENAME = "neverup2late.gui.manage.rename";
     public static final String GUI_MANAGE_REMOVE = "neverup2late.gui.manage.remove";
+    public static final String SETUP = "neverup2late.setup";
 }

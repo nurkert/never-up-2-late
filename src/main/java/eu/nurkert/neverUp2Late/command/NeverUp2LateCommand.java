@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.command;
 
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.gui.PluginOverviewGui;
+import eu.nurkert.neverUp2Late.setup.InitialSetupManager;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -18,10 +19,14 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
     private final QuickInstallCoordinator coordinator;
     private final PluginOverviewGui overviewGui;
+    private final InitialSetupManager setupManager;
 
-    public NeverUp2LateCommand(QuickInstallCoordinator coordinator, PluginOverviewGui overviewGui) {
+    public NeverUp2LateCommand(QuickInstallCoordinator coordinator,
+                               PluginOverviewGui overviewGui,
+                               InitialSetupManager setupManager) {
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
         this.overviewGui = Objects.requireNonNull(overviewGui, "overviewGui");
+        this.setupManager = setupManager;
     }
 
     @Override
@@ -49,6 +54,19 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
             coordinator.handleAssetSelection(sender, args[1]);
+            return true;
+        }
+
+        if (args.length > 0 && "setup".equalsIgnoreCase(args[0])) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(ChatColor.RED + "The setup wizard can only be opened by players.");
+                return true;
+            }
+            if (setupManager == null) {
+                sender.sendMessage(ChatColor.RED + "The setup wizard is not available.");
+                return true;
+            }
+            setupManager.openWizard(player);
             return true;
         }
 
@@ -84,7 +102,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("gui", "select", "remove");
+            return List.of("gui", "select", "remove", "setup");
         }
         if (args.length == 2 && "select".equalsIgnoreCase(args[0])) {
             return Collections.singletonList("<number>");
