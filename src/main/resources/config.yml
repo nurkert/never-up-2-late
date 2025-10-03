@@ -19,6 +19,11 @@ pluginLifecycle:
   # The default is now true so the GUI is usable without manual configuration.
   autoManage: true
 
+# Configure how many backups NeverUp2Late keeps per update source before pruning
+# the oldest entries. Set to 0 to keep all backups.
+backups:
+  maxCount: 5
+
 # Ignore unstable builds (legacy location, still respected if updates.ignoreUnstable is absent)
 ignoreUnstable: true
 

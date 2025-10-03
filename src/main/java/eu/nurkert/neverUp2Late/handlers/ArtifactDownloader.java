@@ -13,9 +13,15 @@ import java.nio.file.StandardOpenOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Utility responsible for downloading update artifacts in an atomic fashion.
@@ -25,6 +31,265 @@ import java.util.Optional;
  * custom validation logic without coupling it to the pipeline steps.
  */
 public class ArtifactDownloader {
+
+    private static final DateTimeFormatter BACKUP_TIMESTAMP_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS");
+    private static final String DEFAULT_BACKUP_KEY = "default";
+
+    private final Path backupsRoot;
+    private final int maxBackups;
+
+    public ArtifactDownloader() {
+        this(null, 0);
+    }
+
+    public ArtifactDownloader(Path backupsDirectory, int maxBackups) {
+        this.backupsRoot = backupsDirectory != null ? backupsDirectory.toAbsolutePath().normalize() : null;
+        this.maxBackups = Math.max(0, maxBackups);
+    }
+
+    /**
+     * Moves the provided {@code target} into the configured backup directory.
+     *
+     * @param target              file to backup
+     * @param primaryIdentifier   preferred folder name (usually the installed plugin name)
+     * @param secondaryIdentifier fallback folder name (for example the update source name)
+     * @return an optional {@link BackupRecord} describing the created backup
+     * @throws IOException if the backup directory cannot be created or the file cannot be moved
+     */
+    public Optional<BackupRecord> backupExistingFile(Path target,
+                                                     String primaryIdentifier,
+                                                     String secondaryIdentifier) throws IOException {
+        if (!backupsEnabled() || target == null) {
+            return Optional.empty();
+        }
+
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        if (!Files.exists(normalizedTarget) || !Files.isRegularFile(normalizedTarget)) {
+            return Optional.empty();
+        }
+
+        Path root = ensureBackupsRootExists();
+        if (root == null) {
+            return Optional.empty();
+        }
+
+        String key = resolveBackupKey(normalizedTarget, primaryIdentifier, secondaryIdentifier);
+        Path pluginDirectory = root.resolve(key);
+        Files.createDirectories(pluginDirectory);
+
+        String fileName = normalizedTarget.getFileName() != null
+                ? normalizedTarget.getFileName().toString()
+                : "artifact.jar";
+        String timestamp = BACKUP_TIMESTAMP_FORMATTER.format(LocalDateTime.now());
+        Path backupPath = createUniqueBackupPath(pluginDirectory, timestamp, fileName);
+
+        Files.move(normalizedTarget, backupPath, StandardCopyOption.REPLACE_EXISTING);
+        pruneOldBackups(pluginDirectory);
+
+        Instant createdAt = Instant.now();
+        try {
+            createdAt = Files.getLastModifiedTime(backupPath).toInstant();
+        } catch (IOException ignored) {
+        }
+
+        return Optional.of(new BackupRecord(backupPath, createdAt));
+    }
+
+    /**
+     * Restores the most recent backup for the supplied identifiers to the destination file.
+     *
+     * @param primaryIdentifier   preferred backup folder identifier
+     * @param secondaryIdentifier fallback backup folder identifier
+     * @param destination         file that should receive the backup contents
+     * @return a {@link RestorationResult} describing the applied backup, if available
+     * @throws IOException if the restoration fails or the backup directory cannot be accessed
+     */
+    public Optional<RestorationResult> restoreLatestBackup(String primaryIdentifier,
+                                                           String secondaryIdentifier,
+                                                           Path destination) throws IOException {
+        if (!backupsEnabled() || destination == null) {
+            return Optional.empty();
+        }
+
+        Path normalizedDestination = destination.toAbsolutePath().normalize();
+        Path root = ensureBackupsRootExists();
+        if (root == null) {
+            return Optional.empty();
+        }
+
+        String key = resolveBackupKey(normalizedDestination, primaryIdentifier, secondaryIdentifier);
+        Path pluginDirectory = root.resolve(key);
+        if (!Files.isDirectory(pluginDirectory)) {
+            return Optional.empty();
+        }
+
+        List<Path> backups = listBackups(pluginDirectory);
+        if (backups.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Path backupToRestore = backups.get(0);
+        Instant backupTimestamp = Instant.now();
+        try {
+            backupTimestamp = Files.getLastModifiedTime(backupToRestore).toInstant();
+        } catch (IOException ignored) {
+        }
+
+        Path parent = normalizedDestination.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        Files.move(backupToRestore, normalizedDestination, StandardCopyOption.REPLACE_EXISTING);
+        return Optional.of(new RestorationResult(normalizedDestination, backupToRestore, backupTimestamp));
+    }
+
+    /**
+     * Restores the latest available backup while first preserving the current destination file.
+     *
+     * @param destination         file that should be replaced
+     * @param primaryIdentifier   preferred backup folder identifier
+     * @param secondaryIdentifier fallback backup folder identifier
+     * @return details about the restored backup, if a previous backup exists
+     * @throws IOException if file operations fail
+     */
+    public Optional<RestorationResult> restorePreviousBackup(Path destination,
+                                                             String primaryIdentifier,
+                                                             String secondaryIdentifier) throws IOException {
+        if (!backupsEnabled() || destination == null) {
+            return Optional.empty();
+        }
+
+        Path normalizedDestination = destination.toAbsolutePath().normalize();
+        Path root = ensureBackupsRootExists();
+        if (root == null) {
+            return Optional.empty();
+        }
+
+        String key = resolveBackupKey(normalizedDestination, primaryIdentifier, secondaryIdentifier);
+        Path pluginDirectory = root.resolve(key);
+        if (!Files.isDirectory(pluginDirectory)) {
+            return Optional.empty();
+        }
+
+        List<Path> backups = collectBackups(pluginDirectory);
+        if (backups.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Path backupToRestore = backups.get(0);
+
+        Optional<BackupRecord> currentBackup = backupExistingFile(normalizedDestination, primaryIdentifier, secondaryIdentifier);
+        if (currentBackup.isPresent() && !Files.exists(backupToRestore)) {
+            // Pruning removed the desired backup; restore the current file and abort.
+            Files.move(currentBackup.get().getPath(), normalizedDestination, StandardCopyOption.REPLACE_EXISTING);
+            return Optional.empty();
+        }
+
+        if (currentBackup.isPresent() && currentBackup.get().getPath().equals(backupToRestore)) {
+            // The newest backup is the one we just created, there is nothing older to restore.
+            Files.move(currentBackup.get().getPath(), normalizedDestination, StandardCopyOption.REPLACE_EXISTING);
+            return Optional.empty();
+        }
+
+        Instant backupTimestamp = Instant.now();
+        try {
+            backupTimestamp = Files.getLastModifiedTime(backupToRestore).toInstant();
+        } catch (IOException ignored) {
+        }
+
+        Path parent = normalizedDestination.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        Files.move(backupToRestore, normalizedDestination, StandardCopyOption.REPLACE_EXISTING);
+        return Optional.of(new RestorationResult(normalizedDestination, backupToRestore, backupTimestamp));
+    }
+
+    private boolean backupsEnabled() {
+        return backupsRoot != null;
+    }
+
+    private Path ensureBackupsRootExists() throws IOException {
+        if (backupsRoot == null) {
+            return null;
+        }
+        Files.createDirectories(backupsRoot);
+        return backupsRoot;
+    }
+
+    private String resolveBackupKey(Path target, String... identifiers) {
+        if (identifiers != null) {
+            for (String identifier : identifiers) {
+                String sanitised = sanitiseKey(identifier);
+                if (sanitised != null) {
+                    return sanitised;
+                }
+            }
+        }
+        if (target != null) {
+            Path fileName = target.getFileName();
+            if (fileName != null) {
+                String sanitised = sanitiseKey(fileName.toString());
+                if (sanitised != null) {
+                    return sanitised;
+                }
+            }
+        }
+        return DEFAULT_BACKUP_KEY;
+    }
+
+    private String sanitiseKey(String candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        String trimmed = candidate.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String sanitised = trimmed.replaceAll("[^a-zA-Z0-9._-]+", "-");
+        sanitised = sanitised.replaceAll("-{2,}", "-");
+        sanitised = sanitised.replaceAll("^[._-]+", "");
+        sanitised = sanitised.replaceAll("[._-]+$", "");
+        return sanitised.isEmpty() ? null : sanitised;
+    }
+
+    private Path createUniqueBackupPath(Path pluginDirectory, String timestamp, String fileName) throws IOException {
+        Path candidate = pluginDirectory.resolve(timestamp + "-" + fileName);
+        int counter = 1;
+        while (Files.exists(candidate)) {
+            candidate = pluginDirectory.resolve(timestamp + "-" + counter++ + "-" + fileName);
+        }
+        return candidate;
+    }
+
+    private List<Path> collectBackups(Path pluginDirectory) throws IOException {
+        try (var stream = Files.list(pluginDirectory)) {
+            return stream
+                    .filter(path -> Files.isRegularFile(path))
+                    .sorted((a, b) -> b.getFileName().toString().compareToIgnoreCase(a.getFileName().toString()))
+                    .collect(Collectors.toCollection(ArrayList::new));
+        }
+    }
+
+    private List<Path> listBackups(Path pluginDirectory) throws IOException {
+        if (!Files.isDirectory(pluginDirectory)) {
+            return List.of();
+        }
+        return collectBackups(pluginDirectory);
+    }
+
+    private void pruneOldBackups(Path pluginDirectory) throws IOException {
+        if (maxBackups <= 0) {
+            return;
+        }
+        List<Path> backups = collectBackups(pluginDirectory);
+        for (int i = maxBackups; i < backups.size(); i++) {
+            Files.deleteIfExists(backups.get(i));
+        }
+    }
 
     /**
      * Executes a download based on the supplied {@link DownloadRequest}.
@@ -271,6 +536,54 @@ public class ArtifactDownloader {
         }
 
         default void onFailure(Path destination, Exception exception) {
+        }
+    }
+
+    /**
+     * Describes a backup that has been created for an existing artifact.
+     */
+    public static final class BackupRecord {
+        private final Path path;
+        private final Instant createdAt;
+
+        public BackupRecord(Path path, Instant createdAt) {
+            this.path = Objects.requireNonNull(path, "path");
+            this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
+        }
+
+        public Path getPath() {
+            return path;
+        }
+
+        public Instant getCreatedAt() {
+            return createdAt;
+        }
+    }
+
+    /**
+     * Provides details about a backup that has been restored to a destination.
+     */
+    public static final class RestorationResult {
+        private final Path destination;
+        private final Path originalBackupPath;
+        private final Instant backupTimestamp;
+
+        public RestorationResult(Path destination, Path originalBackupPath, Instant backupTimestamp) {
+            this.destination = Objects.requireNonNull(destination, "destination");
+            this.originalBackupPath = Objects.requireNonNull(originalBackupPath, "originalBackupPath");
+            this.backupTimestamp = Objects.requireNonNull(backupTimestamp, "backupTimestamp");
+        }
+
+        public Path getDestination() {
+            return destination;
+        }
+
+        public Path getOriginalBackupPath() {
+            return originalBackupPath;
+        }
+
+        public Instant getBackupTimestamp() {
+            return backupTimestamp;
         }
     }
 }

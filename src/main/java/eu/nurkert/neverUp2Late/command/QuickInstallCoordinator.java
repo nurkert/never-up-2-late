@@ -31,6 +31,7 @@ import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -55,6 +56,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 public class QuickInstallCoordinator {
 
@@ -89,7 +91,7 @@ public class QuickInstallCoordinator {
     private final String messagePrefix;
     private final Map<String, PendingSelection> pendingSelections = new ConcurrentHashMap<>();
     private final Map<String, ArchivePendingSelection> pendingArchiveSelections = new ConcurrentHashMap<>();
-    private final ArtifactDownloader artifactDownloader = new ArtifactDownloader();
+    private final ArtifactDownloader artifactDownloader;
 
     public QuickInstallCoordinator(PluginContext context) {
         this.plugin = context.getPlugin();
@@ -100,6 +102,7 @@ public class QuickInstallCoordinator {
         this.persistentPluginHandler = context.getPersistentPluginHandler();
         this.pluginUpdateSettingsRepository = context.getPluginUpdateSettingsRepository();
         this.pluginLifecycleManager = context.getPluginLifecycleManager();
+        this.artifactDownloader = Objects.requireNonNullElseGet(context.getArtifactDownloader(), ArtifactDownloader::new);
         this.logger = plugin.getLogger();
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
     }
@@ -110,6 +113,26 @@ public class QuickInstallCoordinator {
 
     public void installForPlugin(CommandSender sender, String pluginName, String rawUrl) {
         install(sender, rawUrl, pluginName);
+    }
+
+    public void rollback(CommandSender sender, String sourceName) {
+        if (!hasPermission(sender, Permissions.INSTALL)) {
+            return;
+        }
+        String target = sourceName != null ? sourceName.trim() : "";
+        if (target.isEmpty()) {
+            send(sender, ChatColor.RED + "Please specify the update source to roll back.");
+            return;
+        }
+        scheduler.runTaskAsynchronously(plugin, () -> executeRollback(sender, target));
+    }
+
+    public List<String> getRollbackSuggestions() {
+        return updateSourceRegistry.getSources().stream()
+                .map(UpdateSource::getName)
+                .filter(name -> name != null && !name.isBlank())
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .collect(Collectors.toList());
     }
 
     private void install(CommandSender sender, String rawUrl, String forcedPluginName) {
@@ -154,6 +177,94 @@ public class QuickInstallCoordinator {
         send(sender, ChatColor.AQUA + "Detected source: " + plan.getDisplayName() + " (" + plan.getProvider() + ")");
 
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, plan));
+    }
+
+    private void executeRollback(CommandSender sender, String sourceName) {
+        Optional<UpdateSource> optionalSource = updateSourceRegistry.findSource(sourceName);
+        if (optionalSource.isEmpty()) {
+            send(sender, ChatColor.RED + "No update source named " + sourceName + " is registered.");
+            return;
+        }
+
+        UpdateSource source = optionalSource.get();
+        Path destination = resolveDestination(source);
+        if (destination == null) {
+            send(sender, ChatColor.RED + "Cannot determine the destination file for " + source.getName() + ".");
+            return;
+        }
+
+        try {
+            Optional<ArtifactDownloader.RestorationResult> restoration = artifactDownloader.restorePreviousBackup(
+                    destination,
+                    source.getInstalledPluginName(),
+                    source.getName()
+            );
+
+            if (restoration.isEmpty()) {
+                send(sender, ChatColor.RED + "No backups available for " + source.getName() + ".");
+                return;
+            }
+
+            ArtifactDownloader.RestorationResult result = restoration.get();
+            String backupName = Optional.ofNullable(result.getOriginalBackupPath().getFileName())
+                    .map(Path::toString)
+                    .orElse(result.getOriginalBackupPath().toString());
+            String destinationName = Optional.ofNullable(destination.getFileName())
+                    .map(Path::toString)
+                    .orElse(destination.toString());
+
+            logger.log(Level.INFO, "Restored backup {0} for {1} to {2}",
+                    new Object[]{backupName, source.getName(), destinationName});
+
+            send(sender, ChatColor.GREEN + "Restored backup " + ChatColor.AQUA + backupName
+                    + ChatColor.GREEN + " for " + ChatColor.AQUA + source.getName()
+                    + ChatColor.GREEN + " → " + ChatColor.AQUA + destinationName + ChatColor.GREEN + ".");
+
+            triggerLifecycleAfterRollback(sender, source, destination);
+        } catch (IOException ex) {
+            logger.log(Level.WARNING,
+                    "Failed to restore backup for {0}: {1}",
+                    new Object[]{source.getName(), ex.getMessage()});
+            send(sender, ChatColor.RED + "Failed to restore backup: " + ex.getMessage());
+        }
+    }
+
+    private void triggerLifecycleAfterRollback(CommandSender sender, UpdateSource source, Path destination) {
+        if (pluginLifecycleManager == null || source.getTargetDirectory() != TargetDirectory.PLUGINS) {
+            return;
+        }
+
+        scheduler.runTask(plugin, () -> {
+            String preferredName = trimToNull(source.getInstalledPluginName());
+            try {
+                boolean reloaded = preferredName != null
+                        ? pluginLifecycleManager.reloadPlugin(preferredName)
+                        : pluginLifecycleManager.reloadPlugin(destination);
+                if (reloaded) {
+                    String name = preferredName != null ? preferredName
+                            : Optional.ofNullable(destination.getFileName()).map(Path::toString).orElse(destination.toString());
+                    send(sender, ChatColor.GREEN + "Reloaded plugin " + ChatColor.AQUA + name
+                            + ChatColor.GREEN + " after rollback.");
+                } else {
+                    send(sender, ChatColor.YELLOW + "Rollback completed, but the plugin could not be reloaded automatically.");
+                }
+            } catch (PluginLifecycleException ex) {
+                logger.log(Level.WARNING,
+                        "Failed to reload plugin after rollback for {0}: {1}",
+                        new Object[]{source.getName(), ex.getMessage()});
+                send(sender, ChatColor.RED + "Rollback succeeded, but reloading the plugin failed: " + ex.getMessage());
+            }
+        });
+    }
+
+    private Path resolveDestination(UpdateSource source) {
+        if (source == null) {
+            return null;
+        }
+        File pluginsFolder = plugin.getDataFolder().getParentFile();
+        File serverFolder = plugin.getServer().getWorldContainer().getAbsoluteFile();
+        File directory = source.getTargetDirectory() == TargetDirectory.SERVER ? serverFolder : pluginsFolder;
+        return new File(directory, source.getFilename()).toPath();
     }
 
     private void prepareAndInstall(CommandSender sender, InstallationPlan plan) {

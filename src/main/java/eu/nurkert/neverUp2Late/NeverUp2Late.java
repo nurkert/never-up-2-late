@@ -24,6 +24,8 @@ import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository;
 import eu.nurkert.neverUp2Late.persistence.SetupStateRepository.SetupPhase;
 import eu.nurkert.neverUp2Late.setup.InitialSetupManager;
 
+import java.nio.file.Path;
+
 public final class NeverUp2Late extends JavaPlugin {
 
     private PluginContext context;
@@ -58,7 +60,9 @@ public final class NeverUp2Late extends JavaPlugin {
 
         InstallationHandler installationHandler = new InstallationHandler(this, pluginLifecycleManager, updateSettingsRepository);
         UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
-        ArtifactDownloader artifactDownloader = new ArtifactDownloader();
+        int maxBackups = Math.max(0, configuration.getInt("backups.maxCount", 5));
+        Path backupsDirectory = getDataFolder().toPath().resolve("backups");
+        ArtifactDownloader artifactDownloader = new ArtifactDownloader(backupsDirectory, maxBackups);
         VersionComparator versionComparator = new VersionComparator();
 
         UpdateHandler updateHandler = new UpdateHandler(
@@ -84,7 +88,8 @@ public final class NeverUp2Late extends JavaPlugin {
                 updateSourceRegistry,
                 pluginLifecycleManager,
                 updateSettingsRepository,
-                setupStateRepository
+                setupStateRepository,
+                artifactDownloader
         );
 
         AnvilTextPrompt anvilTextPrompt = new AnvilTextPrompt(this);

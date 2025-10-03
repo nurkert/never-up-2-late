@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.update;
 
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.logging.Level;
 
@@ -31,6 +32,21 @@ public class DownloadUpdateStep implements UpdateStep {
         }
 
         Path targetPath = context.getDownloadDestination();
+        try {
+            artifactDownloader.backupExistingFile(
+                            targetPath,
+                            context.getSource().getInstalledPluginName(),
+                            context.getSource().getName())
+                    .ifPresent(backup -> context.log(Level.INFO,
+                            "Existing artifact moved to backup {0}", backup.getPath()));
+        } catch (IOException ex) {
+            context.cancel("Failed to backup existing file: " + ex.getMessage());
+            context.log(Level.SEVERE,
+                    "Unable to create backup for {0}: {1}",
+                    new Object[]{context.getSource().getName(), ex.getMessage()});
+            return;
+        }
+
         ArtifactDownloader.DownloadRequest.Builder builder = ArtifactDownloader.DownloadRequest.builder()
                 .url(downloadUrl)
                 .destination(targetPath);
