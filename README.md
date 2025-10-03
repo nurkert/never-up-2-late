@@ -199,13 +199,6 @@ NeverUp2Late stores multiple files under `plugins/NeverUp2Late/`:
   `archiveEntryPattern` manually in `config.yml` to persist the desired file match.
 - Lifecycle automation can be disabled entirely by setting `pluginLifecycle.autoManage: false` when you prefer manual restarts.
 
-## Contributing
+## License
 
-Pull requests and issue reports are welcome! Please include:
-
-- A clear description of the change or bug.
-- Steps to reproduce, including relevant URLs or configuration snippets.
-- Logs captured with `debug: true` or `FINE` logging enabled if the issue concerns fetchers or lifecycle actions.
-
-NeverUp2Late is released under the MIT License. Contributions should follow the established code style and avoid wrapping imports
-in try/catch blocks, matching the existing codebase conventions.
+NeverUp2Late is released under the GNU General Public License v3.0.
