@@ -61,6 +61,7 @@ persist the default sources and start update checks.
 |---------|-------------|------------|-------|
 | `/nu2l` | Opens the plugin overview GUI. | `neverup2late.gui.open` | Requires a player; shows managed plugins and install actions. |
 | `/nu2l gui` | Explicitly opens the GUI. | `neverup2late.gui.open` | Alias for `/nu2l`. |
+| `/nu2l status` | Lists configured update sources with their target path, stored build/version, and auto-update flag. | `neverup2late.install` | Works for players and console; read-only overview. |
 | `/nu2l <url>` | Runs quick installation for the provided URL. | `neverup2late.install` | Works from console or in-game; URLs must use HTTP(S). |
 | `/nu2l select <number>` | Chooses an asset when multiple files are available. | `neverup2late.install` | Responds to prompts generated during quick install. |
 | `/nu2l remove <name>` | Unregisters an update source and stops managing its file. | `neverup2late.gui.manage.remove` | Available from console and players. |
@@ -72,7 +73,7 @@ persist the default sources and start update checks.
 
 ```
 neverup2late.setup             # Access to the setup wizard
-neverup2late.install           # Use /nu2l <url> and manage quick installs
+neverup2late.install           # Use /nu2l <url>, /nu2l status, and manage quick installs
 neverup2late.gui.open          # Open the GUI
 neverup2late.gui.manage        # Grant all GUI management permissions
 neverup2late.gui.manage.lifecycle
@@ -83,6 +84,16 @@ neverup2late.gui.manage.remove
 ```
 
 Default operators receive all permissions listed above.
+
+#### Example `/nu2l status` output
+
+```
+Update source status:
+• paper → /home/mcserver/paper.jar | Version 1.21.1 (Build 123) | Auto-Update: enabled | Plugin: Paper
+• geyser → /home/mcserver/plugins/Geyser-Spigot.jar | No installation recorded | Auto-Update: disabled | Plugin: unassigned
+```
+
+The command prints colour-coded lines in-game and plain text in the console, so administrators can quickly verify what NeverUp2Late is managing without opening the GUI.
 
 ## Quick Install Workflow
 

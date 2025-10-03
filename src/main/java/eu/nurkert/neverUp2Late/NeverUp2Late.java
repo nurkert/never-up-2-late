@@ -108,7 +108,7 @@ public final class NeverUp2Late extends JavaPlugin {
 
         QuickInstallCoordinator coordinator = new QuickInstallCoordinator(context);
         PluginOverviewGui overviewGui = new PluginOverviewGui(context, coordinator, anvilTextPrompt);
-        NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator, overviewGui, setupManager);
+        NeverUp2LateCommand command = new NeverUp2LateCommand(coordinator, overviewGui, setupManager, context);
         PluginCommand pluginCommand = getCommand("nu2l");
         if (pluginCommand != null) {
             pluginCommand.setExecutor(command);
