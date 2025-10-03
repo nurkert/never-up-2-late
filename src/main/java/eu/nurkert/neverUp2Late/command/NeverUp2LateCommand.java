@@ -10,9 +10,12 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
@@ -89,14 +92,37 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        String url = String.join(" ", args).trim();
-        if (url.isEmpty()) {
+        String input = String.join(" ", args).trim();
+        if (input.isEmpty()) {
             sender.sendMessage(ChatColor.RED + "Please provide a valid URL.");
             return true;
         }
 
-        coordinator.install(sender, url);
+        if (isLikelyUrl(input)) {
+            coordinator.install(sender, input);
+            return true;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(ChatColor.RED + "The search shortcut can only be used by players.");
+            return true;
+        }
+
+        overviewGui.openStandaloneSearch(player, input);
         return true;
+    }
+
+    private boolean isLikelyUrl(String input) {
+        try {
+            URI uri = new URI(input);
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return false;
+            }
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            return scheme.equals("http") || scheme.equals("https");
+        } catch (URISyntaxException ignored) {
+            return false;
+        }
     }
 
     @Override
