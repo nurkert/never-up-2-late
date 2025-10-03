@@ -51,6 +51,49 @@ class QuickInstallCoordinatorTest {
     }
 
     @Test
+    void extractCurseforgeProjectReturnsSlugFromBasePath() {
+        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project =
+                QuickInstallCoordinator.extractCurseforgeProject(List.of("minecraft", "bukkit-plugins", "treetimber"));
+
+        assertTrue(project.isPresent());
+        QuickInstallCoordinator.CurseforgeProjectPath path = project.orElseThrow();
+        assertEquals(2, path.slugIndex());
+        assertEquals("treetimber", path.slug());
+    }
+
+    @Test
+    void extractCurseforgeProjectSkipsDownloadSegments() {
+        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project = QuickInstallCoordinator.extractCurseforgeProject(
+                List.of("minecraft", "bukkit-plugins", "treetimber", "download", "5102550")
+        );
+
+        assertTrue(project.isPresent());
+        QuickInstallCoordinator.CurseforgeProjectPath path = project.orElseThrow();
+        assertEquals(2, path.slugIndex());
+        assertEquals("treetimber", path.slug());
+    }
+
+    @Test
+    void extractCurseforgeProjectDecodesSlug() {
+        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project = QuickInstallCoordinator.extractCurseforgeProject(
+                List.of("minecraft", "bukkit-plugins", "My%20Plugin", "files", "12345")
+        );
+
+        assertTrue(project.isPresent());
+        QuickInstallCoordinator.CurseforgeProjectPath path = project.orElseThrow();
+        assertEquals(2, path.slugIndex());
+        assertEquals("My Plugin", path.slug());
+    }
+
+    @Test
+    void extractCurseforgeProjectReturnsEmptyWhenMissingSlug() {
+        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project =
+                QuickInstallCoordinator.extractCurseforgeProject(List.of("minecraft", "bukkit-plugins"));
+
+        assertFalse(project.isPresent());
+    }
+
+    @Test
     void extractOwnerAndSlugSkipsPrefixesForHangar() {
         Optional<QuickInstallCoordinator.OwnerSlug> result = QuickInstallCoordinator.extractOwnerAndSlug(
                 List.of("project", "PaperMC", "Paper", "versions"),

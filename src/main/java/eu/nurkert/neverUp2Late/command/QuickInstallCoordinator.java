@@ -13,6 +13,7 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
 import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
+import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
@@ -53,7 +54,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.OptionalLong;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -79,6 +82,47 @@ public class QuickInstallCoordinator {
             "shaders"
     );
 
+    private static final Set<String> CURSEFORGE_TRAILING_SEGMENTS = Set.of(
+            "files",
+            "download",
+            "relations",
+            "changelog",
+            "description",
+            "issues",
+            "images",
+            "comments",
+            "wiki",
+            "source"
+    );
+
+    private static final Set<String> CURSEFORGE_CATEGORY_SEGMENTS = Set.of(
+            "minecraft",
+            "mc-mods",
+            "bukkit-plugins",
+            "customization",
+            "texture-packs",
+            "worlds",
+            "maps",
+            "addons",
+            "modpacks",
+            "shaderpacks",
+            "shaders",
+            "datapacks",
+            "data-packs",
+            "resourcepacks",
+            "resource-packs"
+    );
+
+    private static final Pattern CURSEFORGE_DATA_PROJECT_ID_PATTERN = Pattern.compile(
+            "data-project-id\\s*=\\s*\"?(\\d+)\"?",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    private static final Pattern CURSEFORGE_SPAN_PROJECT_ID_PATTERN = Pattern.compile(
+            "project-id[^>]*>(\\d+)<",
+            Pattern.CASE_INSENSITIVE
+    );
+
     private final JavaPlugin plugin;
     private final BukkitScheduler scheduler;
     private final FileConfiguration configuration;
@@ -87,6 +131,7 @@ public class QuickInstallCoordinator {
     private final eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler persistentPluginHandler;
     private final eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository pluginUpdateSettingsRepository;
     private final eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager pluginLifecycleManager;
+    private final HttpClient httpClient;
     private final Logger logger;
     private final String messagePrefix;
     private final Map<String, PendingSelection> pendingSelections = new ConcurrentHashMap<>();
@@ -104,6 +149,7 @@ public class QuickInstallCoordinator {
         this.pluginUpdateSettingsRepository = context.getPluginUpdateSettingsRepository();
         this.pluginLifecycleManager = context.getPluginLifecycleManager();
         this.artifactDownloader = Objects.requireNonNullElseGet(context.getArtifactDownloader(), ArtifactDownloader::new);
+        this.httpClient = HttpClient.builder().accept("text/html,application/xhtml+xml").build();
         this.logger = plugin.getLogger();
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
         this.ignoreCompatibilityWarnings = configuration.getBoolean("quickInstall.ignoreCompatibilityWarnings", false);
@@ -627,6 +673,9 @@ public class QuickInstallCoordinator {
         if (host.contains("github.com")) {
             return buildGithubPlan(uri, originalUrl, host);
         }
+        if (host.contains("curseforge.com")) {
+            return buildCurseforgePlan(uri, originalUrl, host);
+        }
         if (uri.getPath() != null && uri.getPath().toLowerCase(Locale.ROOT).contains("/job/")) {
             return buildJenkinsPlan(uri, originalUrl, host);
         }
@@ -691,6 +740,102 @@ public class QuickInstallCoordinator {
         return plan;
     }
 
+    private InstallationPlan buildCurseforgePlan(URI uri, String originalUrl, String host) {
+        List<String> segments = pathSegments(uri.getPath());
+        CurseforgeProjectPath projectPath = extractCurseforgeProject(segments)
+                .orElseThrow(() -> new IllegalArgumentException("Could not parse CurseForge URL."));
+
+        String slug = projectPath.slug();
+        OptionalLong projectId;
+        try {
+            projectId = fetchCurseforgeProjectId(uri, segments, projectPath.slugIndex());
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to query CurseForge: " + e.getMessage(), e);
+        }
+
+        if (projectId.isEmpty()) {
+            throw new IllegalArgumentException("Could not determine the CurseForge project ID from the provided URL.");
+        }
+
+        Map<String, Object> options = new LinkedHashMap<>();
+        options.put("modId", projectId.getAsLong());
+        applyCompatibilityPreference(options);
+
+        String defaultFilename = resolveDefaultFilename(slug);
+
+        InstallationPlan plan = new InstallationPlan(
+                originalUrl,
+                "CurseForge",
+                host,
+                "curseforge",
+                slug,
+                toDisplayName(slug),
+                TargetDirectory.PLUGINS,
+                options,
+                defaultFilename
+        );
+        plan.addPluginNameCandidate(slug);
+        plan.addPluginNameCandidate(toDisplayName(slug));
+        return plan;
+    }
+
+    private OptionalLong fetchCurseforgeProjectId(URI uri, List<String> segments, int slugIndex) throws IOException {
+        String projectUrl = buildCurseforgeProjectUrl(uri, segments, slugIndex);
+        try {
+            String body = httpClient.get(projectUrl);
+            OptionalLong projectId = extractCurseforgeProjectId(body);
+            if (projectId.isEmpty()) {
+                logger.log(Level.FINE, "CurseForge response from {0} did not include a project id.", projectUrl);
+            }
+            return projectId;
+        } catch (IOException e) {
+            logger.log(Level.FINE, "Failed to download CurseForge project page " + projectUrl, e);
+            throw e;
+        }
+    }
+
+    private String buildCurseforgeProjectUrl(URI uri, List<String> segments, int slugIndex) {
+        if (segments == null || slugIndex < 0 || slugIndex >= segments.size()) {
+            throw new IllegalArgumentException("Invalid CurseForge URL structure.");
+        }
+        String authority = uri.getAuthority();
+        if (authority == null || authority.isBlank()) {
+            throw new IllegalArgumentException("CurseForge URL must include a host.");
+        }
+        String scheme = Optional.ofNullable(uri.getScheme()).orElse("https");
+        StringBuilder pathBuilder = new StringBuilder();
+        for (int i = 0; i <= slugIndex; i++) {
+            pathBuilder.append('/').append(segments.get(i));
+        }
+        return scheme + "://" + authority + pathBuilder;
+    }
+
+    private OptionalLong extractCurseforgeProjectId(String html) {
+        if (html == null || html.isBlank()) {
+            return OptionalLong.empty();
+        }
+        Pattern[] patterns = {CURSEFORGE_DATA_PROJECT_ID_PATTERN, CURSEFORGE_SPAN_PROJECT_ID_PATTERN};
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(html);
+            if (!matcher.find()) {
+                continue;
+            }
+            String value = matcher.group(1);
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            try {
+                long id = Long.parseLong(value.trim());
+                if (id > 0) {
+                    return OptionalLong.of(id);
+                }
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed matches and continue with the next pattern
+            }
+        }
+        return OptionalLong.empty();
+    }
+
     static Optional<String> extractModrinthSlug(List<String> segments) {
         String slug = null;
         boolean expectSlug = false;
@@ -720,6 +865,54 @@ public class QuickInstallCoordinator {
         }
 
         return Optional.ofNullable(trimToNull(slug));
+    }
+
+    static Optional<CurseforgeProjectPath> extractCurseforgeProject(List<String> segments) {
+        if (segments == null || segments.isEmpty()) {
+            return Optional.empty();
+        }
+
+        int index = segments.size() - 1;
+        while (index >= 0) {
+            String decoded = decode(segments.get(index));
+            String trimmed = decoded.trim();
+            if (trimmed.isEmpty()) {
+                index--;
+                continue;
+            }
+
+            String normalized = trimmed.toLowerCase(Locale.ROOT);
+            if (CURSEFORGE_TRAILING_SEGMENTS.contains(normalized)) {
+                index--;
+                continue;
+            }
+
+            if (CURSEFORGE_CATEGORY_SEGMENTS.contains(normalized)) {
+                index--;
+                continue;
+            }
+
+            if (isNumeric(normalized)) {
+                if (index > 0) {
+                    String previous = decode(segments.get(index - 1)).trim().toLowerCase(Locale.ROOT);
+                    if (CURSEFORGE_TRAILING_SEGMENTS.contains(previous)) {
+                        index -= 2;
+                        continue;
+                    }
+                }
+                index--;
+                continue;
+            }
+
+            String slug = trimToNull(trimmed);
+            if (slug == null) {
+                index--;
+                continue;
+            }
+            return Optional.of(new CurseforgeProjectPath(index, slug));
+        }
+
+        return Optional.empty();
     }
 
     static Optional<OwnerSlug> extractOwnerAndSlug(List<String> segments, Collection<String> segmentsToIgnore) {
@@ -1284,6 +1477,18 @@ public class QuickInstallCoordinator {
         return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
+    private static boolean isNumeric(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private String sanitizeKey(String value) {
         String normalized = value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
         normalized = normalized.replaceAll("-+", "-");
@@ -1341,6 +1546,24 @@ public class QuickInstallCoordinator {
         private ArchivePendingSelection {
             Objects.requireNonNull(plan, "plan");
             entries = List.copyOf(entries);
+        }
+    }
+
+    static final class CurseforgeProjectPath {
+        private final int slugIndex;
+        private final String slug;
+
+        CurseforgeProjectPath(int slugIndex, String slug) {
+            this.slugIndex = slugIndex;
+            this.slug = slug;
+        }
+
+        int slugIndex() {
+            return slugIndex;
+        }
+
+        String slug() {
+            return slug;
         }
     }
 
