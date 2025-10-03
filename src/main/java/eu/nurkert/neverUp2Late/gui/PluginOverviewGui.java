@@ -661,7 +661,7 @@ public class PluginOverviewGui implements Listener {
             return;
         }
         openStandaloneInstall(player, List.of(), null);
-        player.sendMessage(ChatColor.GRAY + "Search for new plugins on Modrinth or Hangar, or provide a direct link.");
+        player.sendMessage(ChatColor.GRAY + "Search for new plugins on Modrinth or Hangar, or provide a direct link (including SpigotMC resources).");
     }
 
     @EventHandler
@@ -1021,6 +1021,7 @@ public class PluginOverviewGui implements Listener {
             List<String> lore = new ArrayList<>();
             if (searchTerm == null || searchTerm.isBlank()) {
                 lore.add(ChatColor.GRAY + "Use the search to browse Modrinth or Hangar.");
+                lore.add(ChatColor.GRAY + "Manual links support SpigotMC via the Spiget API.");
             } else if (resultCount == 0) {
                 lore.add(ChatColor.YELLOW + "No results for: " + ChatColor.WHITE + searchTerm);
                 lore.add(ChatColor.GRAY + "Adjust the search term or try a direct link.");
@@ -1044,6 +1045,7 @@ public class PluginOverviewGui implements Listener {
             List<String> lore = new ArrayList<>();
             lore.add(ChatColor.GRAY + "Opens a text input.");
             lore.add(ChatColor.GRAY + "Searches Modrinth and Hangar simultaneously.");
+            lore.add(ChatColor.DARK_GRAY + "Use manual input for SpigotMC/Spiget links.");
             if (searchTerm != null && !searchTerm.isBlank()) {
                 lore.add(" ");
                 lore.add(ChatColor.DARK_GRAY + "Last search: " + ChatColor.WHITE + searchTerm);
@@ -1061,7 +1063,7 @@ public class PluginOverviewGui implements Listener {
             meta.setDisplayName(ChatColor.YELLOW + "Enter direct link");
             meta.setLore(List.of(
                     ChatColor.GRAY + "Opens an anvil dialog",
-                    ChatColor.GRAY + "for direct download links."
+                    ChatColor.GRAY + "for direct download links (e.g. SpigotMC/Spiget)."
             ));
             item.setItemMeta(meta);
         }

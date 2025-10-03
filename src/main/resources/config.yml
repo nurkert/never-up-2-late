@@ -67,3 +67,15 @@ updates:
     #     # assetPattern: ".*paper.*\\.jar$"   # optional regex to select a specific asset
     #     # allowPrerelease: false              # optional, defaults to false
     #     # installedPlugin: "ExamplePlugin"   # optional, used to read the installed version
+
+    # The example below illustrates how to configure a SpigotMC resource via the Spiget API.
+    # - name: exampleSpigot
+    #   type: spigot
+    #   target: plugins
+    #   filename: "ExamplePlugin.jar"
+    #   options:
+    #     resourceId: 123456              # required numeric ID from the SpigotMC URL
+    #     # preferredGameVersions:
+    #     #   - "1.21"
+    #     # ignoreCompatibilityWarnings: false
+    #     # installedPlugin: "ExamplePlugin"
