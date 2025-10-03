@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.core;
 
+import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
@@ -26,6 +27,7 @@ public class PluginContext {
     private final PluginLifecycleManager pluginLifecycleManager;
     private final PluginUpdateSettingsRepository pluginUpdateSettingsRepository;
     private final SetupStateRepository setupStateRepository;
+    private final ArtifactDownloader artifactDownloader;
 
     public PluginContext(JavaPlugin plugin,
                          BukkitScheduler scheduler,
@@ -36,7 +38,8 @@ public class PluginContext {
                          eu.nurkert.neverUp2Late.update.UpdateSourceRegistry updateSourceRegistry,
                          PluginLifecycleManager pluginLifecycleManager,
                          PluginUpdateSettingsRepository pluginUpdateSettingsRepository,
-                         SetupStateRepository setupStateRepository) {
+                         SetupStateRepository setupStateRepository,
+                         ArtifactDownloader artifactDownloader) {
         this.plugin = plugin;
         this.scheduler = scheduler;
         this.configuration = configuration;
@@ -47,6 +50,7 @@ public class PluginContext {
         this.pluginLifecycleManager = pluginLifecycleManager;
         this.pluginUpdateSettingsRepository = pluginUpdateSettingsRepository;
         this.setupStateRepository = setupStateRepository;
+        this.artifactDownloader = artifactDownloader;
     }
 
     public JavaPlugin getPlugin() {
@@ -87,5 +91,9 @@ public class PluginContext {
 
     public SetupStateRepository getSetupStateRepository() {
         return setupStateRepository;
+    }
+
+    public ArtifactDownloader getArtifactDownloader() {
+        return artifactDownloader;
     }
 }

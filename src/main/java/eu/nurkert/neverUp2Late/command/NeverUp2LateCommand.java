@@ -116,6 +116,24 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (args.length > 0 && "rollback".equalsIgnoreCase(args[0])) {
+            if (!sender.hasPermission(Permissions.INSTALL)) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+                return true;
+            }
+            if (args.length < 2) {
+                sender.sendMessage(ChatColor.RED + "Please provide the update source name to roll back.");
+                return true;
+            }
+            String pluginName = String.join(" ", Arrays.copyOfRange(args, 1, args.length)).trim();
+            if (pluginName.isEmpty()) {
+                sender.sendMessage(ChatColor.RED + "Please provide the update source name to roll back.");
+                return true;
+            }
+            coordinator.rollback(sender, pluginName);
+            return true;
+        }
+
         if (!sender.hasPermission(Permissions.INSTALL)) {
             sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
             return true;
@@ -157,7 +175,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("gui", "select", "remove", "setup");
+            return List.of("gui", "select", "remove", "setup", "rollback");
         }
         if (args.length == 2 && "select".equalsIgnoreCase(args[0])) {
             return Collections.singletonList("<number>");
@@ -167,6 +185,9 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 3 && "setup".equalsIgnoreCase(args[0]) && "apply".equalsIgnoreCase(args[1])) {
             return Collections.singletonList("<file>");
+        }
+        if (args.length == 2 && "rollback".equalsIgnoreCase(args[0])) {
+            return coordinator.getRollbackSuggestions();
         }
         return Collections.emptyList();
     }
