@@ -33,6 +33,8 @@ import java.util.logging.Logger;
 
 public class UpdateHandler {
 
+    private static final long MINIMUM_UPDATE_INTERVAL_MINUTES = 30L;
+
     private final JavaPlugin plugin;
     private final Server server;
     private final BukkitScheduler scheduler;
@@ -78,8 +80,14 @@ public class UpdateHandler {
     }
 
     public void start() {
-        long intervalMinutes = configuration.getInt("updateInterval");
-        long intervalTicks = Math.max(1L, intervalMinutes) * 20L * 60L;
+        long configuredIntervalMinutes = configuration.getInt("updateInterval");
+        long intervalMinutes = Math.max(MINIMUM_UPDATE_INTERVAL_MINUTES, configuredIntervalMinutes);
+        if (configuredIntervalMinutes < MINIMUM_UPDATE_INTERVAL_MINUTES) {
+            logger.log(Level.INFO,
+                    "Configured update interval of {0} minutes is below the minimum. Using {1} minutes instead.",
+                    new Object[]{configuredIntervalMinutes, MINIMUM_UPDATE_INTERVAL_MINUTES});
+        }
+        long intervalTicks = intervalMinutes * 20L * 60L;
         if (scheduledTask != null) {
             scheduledTask.cancel();
         }
