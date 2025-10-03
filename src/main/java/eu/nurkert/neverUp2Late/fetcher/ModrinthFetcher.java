@@ -36,6 +36,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
     private final boolean requireBuildNumber;
     private final String installedPluginName;
     private final String maxGameVersion;
+    private final boolean ignoreCompatibilityWarnings;
 
     public ModrinthFetcher(ConfigurationSection options) {
         this(Config.fromConfiguration(options));
@@ -58,6 +59,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         this.requireBuildNumber = config.requireBuildNumber;
         this.installedPluginName = config.installedPluginName;
         this.maxGameVersion = config.maxGameVersion;
+        this.ignoreCompatibilityWarnings = config.ignoreCompatibilityWarnings();
     }
 
     @Override
@@ -158,6 +160,9 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
     }
 
     private String determineMaximumGameVersion() {
+        if (ignoreCompatibilityWarnings) {
+            return null;
+        }
         if (maxGameVersion != null) {
             return maxGameVersion;
         }
@@ -303,6 +308,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         private final boolean requireBuildNumber;
         private final String installedPluginName;
         private final String maxGameVersion;
+        private final boolean ignoreCompatibilityWarnings;
 
         private Config(ConfigBuilder builder) {
             this.projectSlug = Objects.requireNonNull(trimToNull(builder.projectSlug), "projectSlug");
@@ -314,6 +320,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             this.requireBuildNumber = builder.requireBuildNumber;
             this.installedPluginName = trimToNull(builder.installedPluginName);
             this.maxGameVersion = builder.maxGameVersion;
+            this.ignoreCompatibilityWarnings = builder.ignoreCompatibilityWarnings;
         }
 
         public static Config fromConfiguration(ConfigurationSection options) {
@@ -328,7 +335,14 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             builder.requireBuildNumber(options.getBoolean("requireBuildNumber", false));
             builder.installedPlugin(options.getString("installedPlugin"));
             builder.maxGameVersion(options.getString("maxGameVersion"));
+            if (options.contains("ignoreCompatibilityWarnings")) {
+                builder.ignoreCompatibilityWarnings(options.getBoolean("ignoreCompatibilityWarnings"));
+            }
             return builder.build();
+        }
+
+        public boolean ignoreCompatibilityWarnings() {
+            return ignoreCompatibilityWarnings;
         }
 
         private static String requireOption(ConfigurationSection section, String key) {
@@ -350,6 +364,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         private boolean requireBuildNumber = false;
         private String installedPluginName;
         private String maxGameVersion;
+        private boolean ignoreCompatibilityWarnings;
 
         private ConfigBuilder(String projectSlug) {
             this.projectSlug = projectSlug;
@@ -392,6 +407,11 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
 
         public ConfigBuilder maxGameVersion(String maxGameVersion) {
             this.maxGameVersion = normalize(maxGameVersion);
+            return this;
+        }
+
+        public ConfigBuilder ignoreCompatibilityWarnings(boolean ignoreCompatibilityWarnings) {
+            this.ignoreCompatibilityWarnings = ignoreCompatibilityWarnings;
             return this;
         }
 

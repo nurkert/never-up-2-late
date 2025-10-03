@@ -92,6 +92,7 @@ public class QuickInstallCoordinator {
     private final Map<String, PendingSelection> pendingSelections = new ConcurrentHashMap<>();
     private final Map<String, ArchivePendingSelection> pendingArchiveSelections = new ConcurrentHashMap<>();
     private final ArtifactDownloader artifactDownloader;
+    private final boolean ignoreCompatibilityWarnings;
 
     public QuickInstallCoordinator(PluginContext context) {
         this.plugin = context.getPlugin();
@@ -105,6 +106,7 @@ public class QuickInstallCoordinator {
         this.artifactDownloader = Objects.requireNonNullElseGet(context.getArtifactDownloader(), ArtifactDownloader::new);
         this.logger = plugin.getLogger();
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
+        this.ignoreCompatibilityWarnings = configuration.getBoolean("quickInstall.ignoreCompatibilityWarnings", false);
     }
 
     public void install(CommandSender sender, String rawUrl) {
@@ -640,6 +642,7 @@ public class QuickInstallCoordinator {
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("project", owner + "/" + slug);
         options.put("platform", "PAPER");
+        applyCompatibilityPreference(options);
 
         String defaultFilename = resolveDefaultFilename(slug, owner + "-" + slug);
 
@@ -668,6 +671,7 @@ public class QuickInstallCoordinator {
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("project", slug);
         options.put("loaders", List.of("paper", "spigot"));
+        applyCompatibilityPreference(options);
 
         String defaultFilename = resolveDefaultFilename(slug);
 
@@ -774,6 +778,7 @@ public class QuickInstallCoordinator {
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("owner", owner);
         options.put("repository", repository);
+        applyCompatibilityPreference(options);
         String defaultFilename = resolveDefaultFilename(repository, owner + "-" + repository);
 
         InstallationPlan plan = new InstallationPlan(
@@ -812,6 +817,7 @@ public class QuickInstallCoordinator {
         options.put("baseUrl", baseUrl);
         options.put("job", jobPath);
         options.put("artifactPattern", "(?i).*\\.jar$");
+        applyCompatibilityPreference(options);
 
         String displayName = jobSegments.get(jobSegments.size() - 1);
         String providerLabel = (host == null || host.isBlank()) ? "Jenkins" : host;
@@ -834,6 +840,12 @@ public class QuickInstallCoordinator {
             plan.addPluginNameCandidate(displayName.substring(0, displayName.indexOf('-')).trim());
         }
         return plan;
+    }
+
+    private void applyCompatibilityPreference(Map<String, Object> options) {
+        if (ignoreCompatibilityWarnings && options != null) {
+            options.put("ignoreCompatibilityWarnings", true);
+        }
     }
 
     private String buildJenkinsBaseUrl(URI uri, List<String> segments) {
