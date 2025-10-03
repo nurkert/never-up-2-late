@@ -47,7 +47,11 @@ an inventory interface that walks through:
 3. Confirming whether to restart immediately or later.
 
 When the wizard finishes, NeverUp2Late records the completion status and starts the scheduled update loop. You can reopen the
-wizard at any time with `/nu2l setup` while setup mode is active.
+wizard at any time with `/nu2l setup` while setup mode is active. Server operators can now complete the onboarding headlessly via
+`/nu2l setup complete` from the console, or apply a prepared configuration file with `/nu2l setup apply <file>`.
+
+To skip the wizard entirely on fresh installations, set `setup.skipWizard: true` in `config.yml`. The plugin will immediately
+persist the default sources and start update checks.
 
 ![Setup wizard showing update source selection](images/setup-update-source.png)
 
@@ -61,6 +65,8 @@ wizard at any time with `/nu2l setup` while setup mode is active.
 | `/nu2l select <number>` | Chooses an asset when multiple files are available. | `neverup2late.install` | Responds to prompts generated during quick install. |
 | `/nu2l remove <name>` | Unregisters an update source and stops managing its file. | `neverup2late.gui.manage.remove` | Available from console and players. |
 | `/nu2l setup` | Opens the first-run setup wizard. | `neverup2late.setup` | Players only; shows if setup is not completed. |
+| `/nu2l setup complete` | Stores default sources and marks setup as finished without opening the GUI. | `neverup2late.setup` | Works from console or in-game. |
+| `/nu2l setup apply <file>` | Loads update sources from a YAML file and finalises setup. | `neverup2late.setup` | File paths are resolved relative to the plugin folder (`setup-presets/<file>.yml` is also checked). |
 
 ### Permission Overview
 
@@ -117,6 +123,9 @@ reloading plugins.
 All configuration lives in `plugins/NeverUp2Late/config.yml`. The default layout looks like this:
 
 ```yaml
+setup:
+  skipWizard: false
+
 filenames:
   geyser: "Geyser-Spigot.jar"
   paper: "paper.jar"
@@ -140,6 +149,7 @@ updates:
 
 Key options:
 
+- `setup.skipWizard` – When `true`, NeverUp2Late skips the interactive wizard and applies default sources on startup.
 - `updateInterval` – Minutes between scheduled update checks.
 - `pluginLifecycle.autoManage` – Enables automatic plugin reloads and lifecycle controls. Set to `false` to keep manual restarts.
 - `filenames.<name>` – Default filename for a source if `updates.sources[].filename` is omitted.

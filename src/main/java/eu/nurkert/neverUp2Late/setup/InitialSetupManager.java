@@ -17,6 +17,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.Server;
+import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -117,6 +119,62 @@ public class InitialSetupManager implements Listener {
         SetupSession session = new SetupSession(stage, sources);
         sessions.put(player.getUniqueId(), session);
         rebuildInventory(player, session);
+    }
+
+    public void completeSetup(CommandSender sender) {
+        List<SourceConfiguration> sources = createDefaultSourceConfigurations();
+        if (sources.isEmpty()) {
+            sendMessage(sender, ChatColor.RED + "Es wurden keine Update-Quellen gefunden. Setup kann nicht abgeschlossen werden.");
+            return;
+        }
+        SetupPhase phase = setupStateRepository.getPhase();
+        if (phase == SetupPhase.COMPLETED) {
+            sendMessage(sender, ChatColor.YELLOW + "NeverUp2Late wurde bereits eingerichtet – Standardquellen werden erneut gespeichert.");
+        }
+        finaliseSetup(sender, sources, ChatColor.GREEN + "Initiale Einrichtung abgeschlossen. Standardquellen wurden gespeichert.");
+    }
+
+    public void applyConfiguration(CommandSender sender, String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            sendMessage(sender, ChatColor.RED + "Bitte gib einen Konfigurationsnamen oder Pfad an.");
+            return;
+        }
+
+        Optional<File> resolved = resolveConfigurationFile(identifier.trim());
+        if (resolved.isEmpty() || !resolved.get().isFile()) {
+            sendMessage(sender, ChatColor.RED + "Konfiguration " + ChatColor.AQUA + identifier + ChatColor.RED + " wurde nicht gefunden.");
+            return;
+        }
+
+        File file = resolved.get();
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        List<Map<?, ?>> configuredSources = yaml.getMapList("updates.sources");
+        if (configuredSources == null || configuredSources.isEmpty()) {
+            sendMessage(sender, ChatColor.RED + "Die Datei " + ChatColor.AQUA + file.getName() + ChatColor.RED + " enthält keine Update-Quellen.");
+            return;
+        }
+
+        List<SourceConfiguration> sources = new ArrayList<>();
+        for (Map<?, ?> entry : configuredSources) {
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> option : entry.entrySet()) {
+                if (option.getKey() != null) {
+                    normalized.put(option.getKey().toString(), option.getValue());
+                }
+            }
+            SourceConfiguration configuration = toSourceConfiguration(normalized);
+            if (configuration != null) {
+                sources.add(configuration);
+            }
+        }
+
+        if (sources.isEmpty()) {
+            sendMessage(sender, ChatColor.RED + "Keine gültigen Quellen in " + ChatColor.AQUA + file.getName() + ChatColor.RED + " gefunden.");
+            return;
+        }
+
+        finaliseSetup(sender, sources, ChatColor.GREEN + "Konfiguration aus " + ChatColor.AQUA + file.getName()
+                + ChatColor.GREEN + " angewendet. Setup abgeschlossen.");
     }
 
     public void finishSetup(Player player, boolean restartImmediately) {
@@ -483,7 +541,7 @@ public class InitialSetupManager implements Listener {
         buildDownloadInventory(player, session);
     }
 
-    private void persistConfiguration(Player player, List<SourceConfiguration> sources) {
+    private void persistConfiguration(CommandSender sender, List<SourceConfiguration> sources) {
         for (SourceConfiguration source : sources) {
             context.getConfiguration().set("filenames." + source.name, source.filename);
         }
@@ -530,7 +588,7 @@ public class InitialSetupManager implements Listener {
             logger.log(Level.WARNING, "Konnte Update-Quellen nach der Einrichtung nicht neu laden", ex);
         }
 
-        player.sendMessage(ChatColor.GREEN + "Einstellungen gespeichert. Die Quellen wurden aktualisiert.");
+        sendMessage(sender, ChatColor.GREEN + "Einstellungen gespeichert. Die Quellen wurden aktualisiert.");
     }
 
     private void promptFilename(Player player, SetupSession session, SourceConfiguration source, int slot) {
@@ -607,22 +665,7 @@ public class InitialSetupManager implements Listener {
     private List<SourceConfiguration> loadSourceConfigurations() {
         List<Map<String, Object>> rawSources = readConfiguredSources();
         if (rawSources.isEmpty()) {
-            List<SourceConfiguration> fallback = new ArrayList<>();
-            for (UpdateSource source : context.getUpdateSourceRegistry().getSources()) {
-                SourceConfiguration configuration = new SourceConfiguration();
-                configuration.name = source.getName();
-                configuration.type = source.getFetcher().getClass().getSimpleName();
-                configuration.target = source.getTargetDirectory();
-                configuration.targetConfigValue = source.getTargetDirectory().name();
-                configuration.filename = source.getFilename();
-                configuration.enabled = true;
-                configuration.options = Collections.emptyMap();
-                configuration.autoUpdate = true;
-                configuration.pluginName = source.getInstalledPluginName();
-                updateSourceDetection(configuration);
-                fallback.add(configuration);
-            }
-            return fallback;
+            return createDefaultSourceConfigurations();
         }
 
         List<SourceConfiguration> result = new ArrayList<>();
@@ -756,6 +799,78 @@ public class InitialSetupManager implements Listener {
 
     private String asString(Object value) {
         return value != null ? value.toString() : null;
+    }
+
+    private void finaliseSetup(CommandSender sender, List<SourceConfiguration> sources, String completionMessage) {
+        persistConfiguration(sender, sources);
+        setupStateRepository.setPhase(SetupPhase.COMPLETED);
+        disableSetupMode();
+        sessions.clear();
+        plugin.getServer().getScheduler().runTask(plugin, () -> updateHandler.start());
+        sendMessage(sender, completionMessage);
+        if (sender != null) {
+            logger.info(ChatColor.stripColor(completionMessage));
+        }
+    }
+
+    private List<SourceConfiguration> createDefaultSourceConfigurations() {
+        List<SourceConfiguration> fallback = new ArrayList<>();
+        for (UpdateSource source : context.getUpdateSourceRegistry().getSources()) {
+            SourceConfiguration configuration = new SourceConfiguration();
+            configuration.name = source.getName();
+            configuration.type = source.getFetcher().getClass().getSimpleName();
+            configuration.target = source.getTargetDirectory();
+            configuration.targetConfigValue = source.getTargetDirectory().name();
+            configuration.filename = source.getFilename();
+            configuration.enabled = true;
+            configuration.options = Collections.emptyMap();
+            configuration.autoUpdate = true;
+            configuration.pluginName = source.getInstalledPluginName();
+            updateSourceDetection(configuration);
+            fallback.add(configuration);
+        }
+        return fallback;
+    }
+
+    private Optional<File> resolveConfigurationFile(String identifier) {
+        File file = new File(identifier);
+        if (file.isFile()) {
+            return Optional.of(file);
+        }
+        if (file.isAbsolute()) {
+            return Optional.empty();
+        }
+        File dataFolder = plugin.getDataFolder();
+        File direct = new File(dataFolder, identifier);
+        if (direct.isFile()) {
+            return Optional.of(direct);
+        }
+        if (!identifier.endsWith(".yml")) {
+            File withExtension = new File(dataFolder, identifier + ".yml");
+            if (withExtension.isFile()) {
+                return Optional.of(withExtension);
+            }
+        }
+        File presetsDir = new File(dataFolder, "setup-presets");
+        File preset = new File(presetsDir, identifier);
+        if (preset.isFile()) {
+            return Optional.of(preset);
+        }
+        if (!identifier.endsWith(".yml")) {
+            File presetWithExtension = new File(presetsDir, identifier + ".yml");
+            if (presetWithExtension.isFile()) {
+                return Optional.of(presetWithExtension);
+            }
+        }
+        return Optional.of(file).filter(File::isFile);
+    }
+
+    private void sendMessage(CommandSender sender, String message) {
+        if (sender != null) {
+            sender.sendMessage(message);
+        } else {
+            logger.info(ChatColor.stripColor(message));
+        }
     }
 
     private enum Stage {

@@ -61,15 +61,44 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length > 0 && "setup".equalsIgnoreCase(args[0])) {
-            if (!(sender instanceof Player player)) {
-                sender.sendMessage(ChatColor.RED + "The setup wizard can only be opened by players.");
-                return true;
-            }
             if (setupManager == null) {
-                sender.sendMessage(ChatColor.RED + "The setup wizard is not available.");
+                sender.sendMessage(ChatColor.RED + "The setup utilities are not available.");
                 return true;
             }
-            setupManager.openWizard(player);
+            if (!sender.hasPermission(Permissions.SETUP)) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission to manage the setup wizard.");
+                return true;
+            }
+
+            if (args.length == 1) {
+                if (sender instanceof Player player) {
+                    setupManager.openWizard(player);
+                } else {
+                    sender.sendMessage(ChatColor.YELLOW + "Run /" + label + " setup complete to finish the wizard from the console.");
+                }
+                return true;
+            }
+
+            String subCommand = args[1];
+            if ("complete".equalsIgnoreCase(subCommand)) {
+                setupManager.completeSetup(sender);
+                return true;
+            }
+            if ("apply".equalsIgnoreCase(subCommand)) {
+                if (args.length < 3) {
+                    sender.sendMessage(ChatColor.RED + "Please provide the path or identifier of the configuration file to apply.");
+                    return true;
+                }
+                String configIdentifier = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+                setupManager.applyConfiguration(sender, configIdentifier.trim());
+                return true;
+            }
+
+            if (sender instanceof Player player) {
+                setupManager.openWizard(player);
+            } else {
+                sender.sendMessage(ChatColor.RED + "Unknown setup sub-command: " + subCommand);
+            }
             return true;
         }
 
@@ -132,6 +161,12 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2 && "select".equalsIgnoreCase(args[0])) {
             return Collections.singletonList("<number>");
+        }
+        if (args.length == 2 && "setup".equalsIgnoreCase(args[0])) {
+            return List.of("complete", "apply");
+        }
+        if (args.length == 3 && "setup".equalsIgnoreCase(args[0]) && "apply".equalsIgnoreCase(args[1])) {
+            return Collections.singletonList("<file>");
         }
         return Collections.emptyList();
     }

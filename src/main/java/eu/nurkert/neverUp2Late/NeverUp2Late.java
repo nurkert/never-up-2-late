@@ -89,8 +89,12 @@ public final class NeverUp2Late extends JavaPlugin {
 
         AnvilTextPrompt anvilTextPrompt = new AnvilTextPrompt(this);
         setupManager = new InitialSetupManager(context, setupStateRepository, anvilTextPrompt);
-        if (setupStateRepository.getPhase() == SetupPhase.COMPLETED) {
+        boolean skipWizard = configuration.getBoolean("setup.skipWizard", false);
+        SetupPhase currentPhase = setupStateRepository.getPhase();
+        if (currentPhase == SetupPhase.COMPLETED) {
             updateHandler.start();
+        } else if (skipWizard) {
+            setupManager.completeSetup(getServer().getConsoleSender());
         } else {
             setupManager.enableSetupMode();
             getLogger().info("NeverUp2Late wartet auf die erste Einrichtung. Spieler mit neverup2late.setup erhalten automatisch eine Anleitung.");

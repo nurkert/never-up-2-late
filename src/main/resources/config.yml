@@ -1,3 +1,9 @@
+# Control the behaviour of the first-run setup wizard
+setup:
+  # When true, NeverUp2Late skips the interactive wizard and applies the default
+  # update sources immediately during server start.
+  skipWizard: false
+
 # The names of the jars as they are in the server directory
 filenames:
   geyser: "Geyser-Spigot.jar"
