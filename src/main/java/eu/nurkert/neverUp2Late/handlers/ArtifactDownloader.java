@@ -3,6 +3,8 @@ package eu.nurkert.neverUp2Late.handlers;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import eu.nurkert.neverUp2Late.net.HttpClient;
+
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -19,6 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -322,9 +325,24 @@ public class ArtifactDownloader {
     }
 
     private URLConnection openConnection(DownloadRequest request) throws IOException {
-        URLConnection connection = new URL(request.getUrl()).openConnection();
+        URL url = new URL(request.getUrl());
+        URLConnection connection = url.openConnection();
         connection.setConnectTimeout(request.getConnectTimeout());
         connection.setReadTimeout(request.getReadTimeout());
+        if (connection.getRequestProperty("User-Agent") == null) {
+            connection.setRequestProperty("User-Agent", HttpClient.DEFAULT_USER_AGENT);
+        }
+
+        String host = url.getHost();
+        if (host != null) {
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            if (normalizedHost.contains("curseforge.com") || normalizedHost.contains("forgecdn.net")) {
+                if (connection.getRequestProperty("Accept") == null) {
+                    connection.setRequestProperty("Accept", "*/*");
+                }
+                connection.setRequestProperty("Referer", "https://www.curseforge.com/");
+            }
+        }
         return connection;
     }
 
