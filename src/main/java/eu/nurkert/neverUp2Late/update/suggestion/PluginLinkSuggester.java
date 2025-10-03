@@ -33,6 +33,8 @@ public class PluginLinkSuggester {
             "https://api.modrinth.com/v2/search?limit=5&index=relevance&query=%s";
     private static final String HANGAR_SEARCH_TEMPLATE =
             "https://hangar.papermc.io/api/v1/projects?limit=5&query=%s";
+    private static final String SPIGOT_SEARCH_TEMPLATE =
+            "https://api.spiget.org/v2/search/resources/%s?size=5";
     private static final int MAX_RESULTS_PER_PROVIDER = 5;
 
     private final HttpClient httpClient;
@@ -73,6 +75,7 @@ public class PluginLinkSuggester {
         List<PluginLinkSuggestion> suggestions = new ArrayList<>();
         suggestions.addAll(fetchModrinthSuggestions(normalizedTerms));
         suggestions.addAll(fetchHangarSuggestions(normalizedTerms));
+        suggestions.addAll(fetchSpigotSuggestions(normalizedTerms));
         return suggestions;
     }
 
@@ -142,6 +145,41 @@ public class PluginLinkSuggester {
                 }
             } catch (IOException e) {
                 logger.log(Level.FINE, "Failed to query Hangar for term " + term, e);
+            }
+        }
+        return suggestions;
+    }
+
+    private List<PluginLinkSuggestion> fetchSpigotSuggestions(Collection<String> searchTerms) {
+        List<PluginLinkSuggestion> suggestions = new ArrayList<>();
+        Set<Long> seen = new LinkedHashSet<>();
+        for (String term : searchTerms) {
+            if (suggestions.size() >= MAX_RESULTS_PER_PROVIDER) {
+                break;
+            }
+            String url = SPIGOT_SEARCH_TEMPLATE.formatted(encode(term));
+            try {
+                SpigotResource[] resources = objectMapper.readValue(httpClient.get(url), SpigotResource[].class);
+                if (resources == null || resources.length == 0) {
+                    continue;
+                }
+                for (SpigotResource resource : resources) {
+                    if (resource == null || resource.id() == null) {
+                        continue;
+                    }
+                    if (!matches(term, resource.name(), resource.tag())) {
+                        continue;
+                    }
+                    if (!seen.add(resource.id())) {
+                        continue;
+                    }
+                    suggestions.add(resource.toSuggestion());
+                    if (suggestions.size() >= MAX_RESULTS_PER_PROVIDER) {
+                        break;
+                    }
+                }
+            } catch (IOException e) {
+                logger.log(Level.FINE, "Failed to query SpigotMC for term " + term, e);
             }
         }
         return suggestions;
@@ -268,6 +306,91 @@ public class PluginLinkSuggester {
         boolean isPublic() {
             return visibility == null || visibility.equalsIgnoreCase("public");
         }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record SpigotResource(Long id,
+                                  String name,
+                                  String tag,
+                                  @JsonProperty("testedVersions") List<String> testedVersions,
+                                  SpigotFile file,
+                                  SpigotRating rating,
+                                  @JsonProperty("downloads") long downloads) {
+
+        PluginLinkSuggestion toSuggestion() {
+            List<String> highlights = new ArrayList<>();
+            if (testedVersions != null && !testedVersions.isEmpty()) {
+                highlights.add("Getestet: " + String.join(", ", testedVersions));
+            }
+            if (downloads > 0) {
+                highlights.add("Downloads: " + NumberFormat.getInstance(Locale.GERMAN).format(downloads));
+            }
+            if (rating != null && rating.average() > 0) {
+                NumberFormat decimalFormat = NumberFormat.getNumberInstance(Locale.GERMAN);
+                decimalFormat.setMinimumFractionDigits(1);
+                decimalFormat.setMaximumFractionDigits(1);
+                String formattedAverage = decimalFormat.format(rating.average());
+                String ratingHighlight = "Bewertung: " + formattedAverage;
+                if (rating.count() > 0) {
+                    ratingHighlight += " (" + NumberFormat.getInstance(Locale.GERMAN).format(rating.count()) + ')';
+                }
+                highlights.add(ratingHighlight);
+            }
+            downloadLink().ifPresent(link -> highlights.add("Download: " + link));
+            String description = (tag == null || tag.isBlank()) ? null : tag;
+            return new PluginLinkSuggestion("SpigotMC", title(), resourceLink(), description, List.copyOf(highlights));
+        }
+
+        private String title() {
+            if (name != null && !name.isBlank()) {
+                return name;
+            }
+            return "Resource " + (id == null ? "" : id);
+        }
+
+        private String resourceLink() {
+            if (file != null && file.url() != null && !file.url().isBlank()) {
+                String path = file.url();
+                int downloadIndex = path.indexOf("/download");
+                if (downloadIndex > 0) {
+                    path = path.substring(0, downloadIndex);
+                } else {
+                    int queryIndex = path.indexOf('?');
+                    if (queryIndex > 0) {
+                        path = path.substring(0, queryIndex);
+                    }
+                }
+                if (!path.endsWith("/")) {
+                    path = path + '/';
+                }
+                return "https://www.spigotmc.org/" + path;
+            }
+            if (id != null && id > 0) {
+                return "https://www.spigotmc.org/resources/" + id + '/';
+            }
+            return "https://www.spigotmc.org/resources";
+        }
+
+        private Optional<String> downloadLink() {
+            if (file == null) {
+                return Optional.empty();
+            }
+            if (file.externalUrl() != null && !file.externalUrl().isBlank()) {
+                return Optional.of(file.externalUrl());
+            }
+            if (file.url() != null && !file.url().isBlank()) {
+                return Optional.of("https://www.spigotmc.org/" + file.url());
+            }
+            return Optional.empty();
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record SpigotFile(String url, String externalUrl) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record SpigotRating(double average, long count) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
