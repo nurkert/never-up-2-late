@@ -151,7 +151,8 @@ public class QuickInstallCoordinator {
         this.artifactDownloader = Objects.requireNonNullElseGet(context.getArtifactDownloader(), ArtifactDownloader::new);
         this.httpClient = HttpClient.builder()
                 .accept("text/html,application/xhtml+xml")
-                .header("User-Agent", HttpClient.DEFAULT_USER_AGENT)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .build();
         this.logger = plugin.getLogger();
