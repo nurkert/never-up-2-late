@@ -105,13 +105,13 @@ public class InitialSetupManager implements Listener {
     public void openWizard(Player player) {
         Objects.requireNonNull(player, "player");
         if (!player.hasPermission(Permissions.SETUP)) {
-            player.sendMessage(ChatColor.RED + "Du hast keine Berechtigung, um den Einrichtungsassistenten zu öffnen.");
+            player.sendMessage(ChatColor.RED + "You do not have permission to open the setup wizard.");
             return;
         }
 
         SetupPhase phase = setupStateRepository.getPhase();
         if (phase == SetupPhase.COMPLETED) {
-            player.sendMessage(ChatColor.GREEN + "NeverUp2Late wurde bereits initialisiert. Du kannst die GUI über /nu2l gui öffnen.");
+            player.sendMessage(ChatColor.GREEN + "NeverUp2Late is already initialized. You can open the GUI via /nu2l gui.");
             return;
         }
 
@@ -125,25 +125,25 @@ public class InitialSetupManager implements Listener {
     public void completeSetup(CommandSender sender) {
         List<SourceConfiguration> sources = createDefaultSourceConfigurations();
         if (sources.isEmpty()) {
-            sendMessage(sender, ChatColor.RED + "Es wurden keine Update-Quellen gefunden. Setup kann nicht abgeschlossen werden.");
+            sendMessage(sender, ChatColor.RED + "No update sources were found. The setup cannot be completed.");
             return;
         }
         SetupPhase phase = setupStateRepository.getPhase();
         if (phase == SetupPhase.COMPLETED) {
-            sendMessage(sender, ChatColor.YELLOW + "NeverUp2Late wurde bereits eingerichtet – Standardquellen werden erneut gespeichert.");
+            sendMessage(sender, ChatColor.YELLOW + "NeverUp2Late is already configured – default sources will be saved again.");
         }
-        finaliseSetup(sender, sources, ChatColor.GREEN + "Initiale Einrichtung abgeschlossen. Standardquellen wurden gespeichert.");
+        finaliseSetup(sender, sources, ChatColor.GREEN + "Initial setup complete. Default sources have been saved.");
     }
 
     public void applyConfiguration(CommandSender sender, String identifier) {
         if (identifier == null || identifier.isBlank()) {
-            sendMessage(sender, ChatColor.RED + "Bitte gib einen Konfigurationsnamen oder Pfad an.");
+            sendMessage(sender, ChatColor.RED + "Please provide a configuration name or path.");
             return;
         }
 
         Optional<File> resolved = resolveConfigurationFile(identifier.trim());
         if (resolved.isEmpty() || !resolved.get().isFile()) {
-            sendMessage(sender, ChatColor.RED + "Konfiguration " + ChatColor.AQUA + identifier + ChatColor.RED + " wurde nicht gefunden.");
+            sendMessage(sender, ChatColor.RED + "Configuration " + ChatColor.AQUA + identifier + ChatColor.RED + " could not be found.");
             return;
         }
 
@@ -151,7 +151,7 @@ public class InitialSetupManager implements Listener {
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         List<Map<?, ?>> configuredSources = yaml.getMapList("updates.sources");
         if (configuredSources == null || configuredSources.isEmpty()) {
-            sendMessage(sender, ChatColor.RED + "Die Datei " + ChatColor.AQUA + file.getName() + ChatColor.RED + " enthält keine Update-Quellen.");
+            sendMessage(sender, ChatColor.RED + "The file " + ChatColor.AQUA + file.getName() + ChatColor.RED + " does not contain any update sources.");
             return;
         }
 
@@ -170,12 +170,12 @@ public class InitialSetupManager implements Listener {
         }
 
         if (sources.isEmpty()) {
-            sendMessage(sender, ChatColor.RED + "Keine gültigen Quellen in " + ChatColor.AQUA + file.getName() + ChatColor.RED + " gefunden.");
+            sendMessage(sender, ChatColor.RED + "No valid sources found in " + ChatColor.AQUA + file.getName() + ChatColor.RED + ".");
             return;
         }
 
-        finaliseSetup(sender, sources, ChatColor.GREEN + "Konfiguration aus " + ChatColor.AQUA + file.getName()
-                + ChatColor.GREEN + " angewendet. Setup abgeschlossen.");
+        finaliseSetup(sender, sources, ChatColor.GREEN + "Configuration from " + ChatColor.AQUA + file.getName()
+                + ChatColor.GREEN + " applied. Setup complete.");
     }
 
     public void finishSetup(Player player, boolean restartImmediately) {
@@ -185,12 +185,12 @@ public class InitialSetupManager implements Listener {
 
         plugin.getServer().getScheduler().runTask(plugin, () -> updateHandler.start());
 
-        player.sendMessage(ChatColor.GREEN + "Initiale Einrichtung abgeschlossen! Updates werden nun automatisch verwaltet.");
+        player.sendMessage(ChatColor.GREEN + "Initial setup complete! Updates are now managed automatically.");
         if (restartImmediately) {
-            player.sendMessage(ChatColor.YELLOW + "Server wird neu gestartet…");
+            player.sendMessage(ChatColor.YELLOW + "Server is restarting…");
             plugin.getServer().getScheduler().runTask(plugin, server::shutdown);
         } else {
-            player.sendMessage(ChatColor.GRAY + "Du kannst den Server jederzeit neu starten, wenn es dir passt.");
+            player.sendMessage(ChatColor.GRAY + "You can restart the server at any time when it suits you.");
         }
     }
 
@@ -208,8 +208,8 @@ public class InitialSetupManager implements Listener {
             if (!player.isOnline()) {
                 return;
             }
-            player.sendMessage(ChatColor.AQUA + "Willkommen! NeverUp2Late braucht eine kurze Ersteinrichtung.");
-            player.sendMessage(ChatColor.GRAY + "Ein Assistent erklärt dir alle Schritte – er öffnet sich jetzt.");
+            player.sendMessage(ChatColor.AQUA + "Welcome! NeverUp2Late needs a quick initial setup.");
+            player.sendMessage(ChatColor.GRAY + "A wizard will guide you through the steps – it is opening now.");
             openWizard(player);
         }, 40L);
     }
@@ -278,18 +278,18 @@ public class InitialSetupManager implements Listener {
 
     private void buildConfigureInventory(Player player, SetupSession session) {
         session.awaitingInput = false;
-        Inventory inventory = createStageInventory(Stage.CONFIGURE, ChatColor.DARK_PURPLE + "NU2L Setup – Quellen");
+        Inventory inventory = createStageInventory(Stage.CONFIGURE, ChatColor.DARK_PURPLE + "NU2L Setup – Sources");
 
         ItemStack info = new ItemStack(Material.WRITABLE_BOOK);
         ItemMeta meta = info.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "Was wird eingerichtet?");
+            meta.setDisplayName(ChatColor.GOLD + "What is being configured?");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "• Links-Klick: Quelle aktivieren/deaktivieren",
-                    ChatColor.GRAY + "• Rechts-Klick: Automatische Updates umschalten",
-                    ChatColor.GRAY + "• Shift + Links-Klick: Dateinamen anpassen",
+                    ChatColor.GRAY + "• Left-click: enable/disable source",
+                    ChatColor.GRAY + "• Right-click: toggle automatic updates",
+                    ChatColor.GRAY + "• Shift + Left-click: adjust filename",
                     ChatColor.GRAY + "",
-                    ChatColor.AQUA + "Passe jede Quelle an und bestätige unten."
+                    ChatColor.AQUA + "Adjust each source and confirm below."
             ));
             info.setItemMeta(meta);
         }
@@ -314,10 +314,10 @@ public class InitialSetupManager implements Listener {
         ItemStack continueItem = new ItemStack(Material.LIME_CONCRETE);
         ItemMeta continueMeta = continueItem.getItemMeta();
         if (continueMeta != null) {
-            continueMeta.setDisplayName(ChatColor.GREEN + "Speichern & Downloads vorbereiten");
+            continueMeta.setDisplayName(ChatColor.GREEN + "Save & prepare downloads");
             continueMeta.setLore(List.of(
-                    ChatColor.GRAY + "Aktuelle Einstellungen werden gespeichert",
-                    ChatColor.GRAY + "und die Update-Quellen neu geladen."
+                    ChatColor.GRAY + "Current settings will be saved",
+                    ChatColor.GRAY + "and the update sources reloaded."
             ));
             continueItem.setItemMeta(continueMeta);
         }
@@ -334,13 +334,13 @@ public class InitialSetupManager implements Listener {
         ItemStack info = new ItemStack(Material.MAP);
         ItemMeta meta = info.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "Updates herunterladen");
+            meta.setDisplayName(ChatColor.GOLD + "Download updates");
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Klicke, um für alle aktivierten Quellen");
-            lore.add(ChatColor.GRAY + "einmalig nach Updates zu suchen.");
+            lore.add(ChatColor.GRAY + "Click to check all enabled sources");
+            lore.add(ChatColor.GRAY + "for updates once.");
             if (session.downloadsTriggered) {
                 lore.add(" ");
-                lore.add(ChatColor.GREEN + "Downloads wurden bereits gestartet.");
+                lore.add(ChatColor.GREEN + "Downloads have already been started.");
             }
             meta.setLore(lore);
             info.setItemMeta(meta);
@@ -350,10 +350,10 @@ public class InitialSetupManager implements Listener {
         ItemStack downloadButton = new ItemStack(Material.EMERALD_BLOCK);
         ItemMeta downloadMeta = downloadButton.getItemMeta();
         if (downloadMeta != null) {
-            downloadMeta.setDisplayName(ChatColor.GREEN + "Updates jetzt herunterladen");
+            downloadMeta.setDisplayName(ChatColor.GREEN + "Download updates now");
             downloadMeta.setLore(List.of(
-                    ChatColor.GRAY + "Startet einmalig eine Update-Suche",
-                    ChatColor.GRAY + "für alle aktivierten Quellen."
+                    ChatColor.GRAY + "Starts a one-time update check",
+                    ChatColor.GRAY + "for all enabled sources."
             ));
             downloadButton.setItemMeta(downloadMeta);
         }
@@ -362,10 +362,10 @@ public class InitialSetupManager implements Listener {
         ItemStack continueButton = new ItemStack(Material.GOLD_BLOCK);
         ItemMeta continueMeta = continueButton.getItemMeta();
         if (continueMeta != null) {
-            continueMeta.setDisplayName(ChatColor.YELLOW + "Weiter zur Neustart-Frage");
+            continueMeta.setDisplayName(ChatColor.YELLOW + "Continue to restart prompt");
             continueMeta.setLore(List.of(
-                    ChatColor.GRAY + "Bestätige, dass die Downloads",
-                    ChatColor.GRAY + "abgeschlossen sind."
+                    ChatColor.GRAY + "Confirm that the downloads",
+                    ChatColor.GRAY + "have finished."
             ));
             continueButton.setItemMeta(continueMeta);
         }
@@ -377,15 +377,15 @@ public class InitialSetupManager implements Listener {
 
     private void buildRestartInventory(Player player, SetupSession session) {
         session.awaitingInput = false;
-        Inventory inventory = createStageInventory(Stage.RESTART, ChatColor.DARK_PURPLE + "NU2L Setup – Neustart");
+        Inventory inventory = createStageInventory(Stage.RESTART, ChatColor.DARK_PURPLE + "NU2L Setup – Restart");
 
         ItemStack info = new ItemStack(Material.CLOCK);
         ItemMeta meta = info.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "Alles erledigt!");
+            meta.setDisplayName(ChatColor.GOLD + "All done!");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Alle benötigten Dateien wurden vorbereitet.",
-                    ChatColor.GRAY + "Möchtest du den Server jetzt neu starten?"
+                    ChatColor.GRAY + "All required files have been prepared.",
+                    ChatColor.GRAY + "Would you like to restart the server now?"
             ));
             info.setItemMeta(meta);
         }
@@ -394,10 +394,10 @@ public class InitialSetupManager implements Listener {
         ItemStack restartNow = new ItemStack(Material.EMERALD_BLOCK);
         ItemMeta restartMeta = restartNow.getItemMeta();
         if (restartMeta != null) {
-            restartMeta.setDisplayName(ChatColor.GREEN + "Server jetzt neu starten");
+            restartMeta.setDisplayName(ChatColor.GREEN + "Restart server now");
             restartMeta.setLore(List.of(
-                    ChatColor.GRAY + "Empfohlen, damit alle Aktualisierungen",
-                    ChatColor.GRAY + "sofort aktiv werden."
+                    ChatColor.GRAY + "Recommended so all updates",
+                    ChatColor.GRAY + "become active immediately."
             ));
             restartNow.setItemMeta(restartMeta);
         }
@@ -406,10 +406,10 @@ public class InitialSetupManager implements Listener {
         ItemStack restartLater = new ItemStack(Material.IRON_BLOCK);
         ItemMeta laterMeta = restartLater.getItemMeta();
         if (laterMeta != null) {
-            laterMeta.setDisplayName(ChatColor.YELLOW + "Später neu starten");
+            laterMeta.setDisplayName(ChatColor.YELLOW + "Restart later");
             laterMeta.setLore(List.of(
-                    ChatColor.GRAY + "Du kannst den Server später manuell",
-                    ChatColor.GRAY + "neu starten. Updates laufen trotzdem."
+                    ChatColor.GRAY + "You can restart the server manually later",
+                    ChatColor.GRAY + "and updates will continue running."
             ));
             restartLater.setItemMeta(laterMeta);
         }
@@ -427,29 +427,29 @@ public class InitialSetupManager implements Listener {
             ChatColor statusColor = source.enabled ? ChatColor.GREEN : ChatColor.RED;
             meta.setDisplayName(statusColor + source.displayName());
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Typ: " + ChatColor.AQUA + source.type);
-            lore.add(ChatColor.GRAY + "Ziel: " + ChatColor.AQUA + source.target.name().toLowerCase(Locale.ROOT));
-            lore.add(ChatColor.GRAY + "Datei: " + ChatColor.WHITE + source.filename);
+            lore.add(ChatColor.GRAY + "Type: " + ChatColor.AQUA + source.type);
+            lore.add(ChatColor.GRAY + "Target: " + ChatColor.AQUA + source.target.name().toLowerCase(Locale.ROOT));
+            lore.add(ChatColor.GRAY + "File: " + ChatColor.WHITE + source.filename);
             if (source.fileExists) {
-                lore.add(ChatColor.GREEN + "✔ Datei gefunden");
+                lore.add(ChatColor.GREEN + "✔ File found");
             } else {
-                lore.add(ChatColor.RED + "✘ Datei nicht gefunden");
+                lore.add(ChatColor.RED + "✘ File not found");
                 if (source.suggestedFilename != null) {
-                    lore.add(ChatColor.GRAY + "Gefunden: " + ChatColor.AQUA + source.suggestedFilename);
+                    lore.add(ChatColor.GRAY + "Found: " + ChatColor.AQUA + source.suggestedFilename);
                 }
             }
             if (source.target == TargetDirectory.PLUGINS) {
-                lore.add(ChatColor.GRAY + "Automatische Updates: " + (source.autoUpdate ? ChatColor.GREEN + "Aktiv" : ChatColor.RED + "Aus"));
+                lore.add(ChatColor.GRAY + "Automatic updates: " + (source.autoUpdate ? ChatColor.GREEN + "Enabled" : ChatColor.RED + "Disabled"));
                 if (source.pluginName == null) {
-                    lore.add(ChatColor.YELLOW + "Plugin wird erst nach Installation erkannt.");
+                    lore.add(ChatColor.YELLOW + "Plugin will be detected after installation.");
                 }
             }
             lore.add(ChatColor.DARK_GRAY + "");
-            lore.add(ChatColor.GRAY + "Links-Klick: Quelle aktivieren/deaktivieren");
+            lore.add(ChatColor.GRAY + "Left-click: enable/disable source");
             if (source.target == TargetDirectory.PLUGINS) {
-                lore.add(ChatColor.GRAY + "Rechts-Klick: Auto-Update umschalten");
+                lore.add(ChatColor.GRAY + "Right-click: toggle auto-update");
             }
-            lore.add(ChatColor.GRAY + "Shift + Links-Klick: Dateinamen ändern");
+            lore.add(ChatColor.GRAY + "Shift + Left-click: change filename");
             meta.setLore(lore);
             item.setItemMeta(meta);
         }
@@ -492,7 +492,7 @@ public class InitialSetupManager implements Listener {
         ItemStack indicator = new ItemStack(material);
         ItemMeta meta = indicator.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(color + "Schritt " + step + "/" + totalSteps + ": " + stage.title());
+            meta.setDisplayName(color + "Step " + step + "/" + totalSteps + ": " + stage.title());
             List<String> lore = new ArrayList<>();
             for (String line : stage.description()) {
                 lore.add(ChatColor.GRAY + line);
@@ -527,16 +527,16 @@ public class InitialSetupManager implements Listener {
             }
             if (leftClick) {
                 source.enabled = !source.enabled;
-                player.sendMessage(ChatColor.GRAY + "Quelle " + ChatColor.AQUA + source.displayName() + ChatColor.GRAY
-                        + " ist jetzt " + (source.enabled ? ChatColor.GREEN + "aktiv" : ChatColor.RED + "deaktiviert"));
+                player.sendMessage(ChatColor.GRAY + "Source " + ChatColor.AQUA + source.displayName() + ChatColor.GRAY
+                        + " is now " + (source.enabled ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled"));
                 session.inventory.setItem(rawSlot, createSourceItem(source));
                 return;
             }
             if (rightClick && source.target == TargetDirectory.PLUGINS) {
                 source.autoUpdate = !source.autoUpdate;
-                player.sendMessage(ChatColor.GRAY + "Automatische Updates für " + ChatColor.AQUA
+                player.sendMessage(ChatColor.GRAY + "Automatic updates for " + ChatColor.AQUA
                         + source.displayName() + ChatColor.GRAY + ": "
-                        + (source.autoUpdate ? ChatColor.GREEN + "aktiv" : ChatColor.RED + "aus"));
+                        + (source.autoUpdate ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled"));
                 session.inventory.setItem(rawSlot, createSourceItem(source));
                 return;
             }
@@ -579,13 +579,13 @@ public class InitialSetupManager implements Listener {
             }
             Optional<UpdateSource> updateSource = context.getUpdateSourceRegistry().findSource(source.name);
             if (updateSource.isEmpty()) {
-                player.sendMessage(ChatColor.RED + "Quelle " + source.displayName()
-                        + " konnte nicht gefunden werden. Prüfe die Konfiguration.");
+                player.sendMessage(ChatColor.RED + "Source " + source.displayName()
+                        + " could not be found. Please check the configuration.");
                 continue;
             }
             updateHandler.runJobNow(updateSource.get(), player);
         }
-        player.sendMessage(ChatColor.GREEN + "Downloads wurden gestartet. Du bekommst im Chat eine Rückmeldung.");
+        player.sendMessage(ChatColor.GREEN + "Downloads have been started. You will receive updates in chat.");
         buildDownloadInventory(player, session);
     }
 
@@ -633,24 +633,24 @@ public class InitialSetupManager implements Listener {
         try {
             context.getUpdateSourceRegistry().reload();
         } catch (Exception ex) {
-            logger.log(Level.WARNING, "Konnte Update-Quellen nach der Einrichtung nicht neu laden", ex);
+            logger.log(Level.WARNING, "Could not reload update sources after setup", ex);
         }
 
-        sendMessage(sender, ChatColor.GREEN + "Einstellungen gespeichert. Die Quellen wurden aktualisiert.");
+        sendMessage(sender, ChatColor.GREEN + "Settings saved. The sources have been refreshed.");
     }
 
     private void promptFilename(Player player, SetupSession session, SourceConfiguration source, int slot) {
         session.awaitingInput = true;
 
         Prompt prompt = AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "Dateinamen anpassen")
+                .title(ChatColor.DARK_PURPLE + "Adjust filename")
                 .initialText(source.filename)
                 .validation(value -> {
                     if (value == null || value.isBlank()) {
-                        return Optional.of(ChatColor.RED + "Bitte gib einen Dateinamen an.");
+                        return Optional.of(ChatColor.RED + "Please enter a filename.");
                     }
                     if (!value.toLowerCase(Locale.ROOT).endsWith(".jar")) {
-                        return Optional.of(ChatColor.RED + "Der Dateiname muss auf .jar enden.");
+                        return Optional.of(ChatColor.RED + "The filename must end with .jar.");
                     }
                     return Optional.empty();
                 })
@@ -659,8 +659,8 @@ public class InitialSetupManager implements Listener {
                     updateSourceDetection(source);
                     session.awaitingInput = false;
                     session.inventory.setItem(slot, createSourceItem(source));
-                    player1.sendMessage(ChatColor.GREEN + "Dateiname für " + ChatColor.AQUA
-                            + source.displayName() + ChatColor.GREEN + " aktualisiert.");
+                    player1.sendMessage(ChatColor.GREEN + "Filename for " + ChatColor.AQUA
+                            + source.displayName() + ChatColor.GREEN + " updated.");
                     reopenStageInventory(player1, session);
                 })
                 .onCancel(player1 -> {
@@ -834,7 +834,7 @@ public class InitialSetupManager implements Listener {
         try {
             return TargetDirectory.valueOf(targetValue.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            logger.log(Level.WARNING, "Unbekanntes Ziel {0} für Update-Quelle – verwende plugins.", targetValue);
+            logger.log(Level.WARNING, "Unknown target {0} for update source – falling back to plugins.", targetValue);
             return TargetDirectory.PLUGINS;
         }
     }
@@ -939,17 +939,17 @@ public class InitialSetupManager implements Listener {
     }
 
     private enum Stage {
-        CONFIGURE("Quellen auswählen", List.of(
-                "Aktiviere Update-Quellen und passe Dateinamen an.",
-                "Alle Änderungen werden sofort gespeichert."
+        CONFIGURE("Select sources", List.of(
+                "Enable update sources and adjust filenames.",
+                "All changes are saved immediately."
         )),
-        DOWNLOAD("Downloads starten", List.of(
-                "Starte eine einmalige Aktualisierung für aktive Quellen.",
-                "Dieser Schritt stellt sicher, dass alles bereit ist."
+        DOWNLOAD("Start downloads", List.of(
+                "Run a one-time update for active sources.",
+                "This step ensures everything is ready."
         )),
-        RESTART("Neustart", List.of(
-                "Aktiviere automatische Aktualisierungen.",
-                "Entscheide, ob der Server jetzt oder später neu startet."
+        RESTART("Restart", List.of(
+                "Enable automatic updates.",
+                "Decide whether the server restarts now or later."
         ));
 
         private final String title;
@@ -997,7 +997,7 @@ public class InitialSetupManager implements Listener {
         private String pluginName;
 
         private String displayName() {
-            return name != null ? name : "Quelle";
+            return name != null ? name : "Source";
         }
     }
 }
