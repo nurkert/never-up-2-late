@@ -149,7 +149,11 @@ public class QuickInstallCoordinator {
         this.pluginUpdateSettingsRepository = context.getPluginUpdateSettingsRepository();
         this.pluginLifecycleManager = context.getPluginLifecycleManager();
         this.artifactDownloader = Objects.requireNonNullElseGet(context.getArtifactDownloader(), ArtifactDownloader::new);
-        this.httpClient = HttpClient.builder().accept("text/html,application/xhtml+xml").build();
+        this.httpClient = HttpClient.builder()
+                .accept("text/html,application/xhtml+xml")
+                .header("User-Agent", HttpClient.DEFAULT_USER_AGENT)
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .build();
         this.logger = plugin.getLogger();
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
         this.ignoreCompatibilityWarnings = configuration.getBoolean("quickInstall.ignoreCompatibilityWarnings", false);

@@ -16,10 +16,13 @@ import java.util.Objects;
  */
 public class HttpClient {
 
+    public static final String DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (compatible; NeverUp2Late/1.0; +https://github.com/nurkert/never-up-2-late)";
+
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(10);
     private static final Map<String, String> DEFAULT_HEADERS = Map.of(
-            "User-Agent", "never-up-2-late/1.0",
+            "User-Agent", DEFAULT_USER_AGENT,
             "Accept", "application/json"
     );
 
