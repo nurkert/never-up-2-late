@@ -91,7 +91,6 @@ class BukkitManagedPlugin implements ManagedPlugin {
         }
         try {
             Plugin loaded = pluginManager.loadPlugin(pluginPath.toFile());
-            loaded.onLoad();
             attach(loaded);
         } catch (InvalidPluginException | InvalidDescriptionException ex) {
             throw new PluginLifecycleException("Failed to load plugin from " + pluginPath + ": " + ex.getMessage(), ex);
