@@ -296,6 +296,9 @@ public class InitialSetupManager implements Listener {
         session.slotMapping.clear();
         int slotIndex = 9;
         for (SourceConfiguration source : session.sources) {
+            while (slotIndex < INVENTORY_SIZE && slotIndex == CONTINUE_SLOT) {
+                slotIndex++;
+            }
             if (slotIndex >= INVENTORY_SIZE) {
                 break;
             }
@@ -303,6 +306,8 @@ public class InitialSetupManager implements Listener {
             session.slotMapping.put(slotIndex, source);
             slotIndex++;
         }
+
+        session.slotMapping.remove(CONTINUE_SLOT);
 
         ItemStack continueItem = new ItemStack(Material.LIME_CONCRETE);
         ItemMeta continueMeta = continueItem.getItemMeta();
