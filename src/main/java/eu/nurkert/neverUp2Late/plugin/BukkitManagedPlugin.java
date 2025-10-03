@@ -16,10 +16,13 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.logging.Level;
@@ -150,17 +153,17 @@ class BukkitManagedPlugin implements ManagedPlugin {
         try {
             Class<?> managerClass = pluginManager.getClass();
 
-            List<Plugin> plugins = extractPlugins(managerClass);
+            List<Plugin> plugins = extractPlugins(pluginManager);
             if (plugins != null) {
                 plugins.removeIf(candidate -> candidate == target);
             }
 
-            Map<String, Plugin> names = extractLookupNames(managerClass);
+            Map<String, Plugin> names = extractLookupNames(pluginManager);
             if (names != null) {
                 names.values().removeIf(value -> value == target);
             }
 
-            Map<Object, SortedSet<RegisteredListener>> listeners = extractRegisteredListeners(managerClass);
+            Map<Object, SortedSet<RegisteredListener>> listeners = extractRegisteredListeners(pluginManager);
             if (listeners != null) {
                 for (Map.Entry<Object, SortedSet<RegisteredListener>> entry : listeners.entrySet()) {
                     SortedSet<RegisteredListener> set = entry.getValue();
@@ -182,7 +185,7 @@ class BukkitManagedPlugin implements ManagedPlugin {
                 }
             }
 
-            Object commandMap = extractCommandMap(managerClass);
+            Object commandMap = extractCommandMap(pluginManager);
             if (commandMap != null) {
                 Optional<Field> knownCommandsField = findFieldInHierarchy(commandMap.getClass(), "knownCommands");
                 if (knownCommandsField.isPresent()) {
@@ -213,86 +216,166 @@ class BukkitManagedPlugin implements ManagedPlugin {
         }
     }
 
-    private List<Plugin> extractPlugins(Class<?> managerClass) throws IllegalAccessException {
-        Optional<Field> pluginsField = findFieldInHierarchy(managerClass, "plugins");
-        if (pluginsField.isEmpty()) {
-            logger.log(Level.FINE, () -> "Plugin manager " + managerClass.getName()
-                    + " does not expose field 'plugins'; plugin list cleanup skipped.");
+    private List<Plugin> extractPlugins(Object manager) throws IllegalAccessException {
+        return extractPlugins(manager, newIdentitySet());
+    }
+
+    private List<Plugin> extractPlugins(Object manager, Set<Object> visited) throws IllegalAccessException {
+        if (manager == null || visited.contains(manager)) {
             return null;
         }
-        Field field = pluginsField.get();
-        field.setAccessible(true);
-        Object value = field.get(pluginManager);
-        if (value instanceof List<?> list) {
-            @SuppressWarnings("unchecked")
-            List<Plugin> plugins = (List<Plugin>) list;
-            return plugins;
+        visited.add(manager);
+
+        Optional<Field> pluginsField = findFieldInHierarchy(manager.getClass(), "plugins");
+        if (pluginsField.isPresent()) {
+            Field field = pluginsField.get();
+            field.setAccessible(true);
+            Object value = field.get(manager);
+            if (value instanceof List<?> list) {
+                @SuppressWarnings("unchecked")
+                List<Plugin> plugins = (List<Plugin>) list;
+                return plugins;
+            }
+            logger.log(Level.FINE, () -> "Unexpected type for 'plugins' field on " + manager.getClass().getName());
         }
-        logger.log(Level.FINE, () -> "Unexpected type for 'plugins' field on " + managerClass.getName());
+
+        Optional<Field> instanceManagerField = findFieldInHierarchy(manager.getClass(), "instanceManager");
+        if (instanceManagerField.isPresent()) {
+            Field delegateField = instanceManagerField.get();
+            delegateField.setAccessible(true);
+            Object delegate = delegateField.get(manager);
+            List<Plugin> result = extractPlugins(delegate, visited);
+            if (result != null) {
+                return result;
+            }
+        }
+
+        logger.log(Level.FINE, () -> "Unable to locate plugin list on " + manager.getClass().getName());
         return null;
     }
 
-    private Map<String, Plugin> extractLookupNames(Class<?> managerClass) throws IllegalAccessException {
-        Optional<Field> lookupNamesField = findFieldInHierarchy(managerClass, "lookupNames");
-        if (lookupNamesField.isEmpty()) {
-            logger.log(Level.FINE, () -> "Plugin manager " + managerClass.getName()
-                    + " does not expose field 'lookupNames'; name lookup cleanup skipped.");
+    private Map<String, Plugin> extractLookupNames(Object manager) throws IllegalAccessException {
+        return extractLookupNames(manager, newIdentitySet());
+    }
+
+    private Map<String, Plugin> extractLookupNames(Object manager, Set<Object> visited) throws IllegalAccessException {
+        if (manager == null || visited.contains(manager)) {
             return null;
         }
-        Field field = lookupNamesField.get();
-        field.setAccessible(true);
-        Object value = field.get(pluginManager);
-        if (value instanceof Map<?, ?> map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Plugin> names = (Map<String, Plugin>) map;
-            return names;
+        visited.add(manager);
+
+        Optional<Field> lookupNamesField = findFieldInHierarchy(manager.getClass(), "lookupNames");
+        if (lookupNamesField.isPresent()) {
+            Field field = lookupNamesField.get();
+            field.setAccessible(true);
+            Object value = field.get(manager);
+            if (value instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Plugin> names = (Map<String, Plugin>) map;
+                return names;
+            }
+            logger.log(Level.FINE, () -> "Unexpected type for 'lookupNames' field on " + manager.getClass().getName());
         }
-        logger.log(Level.FINE, () -> "Unexpected type for 'lookupNames' field on " + managerClass.getName());
+
+        Optional<Field> instanceManagerField = findFieldInHierarchy(manager.getClass(), "instanceManager");
+        if (instanceManagerField.isPresent()) {
+            Field delegateField = instanceManagerField.get();
+            delegateField.setAccessible(true);
+            Object delegate = delegateField.get(manager);
+            Map<String, Plugin> result = extractLookupNames(delegate, visited);
+            if (result != null) {
+                return result;
+            }
+        }
+
+        logger.log(Level.FINE, () -> "Unable to locate plugin lookup names on " + manager.getClass().getName());
         return null;
     }
 
-    private Map<Object, SortedSet<RegisteredListener>> extractRegisteredListeners(Class<?> managerClass)
+    private Map<Object, SortedSet<RegisteredListener>> extractRegisteredListeners(Object manager)
             throws IllegalAccessException {
-        Optional<Field> listenersField = findFieldInHierarchy(managerClass, "listeners");
-        if (listenersField.isEmpty()) {
-            logger.log(Level.FINEST, () -> "Plugin manager " + managerClass.getName()
-                    + " does not expose field 'listeners'; listener cleanup skipped.");
+        return extractRegisteredListeners(manager, newIdentitySet());
+    }
+
+    private Map<Object, SortedSet<RegisteredListener>> extractRegisteredListeners(Object manager, Set<Object> visited)
+            throws IllegalAccessException {
+        if (manager == null || visited.contains(manager)) {
             return null;
         }
-        Field field = listenersField.get();
-        field.setAccessible(true);
-        Object value = field.get(pluginManager);
-        if (value instanceof Map<?, ?> map) {
-            @SuppressWarnings("unchecked")
-            Map<Object, SortedSet<RegisteredListener>> listeners =
-                    (Map<Object, SortedSet<RegisteredListener>>) map;
-            return listeners;
+        visited.add(manager);
+
+        Optional<Field> listenersField = findFieldInHierarchy(manager.getClass(), "listeners");
+        if (listenersField.isPresent()) {
+            Field field = listenersField.get();
+            field.setAccessible(true);
+            Object value = field.get(manager);
+            if (value instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<Object, SortedSet<RegisteredListener>> listeners =
+                        (Map<Object, SortedSet<RegisteredListener>>) map;
+                return listeners;
+            }
+            logger.log(Level.FINE, () -> "Unexpected type for 'listeners' field on " + manager.getClass().getName());
         }
-        logger.log(Level.FINE, () -> "Unexpected type for 'listeners' field on " + managerClass.getName());
+
+        for (String delegateFieldName : new String[] {"paperEventManager", "eventManager"}) {
+            Optional<Field> delegateField = findFieldInHierarchy(manager.getClass(), delegateFieldName);
+            if (delegateField.isPresent()) {
+                Field field = delegateField.get();
+                field.setAccessible(true);
+                Object delegate = field.get(manager);
+                Map<Object, SortedSet<RegisteredListener>> result = extractRegisteredListeners(delegate, visited);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+
+        logger.log(Level.FINEST, () -> "Unable to locate registered listeners on " + manager.getClass().getName());
         return null;
     }
 
-    private Object extractCommandMap(Class<?> managerClass)
+    private Object extractCommandMap(Object manager)
             throws IllegalAccessException, InvocationTargetException {
-        Optional<Field> commandMapField = findFieldInHierarchy(managerClass, "commandMap");
+        return extractCommandMap(manager, newIdentitySet());
+    }
+
+    private Object extractCommandMap(Object manager, Set<Object> visited)
+            throws IllegalAccessException, InvocationTargetException {
+        if (manager == null || visited.contains(manager)) {
+            return null;
+        }
+        visited.add(manager);
+
+        Optional<Field> commandMapField = findFieldInHierarchy(manager.getClass(), "commandMap");
         if (commandMapField.isPresent()) {
             Field field = commandMapField.get();
             field.setAccessible(true);
-            return field.get(pluginManager);
+            return field.get(manager);
         }
 
-        logger.log(Level.FINE, () -> "Plugin manager " + managerClass.getName()
-                + " does not expose field 'commandMap'; attempting accessor method.");
-
-        Optional<Method> accessor = findMethodInHierarchy(managerClass, "getCommandMap");
+        Optional<Method> accessor = findMethodInHierarchy(manager.getClass(), "getCommandMap");
         if (accessor.isPresent()) {
             Method method = accessor.get();
             method.setAccessible(true);
-            return method.invoke(pluginManager);
+            Object result = method.invoke(manager);
+            if (result != null) {
+                return result;
+            }
         }
 
-        logger.log(Level.FINE, () -> "Plugin manager " + managerClass.getName()
-                + " does not provide a command map accessor; command cleanup skipped.");
+        Optional<Field> instanceManagerField = findFieldInHierarchy(manager.getClass(), "instanceManager");
+        if (instanceManagerField.isPresent()) {
+            Field delegateField = instanceManagerField.get();
+            delegateField.setAccessible(true);
+            Object delegate = delegateField.get(manager);
+            Object result = extractCommandMap(delegate, visited);
+            if (result != null) {
+                return result;
+            }
+        }
+
+        logger.log(Level.FINE, () -> "Unable to locate command map on " + manager.getClass().getName());
         return null;
     }
 
@@ -318,6 +401,10 @@ class BukkitManagedPlugin implements ManagedPlugin {
             }
         }
         return Optional.empty();
+    }
+
+    private Set<Object> newIdentitySet() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
     }
 
     private void detachClassLoader(Plugin target) throws PluginLifecycleException {
