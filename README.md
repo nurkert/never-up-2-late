@@ -5,15 +5,16 @@
 NeverUp2Late keeps your Paper-based Minecraft server and its plugins permanently up to date. The plugin monitors all configured
 sources on a schedule, downloads the most recent builds, replaces outdated JARs, and optionally reloads or restarts the server
 once installations complete. You can manage update sources through YAML configuration, an interactive GUI, or the `/nu2l`
-command that understands direct project URLs from popular hosting platforms.
+command that understands direct project URLs from popular hosting platforms such as Hangar, Modrinth, GitHub Releases, Jenkins,
+and SpigotMC via the Spiget API.
 
 ## Highlights
 
 - **Automated update pipeline** – Fetch, download, and installation steps run asynchronously with retry logic and persistent
   state tracking to avoid redundant downloads.
 - **Wide provider support** – Built-in fetchers cover Paper, Geyser, Hangar, Modrinth, CurseForge, GitHub Releases, Jenkins,
-  and fully custom implementations supplied by class name.
-- **Quick installation** – `/nu2l <url>` analyses Hangar, Modrinth, GitHub, and Jenkins links, creates an update source on the
+  SpigotMC via the Spiget API, and fully custom implementations supplied by class name.
+- **Quick installation** – `/nu2l <url>` analyses Hangar, Modrinth, GitHub, Jenkins, and SpigotMC/Spiget links, creates an update source on the
   fly, and immediately schedules the first installation run.
 - **Archive-aware downloads** – Releases that ship ZIP files can be inspected automatically; NeverUp2Late extracts the matching
   JAR from the archive or asks you to select the correct entry when multiple candidates exist.
@@ -62,7 +63,7 @@ persist the default sources and start update checks.
 | `/nu2l` | Opens the plugin overview GUI. | `neverup2late.gui.open` | Requires a player; shows managed plugins and install actions. |
 | `/nu2l gui` | Explicitly opens the GUI. | `neverup2late.gui.open` | Alias for `/nu2l`. |
 | `/nu2l status` | Lists configured update sources with their target path, stored build/version, and auto-update flag. | `neverup2late.install` | Works for players and console; read-only overview. |
-| `/nu2l <url>` | Runs quick installation for the provided URL. | `neverup2late.install` | Works from console or in-game; URLs must use HTTP(S). |
+| `/nu2l <url>` | Runs quick installation for the provided URL. | `neverup2late.install` | Works from console or in-game; URLs must use HTTP(S) and can target Hangar, Modrinth, GitHub Releases, Jenkins, or SpigotMC/Spiget resources. |
 | `/nu2l select <number>` | Chooses an asset when multiple files are available. | `neverup2late.install` | Responds to prompts generated during quick install. |
 | `/nu2l remove <name>` | Unregisters an update source and stops managing its file. | `neverup2late.gui.manage.remove` | Available from console and players. |
 | `/nu2l setup` | Opens the first-run setup wizard. | `neverup2late.setup` | Players only; shows if setup is not completed. |
@@ -97,7 +98,7 @@ The command prints colour-coded lines in-game and plain text in the console, so 
 
 ## Quick Install Workflow
 
-1. **Analyse the URL** – NeverUp2Late parses Hangar, Modrinth, GitHub Releases, and Jenkins project URLs, derives a readable name,
+1. **Analyse the URL** – NeverUp2Late parses Hangar, Modrinth, GitHub Releases, Jenkins, and SpigotMC/Spiget project URLs, derives a readable name,
    and prepares provider-specific options.
 2. **Link to an installed plugin** – The coordinator tries to match the download with an existing plugin to reuse version metadata
    for smarter update checks.
@@ -181,6 +182,7 @@ Key options:
 | `hangar` | Specify `owner` + `slug` or `project`. Optional: `platform`, `allowedChannels`, `ignoreUnstable` / `allowUnstable`, `requireReviewed`, `preferPinned`, `pageSize`, `maxPages`, and `installedPlugin` for version detection. |
 | `modrinth` | Provide `project`; optionally filter by `loaders`, `statuses`, `versionTypes`, `gameVersions`, or `preferPrimaryFile`. `installedPlugin` links to an existing plugin. |
 | `curseforge` | Requires `modId`. Optional rate-limit friendly `apiKey`, release type filters, game versions, and `installedPlugin`. |
+| `spigot` | Requires `resourceId` from the SpigotMC URL. Optional: `preferredGameVersions` (list), `ignoreCompatibilityWarnings`, and `installedPlugin` for version lookups via the running server. |
 | `githubRelease` | Needs `owner` and `repository`; supports `assetPattern`, `allowPrerelease`, `archiveEntryPattern`, and `installedPlugin` for archive extraction and version checks. |
 | `jenkins` | Configure `baseUrl` and `job`. Additional keys control artifact selection (`artifact`, `artifactPattern`), preferred build (`preferLastSuccessful`), and version parsing (`versionSource`, `versionPattern`, `installedPlugin`). |
 | Custom class | Set `type` to the fully qualified class name of your `UpdateFetcher` implementation; all `options` values are passed to the constructor. |
