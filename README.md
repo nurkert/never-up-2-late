@@ -141,7 +141,7 @@ filenames:
   geyser: "Geyser-Spigot.jar"
   paper: "paper.jar"
 
-updateInterval: 30
+updateInterval: 180
 pluginLifecycle:
   autoManage: true
 quickInstall:
@@ -163,7 +163,7 @@ updates:
 Key options:
 
 - `setup.skipWizard` – When `true`, NeverUp2Late skips the interactive wizard and applies default sources on startup.
-- `updateInterval` – Minutes between scheduled update checks.
+- `updateInterval` – Minutes between scheduled update checks (default: 180 minutes / 3 hours).
 - `pluginLifecycle.autoManage` – Enables automatic plugin reloads and lifecycle controls. Set to `false` to keep manual restarts.
 - `quickInstall.ignoreCompatibilityWarnings` – When `true`, the quick install workflow skips Minecraft-version compatibility
   checks reported by providers like Modrinth and installs the latest build regardless.
