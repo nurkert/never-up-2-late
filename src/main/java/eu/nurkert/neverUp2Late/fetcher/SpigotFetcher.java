@@ -8,6 +8,9 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -17,7 +20,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
-import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Fetcher for plugins hosted on SpigotMC via the public Spiget API.
@@ -25,6 +29,43 @@ import java.util.Optional;
 public class SpigotFetcher extends JsonUpdateFetcher {
 
     private static final String API_ROOT = "https://api.spiget.org/v2/";
+    private static final Set<String> CURSEFORGE_TRAILING_SEGMENTS = Set.of(
+            "files",
+            "download",
+            "relations",
+            "changelog",
+            "description",
+            "issues",
+            "images",
+            "comments",
+            "wiki",
+            "source"
+    );
+    private static final Set<String> CURSEFORGE_CATEGORY_SEGMENTS = Set.of(
+            "minecraft",
+            "mc-mods",
+            "bukkit-plugins",
+            "customization",
+            "texture-packs",
+            "worlds",
+            "maps",
+            "addons",
+            "modpacks",
+            "shaderpacks",
+            "shaders",
+            "datapacks",
+            "data-packs",
+            "resourcepacks",
+            "resource-packs"
+    );
+    private static final Pattern CURSEFORGE_DATA_PROJECT_ID_PATTERN = Pattern.compile(
+            "data-project-id\\s*=\\s*\"?(\\d+)\"?",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern CURSEFORGE_SPAN_PROJECT_ID_PATTERN = Pattern.compile(
+            "project-id[^>]*>(\\d+)<",
+            Pattern.CASE_INSENSITIVE
+    );
 
     private final int resourceId;
     private final Set<String> preferredGameVersions;
@@ -220,7 +261,8 @@ public class SpigotFetcher extends JsonUpdateFetcher {
                 optionalExternalUrl(resource.file())
         );
         if (externalUrl.isPresent()) {
-            return externalUrl.get();
+            String resolved = resolveCurseforgeDownloadUrl(externalUrl.get());
+            return resolved != null ? resolved : externalUrl.get();
         }
 
         Optional<String> fileUrl = firstNonBlank(
@@ -232,6 +274,154 @@ public class SpigotFetcher extends JsonUpdateFetcher {
         }
 
         return versionDownloadUrl(version.id());
+    }
+
+    private String resolveCurseforgeDownloadUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException e) {
+            return null;
+        }
+
+        String host = Optional.ofNullable(uri.getHost()).map(String::toLowerCase).orElse("");
+        if (!host.contains("curseforge.com")) {
+            return null;
+        }
+
+        List<Segment> segments = splitSegments(uri.getPath());
+        if (segments.isEmpty()) {
+            return null;
+        }
+
+        int slugIndex = findCurseforgeSlugIndex(segments);
+        if (slugIndex == -1) {
+            return null;
+        }
+
+        String fileId = extractCurseforgeFileId(segments);
+        if (fileId == null) {
+            return null;
+        }
+
+        long projectId = fetchCurseforgeProjectId(uri, segments, slugIndex);
+
+        if (projectId <= 0) {
+            return null;
+        }
+
+        try {
+            CurseforgeFileResponse response = getJson(
+                    String.format("https://api.curseforge.com/v1/mods/%d/files/%s", projectId, fileId),
+                    CurseforgeFileResponse.class
+            );
+            if (response == null || response.data() == null) {
+                return null;
+            }
+            return trimToNull(response.data().downloadUrl());
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private long fetchCurseforgeProjectId(URI uri, List<Segment> segments, int slugIndex) {
+        String scheme = Optional.ofNullable(uri.getScheme()).orElse("https");
+        String authority = uri.getAuthority();
+        if (authority == null || authority.isBlank()) {
+            return -1;
+        }
+
+        StringBuilder path = new StringBuilder();
+        for (int i = 0; i <= slugIndex; i++) {
+            path.append('/').append(segments.get(i).original());
+        }
+
+        String projectUrl = scheme + "://" + authority + path;
+
+        String body;
+        try {
+            body = new HttpClient().get(projectUrl);
+        } catch (IOException e) {
+            return -1;
+        }
+
+        Matcher dataMatcher = CURSEFORGE_DATA_PROJECT_ID_PATTERN.matcher(body);
+        if (dataMatcher.find()) {
+            return parseProjectId(dataMatcher.group(1));
+        }
+
+        Matcher spanMatcher = CURSEFORGE_SPAN_PROJECT_ID_PATTERN.matcher(body);
+        if (spanMatcher.find()) {
+            return parseProjectId(spanMatcher.group(1));
+        }
+        return -1;
+    }
+
+    private long parseProjectId(String value) {
+        if (value == null) {
+            return -1;
+        }
+        try {
+            long id = Long.parseLong(value.trim());
+            return id > 0 ? id : -1;
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
+    }
+
+    private List<Segment> splitSegments(String path) {
+        List<Segment> segments = new ArrayList<>();
+        if (path == null || path.isBlank()) {
+            return segments;
+        }
+        for (String segment : path.split("/")) {
+            if (segment == null || segment.isBlank()) {
+                continue;
+            }
+            segments.add(new Segment(segment, segment.toLowerCase(Locale.ROOT)));
+        }
+        return segments;
+    }
+
+    private int findCurseforgeSlugIndex(List<Segment> segments) {
+        for (int i = 0; i < segments.size(); i++) {
+            String normalized = segments.get(i).normalized();
+            if (CURSEFORGE_TRAILING_SEGMENTS.contains(normalized)) {
+                break;
+            }
+            if (!CURSEFORGE_CATEGORY_SEGMENTS.contains(normalized)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String extractCurseforgeFileId(List<Segment> segments) {
+        for (int i = 0; i < segments.size() - 1; i++) {
+            if ("download".equals(segments.get(i).normalized()) && isNumeric(segments.get(i + 1).normalized())) {
+                return segments.get(i + 1).original();
+            }
+        }
+        return null;
+    }
+
+    private boolean isNumeric(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private record Segment(String original, String normalized) {
     }
 
     private Optional<String> firstNonBlank(Optional<String> first, Optional<String> second) {
@@ -348,6 +538,12 @@ public class SpigotFetcher extends JsonUpdateFetcher {
             @JsonProperty("url") String url,
             @JsonProperty("externalUrl") String externalUrl
     ) {
+    }
+
+    private record CurseforgeFileResponse(@JsonProperty("data") CurseforgeFileData data) {
+    }
+
+    private record CurseforgeFileData(@JsonProperty("downloadUrl") String downloadUrl) {
     }
 
     public static ConfigBuilder builder(int resourceId) {
