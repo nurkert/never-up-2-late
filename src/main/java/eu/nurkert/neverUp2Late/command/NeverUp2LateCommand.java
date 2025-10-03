@@ -1,6 +1,7 @@
 package eu.nurkert.neverUp2Late.command;
 
 import eu.nurkert.neverUp2Late.Permissions;
+import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.gui.PluginOverviewGui;
 import eu.nurkert.neverUp2Late.setup.InitialSetupManager;
 import org.bukkit.ChatColor;
@@ -23,13 +24,16 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     private final QuickInstallCoordinator coordinator;
     private final PluginOverviewGui overviewGui;
     private final InitialSetupManager setupManager;
+    private final PluginContext context;
 
     public NeverUp2LateCommand(QuickInstallCoordinator coordinator,
                                PluginOverviewGui overviewGui,
-                               InitialSetupManager setupManager) {
+                               InitialSetupManager setupManager,
+                               PluginContext context) {
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
         this.overviewGui = Objects.requireNonNull(overviewGui, "overviewGui");
         this.setupManager = setupManager;
+        this.context = Objects.requireNonNull(context, "context");
     }
 
     @Override
@@ -44,6 +48,15 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             } else {
                 sender.sendMessage(ChatColor.RED + "The graphical interface can only be opened by players.");
             }
+            return true;
+        }
+
+        if (args.length > 0 && "status".equalsIgnoreCase(args[0])) {
+            if (!sender.hasPermission(Permissions.INSTALL)) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission to view source status.");
+                return true;
+            }
+            displayStatus(sender);
             return true;
         }
 
@@ -175,7 +188,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("gui", "select", "remove", "setup", "rollback");
+            return List.of("gui", "status", "select", "remove", "setup", "rollback");
         }
         if (args.length == 2 && "select".equalsIgnoreCase(args[0])) {
             return Collections.singletonList("<number>");
@@ -190,5 +203,26 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             return coordinator.getRollbackSuggestions();
         }
         return Collections.emptyList();
+    }
+
+    private void displayStatus(CommandSender sender) {
+        List<PluginContext.UpdateSourceStatus> statuses = context.getUpdateSourceStatuses();
+        if (statuses.isEmpty()) {
+            sender.sendMessage(ChatColor.YELLOW + "No update sources are currently registered.");
+            return;
+        }
+
+        sender.sendMessage(ChatColor.GOLD + "Update source status:");
+        for (PluginContext.UpdateSourceStatus status : statuses) {
+            String displayName = status.displayName();
+            String pluginInfo = ChatColor.GRAY + " | Plugin: " + ChatColor.AQUA + status.pluginDisplayName();
+            String path = status.targetPath() != null ? status.targetPath().toString() : "(unknown)";
+            String pathInfo = ChatColor.GRAY + " → " + ChatColor.YELLOW + path;
+            String versionInfo = ChatColor.GRAY + " | " + ChatColor.BLUE + status.versionLabel();
+            String autoInfo = ChatColor.GRAY + " | Auto-Update: "
+                    + (status.autoUpdateEnabled() ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled");
+
+            sender.sendMessage(ChatColor.AQUA + displayName + pathInfo + versionInfo + autoInfo + pluginInfo);
+        }
     }
 }
