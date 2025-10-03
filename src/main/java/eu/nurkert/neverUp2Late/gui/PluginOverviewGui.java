@@ -100,6 +100,43 @@ public class PluginOverviewGui implements Listener {
         openOverview(player);
     }
 
+    public void openStandaloneSearch(Player player, String query) {
+        Objects.requireNonNull(player, "player");
+
+        if (!player.hasPermission(Permissions.GUI_OPEN)
+                && !player.hasPermission(Permissions.GUI_MANAGE)) {
+            player.sendMessage(ChatColor.RED + "You do not have permission to open the NU2L GUI.");
+            return;
+        }
+        if (!checkPermission(player, Permissions.INSTALL)) {
+            return;
+        }
+
+        String trimmed = query != null ? query.trim() : "";
+        if (trimmed.length() < 3) {
+            player.sendMessage(ChatColor.RED + "Bitte gib mindestens drei Zeichen ein.");
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+        pendingInstallSearches.put(playerId, trimmed);
+        player.sendMessage(ChatColor.GRAY + "Suche nach " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
+
+        context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
+            List<PluginLinkSuggestion> suggestions;
+            try {
+                suggestions = linkSuggester.suggest(List.of(trimmed));
+            } catch (Exception e) {
+                context.getPlugin().getLogger().log(Level.FINE,
+                        "Failed to resolve standalone search for " + trimmed, e);
+                suggestions = List.of();
+            }
+            List<PluginLinkSuggestion> finalSuggestions = suggestions;
+            context.getScheduler().runTask(context.getPlugin(),
+                    () -> handleStandaloneSearchResult(player, trimmed, finalSuggestions));
+        });
+    }
+
     private void openOverview(Player player) {
         List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins()
                 .stream()
