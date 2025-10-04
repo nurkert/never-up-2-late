@@ -15,16 +15,19 @@ import java.lang.reflect.Method;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -151,38 +154,19 @@ class BukkitManagedPlugin implements ManagedPlugin {
 
     private void removePluginFromBukkit(Plugin target) throws PluginLifecycleException {
         try {
-            Class<?> managerClass = pluginManager.getClass();
-
-            List<Plugin> plugins = extractPlugins(pluginManager);
-            if (plugins != null) {
-                plugins.removeIf(candidate -> candidate == target);
+            FieldAccess<List<Plugin>> pluginsAccess = extractPlugins(pluginManager);
+            if (pluginsAccess != null) {
+                removePluginFromList(pluginsAccess, target);
             }
 
-            Map<String, Plugin> names = extractLookupNames(pluginManager);
-            if (names != null) {
-                names.values().removeIf(value -> value == target);
+            FieldAccess<Map<String, Plugin>> lookupNamesAccess = extractLookupNames(pluginManager);
+            if (lookupNamesAccess != null) {
+                removePluginFromMap(lookupNamesAccess, entry -> entry.getValue() == target);
             }
 
-            Map<Object, SortedSet<RegisteredListener>> listeners = extractRegisteredListeners(pluginManager);
-            if (listeners != null) {
-                for (Map.Entry<Object, SortedSet<RegisteredListener>> entry : listeners.entrySet()) {
-                    SortedSet<RegisteredListener> set = entry.getValue();
-                    if (set == null || set.isEmpty()) {
-                        continue;
-                    }
-                    try {
-                        set.removeIf(listener -> listener.getPlugin() == target);
-                    } catch (UnsupportedOperationException ex) {
-                        Comparator<? super RegisteredListener> comparator = set.comparator();
-                        SortedSet<RegisteredListener> mutable = new TreeSet<>(comparator);
-                        for (RegisteredListener listener : set) {
-                            if (listener.getPlugin() != target) {
-                                mutable.add(listener);
-                            }
-                        }
-                        listeners.put(entry.getKey(), mutable);
-                    }
-                }
+            FieldAccess<Map<Object, SortedSet<RegisteredListener>>> listenersAccess = extractRegisteredListeners(pluginManager);
+            if (listenersAccess != null) {
+                cleanupRegisteredListeners(listenersAccess, target);
             }
 
             Object commandMap = extractCommandMap(pluginManager);
@@ -194,15 +178,35 @@ class BukkitManagedPlugin implements ManagedPlugin {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> knownCommands = (Map<String, Object>) field.get(commandMap);
                     if (knownCommands != null) {
-                        Iterator<Map.Entry<String, Object>> iterator = knownCommands.entrySet().iterator();
-                        while (iterator.hasNext()) {
-                            Map.Entry<String, Object> entry = iterator.next();
-                            Object value = entry.getValue();
-                            if (value instanceof PluginCommand command && command.getPlugin() == target) {
-                                if (commandMap instanceof SimpleCommandMap simple) {
-                                    command.unregister(simple);
+                        boolean modified = false;
+                        try {
+                            Iterator<Map.Entry<String, Object>> iterator = knownCommands.entrySet().iterator();
+                            while (iterator.hasNext()) {
+                                Map.Entry<String, Object> entry = iterator.next();
+                                Object value = entry.getValue();
+                                if (value instanceof PluginCommand command && command.getPlugin() == target) {
+                                    if (commandMap instanceof SimpleCommandMap simple) {
+                                        command.unregister(simple);
+                                    }
+                                    iterator.remove();
+                                    modified = true;
                                 }
-                                iterator.remove();
+                            }
+                        } catch (UnsupportedOperationException ex) {
+                            Map<String, Object> mutable = new LinkedHashMap<>(knownCommands.size());
+                            for (Map.Entry<String, Object> entry : knownCommands.entrySet()) {
+                                Object value = entry.getValue();
+                                if (value instanceof PluginCommand command && command.getPlugin() == target) {
+                                    if (commandMap instanceof SimpleCommandMap simple) {
+                                        command.unregister(simple);
+                                    }
+                                    modified = true;
+                                    continue;
+                                }
+                                mutable.put(entry.getKey(), value);
+                            }
+                            if (modified) {
+                                field.set(commandMap, mutable);
                             }
                         }
                     }
@@ -216,11 +220,110 @@ class BukkitManagedPlugin implements ManagedPlugin {
         }
     }
 
-    private List<Plugin> extractPlugins(Object manager) throws IllegalAccessException {
+    private void removePluginFromList(FieldAccess<List<Plugin>> access, Plugin target) throws IllegalAccessException {
+        List<Plugin> plugins = access.value();
+        boolean removed = false;
+        try {
+            removed = plugins.removeIf(candidate -> candidate == target);
+        } catch (UnsupportedOperationException ex) {
+            // fall through to reflective replacement
+        }
+        if (removed) {
+            return;
+        }
+        List<Plugin> mutable = new ArrayList<>(plugins.size());
+        boolean changed = false;
+        for (Plugin plugin : plugins) {
+            if (plugin == target) {
+                changed = true;
+            } else {
+                mutable.add(plugin);
+            }
+        }
+        if (changed) {
+            access.field().set(access.owner(), mutable);
+        }
+    }
+
+    private <K, V> void removePluginFromMap(FieldAccess<Map<K, V>> access,
+            Predicate<Map.Entry<K, V>> shouldRemove) throws IllegalAccessException {
+        Map<K, V> map = access.value();
+        boolean modified = false;
+        try {
+            Iterator<Map.Entry<K, V>> iterator = map.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<K, V> entry = iterator.next();
+                if (shouldRemove.test(entry)) {
+                    iterator.remove();
+                    modified = true;
+                }
+            }
+        } catch (UnsupportedOperationException ex) {
+            // fall through to reflective replacement
+        }
+        if (modified) {
+            return;
+        }
+        Map<K, V> mutable = new LinkedHashMap<>(map.size());
+        boolean changed = false;
+        for (Map.Entry<K, V> entry : map.entrySet()) {
+            if (shouldRemove.test(entry)) {
+                changed = true;
+                continue;
+            }
+            mutable.put(entry.getKey(), entry.getValue());
+        }
+        if (changed) {
+            access.field().set(access.owner(), mutable);
+        }
+    }
+
+    private void cleanupRegisteredListeners(FieldAccess<Map<Object, SortedSet<RegisteredListener>>> access, Plugin target)
+            throws IllegalAccessException {
+        Map<Object, SortedSet<RegisteredListener>> listeners = access.value();
+        Map<Object, SortedSet<RegisteredListener>> mutable = new LinkedHashMap<>(listeners.size());
+        boolean changed = false;
+        for (Map.Entry<Object, SortedSet<RegisteredListener>> entry : listeners.entrySet()) {
+            SortedSet<RegisteredListener> filtered = filterRegisteredListeners(entry.getValue(), target);
+            if (filtered != entry.getValue()) {
+                changed = true;
+            }
+            mutable.put(entry.getKey(), filtered);
+        }
+        if (!changed) {
+            return;
+        }
+        try {
+            listeners.clear();
+            listeners.putAll(mutable);
+        } catch (UnsupportedOperationException ex) {
+            access.field().set(access.owner(), mutable);
+        }
+    }
+
+    private SortedSet<RegisteredListener> filterRegisteredListeners(SortedSet<RegisteredListener> listeners,
+            Plugin target) {
+        if (listeners == null || listeners.isEmpty()) {
+            return listeners;
+        }
+        Comparator<? super RegisteredListener> comparator = listeners.comparator();
+        SortedSet<RegisteredListener> mutable = new TreeSet<>(comparator);
+        boolean changed = false;
+        for (RegisteredListener listener : listeners) {
+            if (listener.getPlugin() == target) {
+                changed = true;
+                continue;
+            }
+            mutable.add(listener);
+        }
+        return changed ? mutable : listeners;
+    }
+
+    private FieldAccess<List<Plugin>> extractPlugins(Object manager) throws IllegalAccessException {
         return extractPlugins(manager, newIdentitySet());
     }
 
-    private List<Plugin> extractPlugins(Object manager, Set<Object> visited) throws IllegalAccessException {
+    private FieldAccess<List<Plugin>> extractPlugins(Object manager, Set<Object> visited) throws IllegalAccessException {
         if (manager == null || visited.contains(manager)) {
             return null;
         }
@@ -234,7 +337,7 @@ class BukkitManagedPlugin implements ManagedPlugin {
             if (value instanceof List<?> list) {
                 @SuppressWarnings("unchecked")
                 List<Plugin> plugins = (List<Plugin>) list;
-                return plugins;
+                return new FieldAccess<>(manager, field, plugins);
             }
             logger.log(Level.FINE, () -> "Unexpected type for 'plugins' field on " + manager.getClass().getName());
         }
@@ -244,7 +347,7 @@ class BukkitManagedPlugin implements ManagedPlugin {
             Field delegateField = instanceManagerField.get();
             delegateField.setAccessible(true);
             Object delegate = delegateField.get(manager);
-            List<Plugin> result = extractPlugins(delegate, visited);
+            FieldAccess<List<Plugin>> result = extractPlugins(delegate, visited);
             if (result != null) {
                 return result;
             }
@@ -254,11 +357,11 @@ class BukkitManagedPlugin implements ManagedPlugin {
         return null;
     }
 
-    private Map<String, Plugin> extractLookupNames(Object manager) throws IllegalAccessException {
+    private FieldAccess<Map<String, Plugin>> extractLookupNames(Object manager) throws IllegalAccessException {
         return extractLookupNames(manager, newIdentitySet());
     }
 
-    private Map<String, Plugin> extractLookupNames(Object manager, Set<Object> visited) throws IllegalAccessException {
+    private FieldAccess<Map<String, Plugin>> extractLookupNames(Object manager, Set<Object> visited) throws IllegalAccessException {
         if (manager == null || visited.contains(manager)) {
             return null;
         }
@@ -272,7 +375,7 @@ class BukkitManagedPlugin implements ManagedPlugin {
             if (value instanceof Map<?, ?> map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Plugin> names = (Map<String, Plugin>) map;
-                return names;
+                return new FieldAccess<>(manager, field, names);
             }
             logger.log(Level.FINE, () -> "Unexpected type for 'lookupNames' field on " + manager.getClass().getName());
         }
@@ -282,7 +385,7 @@ class BukkitManagedPlugin implements ManagedPlugin {
             Field delegateField = instanceManagerField.get();
             delegateField.setAccessible(true);
             Object delegate = delegateField.get(manager);
-            Map<String, Plugin> result = extractLookupNames(delegate, visited);
+            FieldAccess<Map<String, Plugin>> result = extractLookupNames(delegate, visited);
             if (result != null) {
                 return result;
             }
@@ -292,12 +395,12 @@ class BukkitManagedPlugin implements ManagedPlugin {
         return null;
     }
 
-    private Map<Object, SortedSet<RegisteredListener>> extractRegisteredListeners(Object manager)
+    private FieldAccess<Map<Object, SortedSet<RegisteredListener>>> extractRegisteredListeners(Object manager)
             throws IllegalAccessException {
         return extractRegisteredListeners(manager, newIdentitySet());
     }
 
-    private Map<Object, SortedSet<RegisteredListener>> extractRegisteredListeners(Object manager, Set<Object> visited)
+    private FieldAccess<Map<Object, SortedSet<RegisteredListener>>> extractRegisteredListeners(Object manager, Set<Object> visited)
             throws IllegalAccessException {
         if (manager == null || visited.contains(manager)) {
             return null;
@@ -313,7 +416,7 @@ class BukkitManagedPlugin implements ManagedPlugin {
                 @SuppressWarnings("unchecked")
                 Map<Object, SortedSet<RegisteredListener>> listeners =
                         (Map<Object, SortedSet<RegisteredListener>>) map;
-                return listeners;
+                return new FieldAccess<>(manager, field, listeners);
             }
             logger.log(Level.FINE, () -> "Unexpected type for 'listeners' field on " + manager.getClass().getName());
         }
@@ -324,7 +427,7 @@ class BukkitManagedPlugin implements ManagedPlugin {
                 Field field = delegateField.get();
                 field.setAccessible(true);
                 Object delegate = field.get(manager);
-                Map<Object, SortedSet<RegisteredListener>> result = extractRegisteredListeners(delegate, visited);
+                FieldAccess<Map<Object, SortedSet<RegisteredListener>>> result = extractRegisteredListeners(delegate, visited);
                 if (result != null) {
                     return result;
                 }
@@ -435,5 +538,29 @@ class BukkitManagedPlugin implements ManagedPlugin {
             fileName = fileName.substring(0, fileName.length() - 4);
         }
         return fileName;
+    }
+
+    private static final class FieldAccess<T> {
+        private final Object owner;
+        private final Field field;
+        private final T value;
+
+        FieldAccess(Object owner, Field field, T value) {
+            this.owner = owner;
+            this.field = field;
+            this.value = value;
+        }
+
+        Object owner() {
+            return owner;
+        }
+
+        Field field() {
+            return field;
+        }
+
+        T value() {
+            return value;
+        }
     }
 }
