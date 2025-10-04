@@ -658,13 +658,58 @@ public class QuickInstallCoordinator {
                 }
                 PluginDescriptionFile description = entry.getValue().getDescription();
                 String website = description.getWebsite();
-                if (website != null && plan.getHost().isPresent() && website.contains(plan.getHost().get())) {
+                if (website != null && plan.getHost().isPresent()
+                        && websiteMatchesCandidate(website, plan.getHost().get(), normalizedCandidate)) {
                     return Optional.of(entry.getValue().getName());
                 }
             }
         }
 
         return Optional.empty();
+    }
+
+    private boolean websiteMatchesCandidate(String website, String expectedHost, String normalizedCandidate) {
+        if (normalizedCandidate == null || normalizedCandidate.isBlank()) {
+            return false;
+        }
+
+        String trimmedHost = trimWww(expectedHost);
+        if (trimmedHost.isEmpty()) {
+            return false;
+        }
+
+        try {
+            URI uri = new URI(website);
+            String host = trimWww(Optional.ofNullable(uri.getHost()).orElse(""));
+            if (!host.equalsIgnoreCase(trimmedHost)) {
+                return false;
+            }
+            String path = normalize(uri.getPath());
+            return !path.isBlank() && path.contains(normalizedCandidate);
+        } catch (URISyntaxException ignored) {
+            String normalizedWebsite = normalize(website);
+            return normalizedWebsite.contains(normalizedCandidate)
+                    && normalize(trimmedHost).equals(normalize(extractHostFallback(website)));
+        }
+    }
+
+    private String trimWww(String host) {
+        if (host == null) {
+            return "";
+        }
+        String value = host.trim();
+        if (value.regionMatches(true, 0, "www.", 0, 4)) {
+            return value.substring(4);
+        }
+        return value;
+    }
+
+    private String extractHostFallback(String website) {
+        int schemeSeparator = website.indexOf("//");
+        int start = schemeSeparator >= 0 ? schemeSeparator + 2 : 0;
+        int slash = website.indexOf('/', start);
+        String host = slash >= 0 ? website.substring(start, slash) : website.substring(start);
+        return trimWww(host);
     }
 
     private InstallationPlan analyse(URI uri, String originalUrl) {
