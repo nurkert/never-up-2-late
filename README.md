@@ -104,9 +104,12 @@ The command prints colour-coded lines in-game and plain text in the console, so 
    for smarter update checks.
 3. **Fetch latest build info** – Version metadata and download URLs are loaded asynchronously; the chat shows progress and detected
    version numbers.
-4. **Handle archives or multiple assets** – If the release exposes several files or zipped distributions, the player is prompted to
+4. **Resolve compatibility warnings** – If the provider does not advertise support for your Minecraft version, the workflow pauses
+   and asks whether to ignore the warning. Use `/nu2l ignore` to proceed with the newest build or `/nu2l cancel` to abort the
+   installation.
+5. **Handle archives or multiple assets** – If the release exposes several files or zipped distributions, the player is prompted to
    pick the desired asset or JAR inside the archive; regex patterns are stored automatically for future updates.
-5. **Schedule installation** – Once information is complete, the update handler copies the build into the configured directory and
+6. **Schedule installation** – Once information is complete, the update handler copies the build into the configured directory and
    applies lifecycle rules (reload or restart).
 
 ![Quick install linking an update source from a URL](images/update-source-configured-by-link.png)

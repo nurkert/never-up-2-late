@@ -73,6 +73,24 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (args.length > 0 && "ignore".equalsIgnoreCase(args[0])) {
+            if (!sender.hasPermission(Permissions.INSTALL)) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+                return true;
+            }
+            coordinator.confirmCompatibilityOverride(sender);
+            return true;
+        }
+
+        if (args.length > 0 && "cancel".equalsIgnoreCase(args[0])) {
+            if (!sender.hasPermission(Permissions.INSTALL)) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+                return true;
+            }
+            coordinator.cancelCompatibilityOverride(sender);
+            return true;
+        }
+
         if (args.length > 0 && "setup".equalsIgnoreCase(args[0])) {
             if (setupManager == null) {
                 sender.sendMessage(ChatColor.RED + "The setup utilities are not available.");
@@ -188,7 +206,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("gui", "status", "select", "remove", "setup", "rollback");
+            return List.of("gui", "status", "select", "ignore", "cancel", "remove", "setup", "rollback");
         }
         if (args.length == 2 && "select".equalsIgnoreCase(args[0])) {
             return Collections.singletonList("<number>");
