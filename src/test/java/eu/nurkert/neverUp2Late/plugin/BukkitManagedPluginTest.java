@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.plugin;
 
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventPriority;
@@ -24,11 +25,13 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
@@ -83,6 +86,56 @@ class BukkitManagedPluginTest {
             assertFalse(plugin.isEnabled());
         } finally {
             Files.deleteIfExists(pluginFile);
+        }
+    }
+
+    @Test
+    void unloadReplacesUnmodifiableKnownCommandsMap() throws Exception {
+        Path pluginFile = Files.createTempFile("command-plugin", ".jar");
+        try {
+            StatefulPlugin plugin = new StatefulPlugin("CommandPlugin");
+            SuperclassBackedPluginManager manager = new SuperclassBackedPluginManager(plugin, pluginFile);
+            Logger logger = Logger.getLogger("BukkitManagedPluginTest");
+
+            PluginCommand command = createPluginCommand("command:test", plugin);
+            Map<String, Object> backing = new HashMap<>();
+            backing.put(command.getName(), command);
+            CommandMapHolder holder = new CommandMapHolder(Collections.unmodifiableMap(backing));
+            manager.commandMap = holder;
+
+            BukkitManagedPlugin managed = new BukkitManagedPlugin(null, pluginFile, manager, logger);
+
+            managed.load();
+            managed.enable();
+
+            assertTrue(holder.knownCommands().containsKey(command.getName()));
+
+            managed.unload();
+
+            Map<String, Object> knownCommands = holder.knownCommands();
+            assertTrue(knownCommands instanceof LinkedHashMap);
+            assertFalse(knownCommands.containsKey(command.getName()));
+        } finally {
+            Files.deleteIfExists(pluginFile);
+        }
+    }
+
+    private static PluginCommand createPluginCommand(String name, Plugin owner) throws Exception {
+        Constructor<PluginCommand> constructor = PluginCommand.class.getDeclaredConstructor(String.class, Plugin.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(name, owner);
+    }
+
+    private static final class CommandMapHolder {
+
+        private Map<String, Object> knownCommands;
+
+        private CommandMapHolder(Map<String, Object> knownCommands) {
+            this.knownCommands = knownCommands;
+        }
+
+        Map<String, Object> knownCommands() {
+            return knownCommands;
         }
     }
 
@@ -256,7 +309,7 @@ class BukkitManagedPluginTest {
         protected final Map<String, Plugin> lookupNames = new HashMap<>();
         protected final Map<Object, SortedSet<RegisteredListener>> listeners = new HashMap<>();
         @SuppressWarnings("unused")
-        protected final Object commandMap = null;
+        protected Object commandMap;
 
         private SuperclassBackedPluginManager(StatefulPlugin plugin, Path expectedPath) {
             this.plugin = plugin;
