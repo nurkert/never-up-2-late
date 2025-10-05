@@ -77,7 +77,10 @@ public class SpigotFetcher extends JsonUpdateFetcher {
     }
 
     public SpigotFetcher(Config config) {
-        this(config, new HttpClient());
+        this(config, HttpClient.builder()
+                .header("Spiget-User-Agent", buildSpigetUserAgent(config))
+                .accept("application/json")
+                .build());
     }
 
     SpigotFetcher(Config config, HttpClient httpClient) {
@@ -102,20 +105,53 @@ public class SpigotFetcher extends JsonUpdateFetcher {
 
         ensureCompatibility(resource);
 
-        VersionRef latestVersionRef = resource.versions().stream()
-                .max(Comparator.comparingInt(VersionRef::id))
-                .orElseThrow(() -> new IOException("No versions available for resource " + resourceId));
+        List<VersionRef> versions = new ArrayList<>(resource.versions());
+        versions.sort(Comparator.comparingInt(VersionRef::id).reversed());
 
-        VersionResponse version = getJson(versionUrl(latestVersionRef.id()), VersionResponse.class);
-        if (version == null) {
-            throw new IOException("No data returned for version " + latestVersionRef.id());
+        if (versions.isEmpty()) {
+            throw new IOException("No versions available for resource " + resourceId);
         }
 
-        String versionName = resolveVersionName(version);
-        int buildNumber = resolveBuildNumber(versionName, version.version(), version.id());
-        String downloadUrl = resolveDownloadUrl(resource, version);
+        IOException lastFailure = null;
 
-        setLatestBuildInfo(versionName, buildNumber, downloadUrl);
+        for (VersionRef ref : versions) {
+            VersionResponse version;
+            try {
+                version = getJson(versionUrl(ref.id()), VersionResponse.class);
+            } catch (IOException e) {
+                lastFailure = e;
+                continue;
+            }
+
+            if (version == null) {
+                lastFailure = new IOException("No data returned for version " + ref.id());
+                continue;
+            }
+
+            String downloadUrl;
+            try {
+                downloadUrl = resolveDownloadUrl(resource, version);
+            } catch (IOException e) {
+                lastFailure = e;
+                continue;
+            }
+
+            if (downloadUrl == null || downloadUrl.isBlank()) {
+                continue;
+            }
+
+            String versionName = resolveVersionName(version);
+            int buildNumber = resolveBuildNumber(versionName, version.version(), version.id());
+
+            setLatestBuildInfo(versionName, buildNumber, downloadUrl);
+            return;
+        }
+
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+
+        throw new IOException("No downloadable versions available for resource " + resourceId);
     }
 
     @Override
@@ -471,6 +507,17 @@ public class SpigotFetcher extends JsonUpdateFetcher {
 
     private String versionDownloadUrl(int versionId) {
         return versionUrl(versionId) + "/download";
+    }
+
+    private static String buildSpigetUserAgent(Config config) {
+        StringBuilder builder = new StringBuilder("NeverUp2Late-Spiget/1.0 (resourceId=")
+                .append(config.resourceId());
+        String pluginName = config.installedPluginName();
+        if (pluginName != null && !pluginName.isBlank()) {
+            builder.append("; plugin=").append(pluginName);
+        }
+        builder.append(')');
+        return builder.toString();
     }
 
     private String extractServerGameVersion() {

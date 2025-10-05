@@ -16,9 +16,9 @@ class SpigotFetcherTest {
 
     @Test
     void fetchesLatestVersionAndDownloadUrl() throws Exception {
-        Map<String, String> responses = new HashMap<>();
+        Map<String, StubHttpClient.StubResponse> responses = new HashMap<>();
         responses.put("https://api.spiget.org/v2/resources/12345",
-                """
+                StubHttpClient.body("""
                         {
                           \"id\": 12345,
                           \"premium\": false,
@@ -28,15 +28,15 @@ class SpigotFetcherTest {
                             { \"id\": 1 }
                           ]
                         }
-                        """);
+                        """));
         responses.put("https://api.spiget.org/v2/resources/12345/versions/2",
-                """
+                StubHttpClient.body("""
                         {
                           \"id\": 2,
                           \"name\": \"2.1.0-b7\",
                           \"version\": \"2.1.0\"
                         }
-                        """);
+                        """));
 
         SpigotFetcher.Config config = SpigotFetcher.builder(12345)
                 .preferredGameVersions(List.of("1.21"))
@@ -52,15 +52,15 @@ class SpigotFetcherTest {
 
     @Test
     void rejectsPremiumResources() {
-        Map<String, String> responses = new HashMap<>();
+        Map<String, StubHttpClient.StubResponse> responses = new HashMap<>();
         responses.put("https://api.spiget.org/v2/resources/55",
-                """
+                StubHttpClient.body("""
                         {
                           \"id\": 55,
                           \"premium\": true,
                           \"versions\": []
                         }
-                        """);
+                        """));
 
         SpigotFetcher fetcher = new SpigotFetcher(SpigotFetcher.builder(55).build(), new StubHttpClient(responses));
 
@@ -69,9 +69,9 @@ class SpigotFetcherTest {
 
     @Test
     void allowsIgnoringCompatibilityWarnings() throws Exception {
-        Map<String, String> responses = new HashMap<>();
+        Map<String, StubHttpClient.StubResponse> responses = new HashMap<>();
         responses.put("https://api.spiget.org/v2/resources/321",
-                """
+                StubHttpClient.body("""
                         {
                           \"id\": 321,
                           \"premium\": false,
@@ -83,15 +83,15 @@ class SpigotFetcherTest {
                             \"externalUrl\": \"https://example.com/download.jar\"
                           }
                         }
-                        """);
+                        """));
         responses.put("https://api.spiget.org/v2/resources/321/versions/99",
-                """
+                StubHttpClient.body("""
                         {
                           \"id\": 99,
                           \"name\": \"Release\",
                           \"version\": null
                         }
-                        """);
+                        """));
 
         SpigotFetcher.Config strictConfig = SpigotFetcher.builder(321)
                 .preferredGameVersions(List.of("1.20"))
@@ -113,21 +113,100 @@ class SpigotFetcherTest {
         assertEquals("https://example.com/download.jar", relaxedFetcher.getLatestDownloadUrl());
     }
 
-    private static class StubHttpClient extends HttpClient {
-        private final Map<String, String> responses;
+    @Test
+    void fallsBackToPreviousVersionWhenLatestFails() throws Exception {
+        Map<String, StubHttpClient.StubResponse> responses = new HashMap<>();
+        responses.put("https://api.spiget.org/v2/resources/987",
+                StubHttpClient.body("""
+                        {
+                          \"id\": 987,
+                          \"premium\": false,
+                          \"versions\": [
+                            { \"id\": 5 },
+                            { \"id\": 4 }
+                          ]
+                        }
+                        """));
+        responses.put("https://api.spiget.org/v2/resources/987/versions/5",
+                StubHttpClient.error(new IOException("Simulated 404")));
+        responses.put("https://api.spiget.org/v2/resources/987/versions/4",
+                StubHttpClient.body("""
+                        {
+                          \"id\": 4,
+                          \"name\": \"1.4.0\",
+                          \"version\": \"1.4.0\",
+                          \"file\": {
+                            \"url\": \"/resources/987/download\"
+                          }
+                        }
+                        """));
 
-        StubHttpClient(Map<String, String> responses) {
+        SpigotFetcher fetcher = new SpigotFetcher(SpigotFetcher.builder(987).build(), new StubHttpClient(responses));
+
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("1.4.0", fetcher.getLatestVersion());
+        assertEquals(4, fetcher.getLatestBuild());
+        assertEquals("https://api.spiget.org/v2/resources/987/download", fetcher.getLatestDownloadUrl());
+    }
+
+    @Test
+    void propagatesFailureWhenAllVersionsFail() {
+        Map<String, StubHttpClient.StubResponse> responses = new HashMap<>();
+        responses.put("https://api.spiget.org/v2/resources/654",
+                StubHttpClient.body("""
+                        {
+                          \"id\": 654,
+                          \"premium\": false,
+                          \"versions\": [
+                            { \"id\": 3 },
+                            { \"id\": 2 }
+                          ]
+                        }
+                        """));
+        responses.put("https://api.spiget.org/v2/resources/654/versions/3",
+                StubHttpClient.error(new IOException("Simulated failure for v3")));
+        responses.put("https://api.spiget.org/v2/resources/654/versions/2",
+                StubHttpClient.error(new IOException("Simulated failure for v2")));
+
+        SpigotFetcher fetcher = new SpigotFetcher(SpigotFetcher.builder(654).build(), new StubHttpClient(responses));
+
+        IOException exception = assertThrows(IOException.class, fetcher::loadLatestBuildInfo);
+        assertEquals("Simulated failure for v2", exception.getMessage());
+    }
+
+    private static class StubHttpClient extends HttpClient {
+        private final Map<String, StubResponse> responses;
+
+        StubHttpClient(Map<String, StubResponse> responses) {
             super(java.net.http.HttpClient.newBuilder().build(), Duration.ofSeconds(1), Map.of());
             this.responses = responses;
         }
 
+        static StubResponse body(String body) {
+            return new StubResponse(body, null);
+        }
+
+        static StubResponse error(IOException exception) {
+            return new StubResponse(null, exception);
+        }
+
         @Override
         protected String doGet(String url) throws IOException {
-            String response = responses.get(url);
+            StubResponse response = responses.get(url);
             if (response == null) {
                 throw new IOException("No stubbed response for " + url);
             }
-            return response;
+            if (response.exception() != null) {
+                throw response.exception();
+            }
+            if (response.body() == null) {
+                throw new IOException("No stubbed response body for " + url);
+            }
+            return response.body();
+        }
+
+        private record StubResponse(String body, IOException exception) {
         }
     }
 }
