@@ -1,6 +1,7 @@
 package eu.nurkert.neverUp2Late.fetcher;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import eu.nurkert.neverUp2Late.fetcher.exception.CompatibilityMismatchException;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
@@ -180,8 +181,10 @@ public class SpigotFetcher extends JsonUpdateFetcher {
                 || matchesAny(preferredGameVersions, availableVersions);
         if (!matchesPreferred) {
             if (!ignoreCompatibilityWarnings) {
-                throw new IOException("Spigot resource " + resourceId
-                        + " does not target preferred game versions " + preferredGameVersions);
+                throw new CompatibilityMismatchException("Spigot resource " + resourceId
+                        + " does not target preferred game versions " + preferredGameVersions,
+                        null,
+                        availableVersions);
             }
             return;
         }
@@ -197,8 +200,10 @@ public class SpigotFetcher extends JsonUpdateFetcher {
 
         Set<String> candidates = expandVersionCandidates(serverVersion);
         if (!matchesAny(candidates, availableVersions)) {
-            throw new IOException("Spigot resource " + resourceId + " was not tested with server version "
-                    + serverVersion);
+            throw new CompatibilityMismatchException("Spigot resource " + resourceId
+                    + " was not tested with server version " + serverVersion,
+                    serverVersion,
+                    availableVersions);
         }
     }
 

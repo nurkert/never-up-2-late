@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.fetcher;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
+import eu.nurkert.neverUp2Late.fetcher.exception.CompatibilityMismatchException;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
@@ -142,7 +143,13 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
                 .collect(Collectors.toSet());
 
         if (matching.isEmpty()) {
-            throw new IOException("No game versions available matching preferences " + preferredGameVersions);
+            throw new CompatibilityMismatchException(
+                    "No game versions available matching preferences " + preferredGameVersions,
+                    null,
+                    versions.stream()
+                            .flatMap(version -> version.gameVersions().stream())
+                            .collect(Collectors.toCollection(java.util.LinkedHashSet::new))
+            );
         }
 
         Set<String> compatible = filterByMaximumVersion(matching, maximumGameVersion, comparator);

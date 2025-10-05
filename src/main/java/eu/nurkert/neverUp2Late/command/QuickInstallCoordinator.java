@@ -5,6 +5,7 @@ import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.fetcher.AssetPatternBuilder;
 import eu.nurkert.neverUp2Late.fetcher.GithubReleaseFetcher;
 import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
+import eu.nurkert.neverUp2Late.fetcher.exception.CompatibilityMismatchException;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
@@ -137,6 +138,7 @@ public class QuickInstallCoordinator {
     private final String messagePrefix;
     private final Map<String, PendingSelection> pendingSelections = new ConcurrentHashMap<>();
     private final Map<String, ArchivePendingSelection> pendingArchiveSelections = new ConcurrentHashMap<>();
+    private final Map<String, CompatibilityPending> pendingCompatibilityConfirmations = new ConcurrentHashMap<>();
     private final ArtifactDownloader artifactDownloader;
     private final boolean ignoreCompatibilityWarnings;
     private final Object configurationLock = new Object();
@@ -337,6 +339,11 @@ public class QuickInstallCoordinator {
             logger.log(Level.INFO, "Asset selection required for {0}: {1}", new Object[]{plan.getDisplayName(), selection.getMessage()});
             requestAssetSelection(sender, plan, selection);
             return;
+        } catch (CompatibilityMismatchException compatibility) {
+            logger.log(Level.INFO, "Compatibility confirmation required for {0}: {1}",
+                    new Object[]{plan.getDisplayName(), compatibility.getMessage()});
+            requestCompatibilityOverride(sender, plan, compatibility);
+            return;
         } catch (Exception e) {
             logger.log(Level.WARNING, "Failed to prepare installation for " + plan.getDisplayName(), e);
             send(sender, ChatColor.RED + "Failed to load version information: " + e.getMessage());
@@ -396,6 +403,32 @@ public class QuickInstallCoordinator {
             send(sender, ChatColor.GOLD + "Note: The selected asset is an archive. NU2L will automatically extract the matching JAR file.");
         }
 
+        scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
+    }
+
+    public void confirmCompatibilityOverride(CommandSender sender) {
+        processCompatibilityDecision(sender, true);
+    }
+
+    public void cancelCompatibilityOverride(CommandSender sender) {
+        processCompatibilityDecision(sender, false);
+    }
+
+    private void processCompatibilityDecision(CommandSender sender, boolean ignoreWarning) {
+        String key = selectionKey(sender);
+        CompatibilityPending pending = pendingCompatibilityConfirmations.remove(key);
+        if (pending == null) {
+            send(sender, ChatColor.RED + "There is no pending compatibility warning.");
+            return;
+        }
+
+        if (!ignoreWarning) {
+            send(sender, ChatColor.YELLOW + "Installation cancelled. Compatibility warning not ignored.");
+            return;
+        }
+
+        pending.plan().getOptions().put("ignoreCompatibilityWarnings", true);
+        send(sender, ChatColor.YELLOW + "Ignoring compatibility warning and retrying with the latest version…");
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
     }
 
@@ -559,6 +592,31 @@ public class QuickInstallCoordinator {
                 || assets.stream().anyMatch(AssetSelectionRequiredException.ReleaseAsset::archive)) {
             send(sender, ChatColor.GOLD + "Note: Archives are extracted automatically; please choose the desired file.");
         }
+    }
+
+    private void requestCompatibilityOverride(CommandSender sender,
+                                              InstallationPlan plan,
+                                              CompatibilityMismatchException compatibility) {
+        String key = selectionKey(sender);
+        pendingCompatibilityConfirmations.put(key, new CompatibilityPending(plan, compatibility));
+
+        send(sender, ChatColor.GOLD + "No compatible version was advertised for " + ChatColor.AQUA
+                + plan.getDisplayName() + ChatColor.GOLD + ".");
+        send(sender, ChatColor.YELLOW + compatibility.getMessage());
+
+        String serverVersion = trimToNull(compatibility.getServerVersion());
+        if (serverVersion != null) {
+            send(sender, ChatColor.GRAY + "Your server reports Minecraft version " + ChatColor.AQUA
+                    + serverVersion + ChatColor.GRAY + ".");
+        }
+
+        List<String> available = compatibility.getAvailableVersions();
+        if (!available.isEmpty()) {
+            String joined = String.join(ChatColor.GRAY + ", " + ChatColor.AQUA, available);
+            send(sender, ChatColor.GRAY + "Listed versions: " + ChatColor.AQUA + joined);
+        }
+
+        send(sender, ChatColor.YELLOW + "Use /nu2l ignore to install the latest version anyway or /nu2l cancel to abort.");
     }
 
     private void finalizeInstallation(CommandSender sender, InstallationPlan plan) {
@@ -1600,6 +1658,7 @@ public class QuickInstallCoordinator {
         String key = selectionKey(sender);
         pendingSelections.remove(key);
         pendingArchiveSelections.remove(key);
+        pendingCompatibilityConfirmations.remove(key);
     }
 
     private String selectionKey(CommandSender sender) {
@@ -1769,6 +1828,14 @@ public class QuickInstallCoordinator {
         private ArchivePendingSelection {
             Objects.requireNonNull(plan, "plan");
             entries = List.copyOf(entries);
+        }
+    }
+
+    private record CompatibilityPending(InstallationPlan plan,
+                                        CompatibilityMismatchException compatibility) {
+        private CompatibilityPending {
+            Objects.requireNonNull(plan, "plan");
+            Objects.requireNonNull(compatibility, "compatibility");
         }
     }
 
