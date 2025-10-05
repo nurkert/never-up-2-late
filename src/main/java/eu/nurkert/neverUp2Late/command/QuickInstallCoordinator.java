@@ -19,6 +19,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.PluginManager;
@@ -138,6 +139,7 @@ public class QuickInstallCoordinator {
     private final Map<String, ArchivePendingSelection> pendingArchiveSelections = new ConcurrentHashMap<>();
     private final ArtifactDownloader artifactDownloader;
     private final boolean ignoreCompatibilityWarnings;
+    private final Object configurationLock = new Object();
 
     public QuickInstallCoordinator(PluginContext context) {
         this.plugin = context.getPlugin();
@@ -569,7 +571,10 @@ public class QuickInstallCoordinator {
             return;
         }
 
-        writeConfiguration(plan);
+        ConfigurationSnapshot snapshot = persistSourceConfiguration(plan, sender);
+        if (snapshot == null) {
+            return;
+        }
 
         UpdateSource source;
         try {
@@ -582,15 +587,62 @@ public class QuickInstallCoordinator {
             );
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to register dynamic source " + plan.getSourceName(), e);
+            restoreConfiguration(snapshot);
             send(sender, ChatColor.RED + "Could not register source: " + e.getMessage());
             return;
         }
 
+        send(sender, ChatColor.GREEN + "Registered update source " + ChatColor.AQUA + source.getName()
+                + ChatColor.GREEN + " → " + ChatColor.AQUA + source.getFilename() + ChatColor.GREEN + ".");
         send(sender, ChatColor.GREEN + "Starting installation…");
         updateHandler.runJobNow(source, sender);
     }
 
-    private void writeConfiguration(InstallationPlan plan) {
+    private ConfigurationSnapshot persistSourceConfiguration(InstallationPlan plan, CommandSender sender) {
+        synchronized (configurationLock) {
+            ConfigurationSnapshot snapshot = createSnapshot();
+            if (snapshot == null) {
+                send(sender, ChatColor.RED + "Could not create a configuration backup. Aborting.");
+                return null;
+            }
+            try {
+                applyPlanToConfiguration(plan);
+                plugin.saveConfig();
+                return snapshot;
+            } catch (Exception ex) {
+                logger.log(Level.SEVERE,
+                        "Failed to persist configuration for " + plan.getSourceName() + ':', ex);
+                restoreConfiguration(snapshot);
+                send(sender, ChatColor.RED + "Could not write configuration: " + ex.getMessage());
+                return null;
+            }
+        }
+    }
+
+    private ConfigurationSnapshot createSnapshot() {
+        try {
+            return new ConfigurationSnapshot(configuration.saveToString());
+        } catch (Exception ex) {
+            logger.log(Level.FINE, "Failed to create configuration snapshot", ex);
+            return null;
+        }
+    }
+
+    private void restoreConfiguration(ConfigurationSnapshot snapshot) {
+        if (snapshot == null || snapshot.data() == null) {
+            return;
+        }
+        synchronized (configurationLock) {
+            try {
+                configuration.loadFromString(snapshot.data());
+                plugin.saveConfig();
+            } catch (InvalidConfigurationException | RuntimeException ex) {
+                logger.log(Level.SEVERE, "Failed to restore configuration after error", ex);
+            }
+        }
+    }
+
+    private void applyPlanToConfiguration(InstallationPlan plan) {
         ConfigurationSection section = configuration.getConfigurationSection("updates.sources");
         if (section != null && !section.getKeys(false).isEmpty()) {
             if (section.contains(plan.getSourceName())) {
@@ -598,21 +650,22 @@ public class QuickInstallCoordinator {
             }
             ConfigurationSection newSection = section.createSection(plan.getSourceName());
             populateSection(newSection, plan);
-        } else {
-            List<Map<?, ?>> entries = new ArrayList<>(configuration.getMapList("updates.sources"));
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("name", plan.getSourceName());
-            entry.put("type", plan.getFetcherType());
-            entry.put("target", plan.getTargetDirectory().name());
-            entry.put("filename", plan.getFilename());
-            if (!plan.getOptions().isEmpty()) {
-                entry.put("options", new LinkedHashMap<>(plan.getOptions()));
-            }
-            entries.removeIf(map -> plan.getSourceName().equalsIgnoreCase(Objects.toString(map.get("name"), "")));
-            entries.add(entry);
-            configuration.set("updates.sources", entries);
+            return;
         }
-        plugin.saveConfig();
+
+        List<Map<?, ?>> existing = new ArrayList<>(configuration.getMapList("updates.sources"));
+        existing.removeIf(map -> plan.getSourceName().equalsIgnoreCase(Objects.toString(map.get("name"), "")));
+
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("name", plan.getSourceName());
+        entry.put("type", plan.getFetcherType());
+        entry.put("target", plan.getTargetDirectory().name());
+        entry.put("filename", plan.getFilename());
+        if (!plan.getOptions().isEmpty()) {
+            entry.put("options", new LinkedHashMap<>(plan.getOptions()));
+        }
+        existing.add(entry);
+        configuration.set("updates.sources", existing);
     }
 
     private void populateSection(ConfigurationSection newSection, InstallationPlan plan) {
@@ -1696,6 +1749,9 @@ public class QuickInstallCoordinator {
 
     private String normalize(String value) {
         return value == null ? "" : value.replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
+    }
+
+    private record ConfigurationSnapshot(String data) {
     }
 
     private record PendingSelection(InstallationPlan plan,
