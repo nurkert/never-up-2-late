@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -178,34 +179,35 @@ class BukkitManagedPlugin implements ManagedPlugin {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> knownCommands = (Map<String, Object>) field.get(commandMap);
                     if (knownCommands != null) {
-                        boolean modified = false;
-                        try {
-                            Iterator<Map.Entry<String, Object>> iterator = knownCommands.entrySet().iterator();
-                            while (iterator.hasNext()) {
-                                Map.Entry<String, Object> entry = iterator.next();
-                                Object value = entry.getValue();
-                                if (value instanceof PluginCommand command && command.getPlugin() == target) {
-                                    if (commandMap instanceof SimpleCommandMap simple) {
-                                        command.unregister(simple);
-                                    }
-                                    iterator.remove();
-                                    modified = true;
+                        Set<String> keysToRemove = new LinkedHashSet<>();
+                        for (Map.Entry<String, Object> entry : knownCommands.entrySet()) {
+                            Object value = entry.getValue();
+                            if (value instanceof PluginCommand command && command.getPlugin() == target) {
+                                if (commandMap instanceof SimpleCommandMap simple) {
+                                    command.unregister(simple);
                                 }
+                                keysToRemove.add(entry.getKey());
                             }
-                        } catch (UnsupportedOperationException ex) {
-                            Map<String, Object> mutable = new LinkedHashMap<>(knownCommands.size());
-                            for (Map.Entry<String, Object> entry : knownCommands.entrySet()) {
-                                Object value = entry.getValue();
-                                if (value instanceof PluginCommand command && command.getPlugin() == target) {
-                                    if (commandMap instanceof SimpleCommandMap simple) {
-                                        command.unregister(simple);
+                        }
+                        if (!keysToRemove.isEmpty()) {
+                            boolean modified = false;
+                            try {
+                                for (String key : keysToRemove) {
+                                    if (knownCommands.containsKey(key)) {
+                                        knownCommands.remove(key);
+                                        modified = true;
                                     }
-                                    modified = true;
-                                    continue;
                                 }
-                                mutable.put(entry.getKey(), value);
+                            } catch (UnsupportedOperationException ex) {
+                                modified = false;
                             }
-                            if (modified) {
+                            if (!modified) {
+                                Map<String, Object> mutable = new LinkedHashMap<>(knownCommands.size());
+                                for (Map.Entry<String, Object> entry : knownCommands.entrySet()) {
+                                    if (!keysToRemove.contains(entry.getKey())) {
+                                        mutable.put(entry.getKey(), entry.getValue());
+                                    }
+                                }
                                 field.set(commandMap, mutable);
                             }
                         }
