@@ -1,20 +1,27 @@
 package eu.nurkert.neverUp2Late.command;
 
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.command.CommandSender;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Logger;
 
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 
 import sun.misc.Unsafe;
+
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -218,6 +225,113 @@ class QuickInstallCoordinatorTest {
         assertEquals(fallback, result);
     }
 
+    @Test
+    void deduplicateExistingSourcesRemovesDuplicateEntries() throws Exception {
+        QuickInstallCoordinator coordinator = newCoordinator(false);
+        UpdateSourceRegistry registry = new UpdateSourceRegistry(Logger.getLogger("test"), new YamlConfiguration());
+
+        CopyOnWriteArrayList<UpdateSourceRegistry.UpdateSource> sources = new CopyOnWriteArrayList<>();
+        sources.add(new UpdateSourceRegistry.UpdateSource(
+                "wildchests",
+                null,
+                TargetDirectory.PLUGINS,
+                "WildChests.jar",
+                "WildChests"));
+        sources.add(new UpdateSourceRegistry.UpdateSource(
+                "wildchests-1",
+                null,
+                TargetDirectory.PLUGINS,
+                "WildChests.jar",
+                "WildChests"));
+
+        setField(registry, "sources", sources);
+        setField(coordinator, "updateSourceRegistry", registry);
+
+        Method method = QuickInstallCoordinator.class.getDeclaredMethod("deduplicateExistingSources", CommandSender.class);
+        method.setAccessible(true);
+        method.invoke(coordinator, new Object[]{null});
+
+        List<UpdateSourceRegistry.UpdateSource> remaining = registry.getSources();
+        assertEquals(1, remaining.size());
+        assertEquals("wildchests", remaining.get(0).getName());
+    }
+
+    @Test
+    void findConflictingSourcesDetectsExistingByInstalledPlugin() throws Exception {
+        QuickInstallCoordinator coordinator = newCoordinator(false);
+        UpdateSourceRegistry registry = new UpdateSourceRegistry(Logger.getLogger("test"), new YamlConfiguration());
+
+        CopyOnWriteArrayList<UpdateSourceRegistry.UpdateSource> sources = new CopyOnWriteArrayList<>();
+        UpdateSourceRegistry.UpdateSource existing = new UpdateSourceRegistry.UpdateSource(
+                "wildchests",
+                null,
+                TargetDirectory.PLUGINS,
+                "WildChests.jar",
+                "WildChests");
+        sources.add(existing);
+
+        setField(registry, "sources", sources);
+        setField(coordinator, "updateSourceRegistry", registry);
+
+        Class<?> planClass = null;
+        for (Class<?> inner : QuickInstallCoordinator.class.getDeclaredClasses()) {
+            if ("InstallationPlan".equals(inner.getSimpleName())) {
+                planClass = inner;
+                break;
+            }
+        }
+        if (planClass == null) {
+            throw new IllegalStateException("InstallationPlan class not found");
+        }
+
+        Constructor<?> constructor = null;
+        for (Constructor<?> candidate : planClass.getDeclaredConstructors()) {
+            if (candidate.getParameterCount() == 10) {
+                constructor = candidate;
+                constructor.setAccessible(true);
+                break;
+            }
+        }
+        if (constructor == null) {
+            throw new IllegalStateException("InstallationPlan constructor not found");
+        }
+
+        Map<String, Object> options = new LinkedHashMap<>();
+        Object plan = constructor.newInstance(
+                coordinator,
+                "https://example.com",
+                "Provider",
+                "host",
+                "spigot",
+                "wildchests",
+                "WildChests",
+                TargetDirectory.PLUGINS,
+                options,
+                "WildChests.jar");
+
+        Method setFilename = planClass.getDeclaredMethod("setFilename", String.class);
+        setFilename.setAccessible(true);
+        setFilename.invoke(plan, "WildChests.jar");
+
+        Method setInstalledPluginName = planClass.getDeclaredMethod("setInstalledPluginName", String.class);
+        setInstalledPluginName.setAccessible(true);
+        setInstalledPluginName.invoke(plan, "WildChests");
+
+        Method addPluginNameCandidate = planClass.getDeclaredMethod("addPluginNameCandidate", String.class);
+        addPluginNameCandidate.setAccessible(true);
+        addPluginNameCandidate.invoke(plan, "WildChests");
+
+        Method findConflicts = QuickInstallCoordinator.class.getDeclaredMethod("findConflictingSources", planClass);
+        findConflicts.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<UpdateSourceRegistry.UpdateSource> conflicts =
+                (List<UpdateSourceRegistry.UpdateSource>) findConflicts.invoke(coordinator, plan);
+
+        assertEquals(1, conflicts.size());
+        assertEquals(existing.getName(), conflicts.get(0).getName());
+    }
+
     private QuickInstallCoordinator newCoordinator(boolean ignoreCompatibilityWarnings) throws Exception {
         Unsafe unsafe = getUnsafe();
         QuickInstallCoordinator coordinator = (QuickInstallCoordinator) unsafe.allocateInstance(QuickInstallCoordinator.class);
@@ -228,7 +342,7 @@ class QuickInstallCoordinatorTest {
     }
 
     private void setField(Object target, String fieldName, Object value) throws Exception {
-        Field field = QuickInstallCoordinator.class.getDeclaredField(fieldName);
+        Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
     }
