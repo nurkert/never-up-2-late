@@ -31,6 +31,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -44,6 +45,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import java.security.CodeSource;
 import java.util.Locale;
 
 /**
@@ -237,6 +239,9 @@ public class PluginOverviewGui implements Listener {
             } else {
                 lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GOLD + "Server restart required");
             }
+            if (isSelfPlugin(plugin)) {
+                lore.add(ChatColor.DARK_GRAY + "Managed by NeverUp2Late itself.");
+            }
 
             meta.setLore(lore);
             item.setItemMeta(meta);
@@ -275,7 +280,56 @@ public class PluginOverviewGui implements Listener {
         return updateSettingsRepository.getSettings(name);
     }
 
+    private boolean isSelfPlugin(ManagedPlugin plugin) {
+        if (plugin == null) {
+            return false;
+        }
+        Plugin self = context.getPlugin();
+        if (self == null) {
+            return false;
+        }
+        if (plugin.getPlugin().map(self::equals).orElse(false)) {
+            return true;
+        }
+        String pluginName = plugin.getName();
+        if (pluginName != null && pluginName.equalsIgnoreCase(self.getName())) {
+            return true;
+        }
+        Path managedPath = plugin.getPath();
+        if (managedPath == null) {
+            return false;
+        }
+        try {
+            CodeSource codeSource = self.getClass().getProtectionDomain().getCodeSource();
+            if (codeSource == null || codeSource.getLocation() == null) {
+                return false;
+            }
+            Path selfPath = Path.of(codeSource.getLocation().toURI());
+            if (!Files.exists(selfPath)) {
+                return false;
+            }
+            Path normalizedManaged = managedPath.toAbsolutePath().normalize();
+            Path normalizedSelf = selfPath.toAbsolutePath().normalize();
+            return normalizedManaged.equals(normalizedSelf);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     private ItemStack createEnableItem(ManagedPlugin plugin) {
+        if (isSelfPlugin(plugin)) {
+            ItemStack item = new ItemStack(Material.BARRIER);
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Lifecycle locked");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "NeverUp2Late keeps itself enabled.",
+                        ChatColor.GRAY + "Restart the server to reload it."
+                ));
+                item.setItemMeta(meta);
+            }
+            return item;
+        }
         ItemStack item = new ItemStack(plugin.isEnabled() ? Material.RED_DYE : Material.LIME_DYE);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
@@ -302,6 +356,19 @@ public class PluginOverviewGui implements Listener {
     }
 
     private ItemStack createLoadItem(ManagedPlugin plugin) {
+        if (isSelfPlugin(plugin)) {
+            ItemStack item = new ItemStack(Material.BARRIER);
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Unload not available");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "NeverUp2Late must stay loaded",
+                        ChatColor.GRAY + "while it manages updates."
+                ));
+                item.setItemMeta(meta);
+            }
+            return item;
+        }
         boolean loaded = plugin.isLoaded();
         ItemStack item = new ItemStack(loaded ? Material.BARRIER : Material.EMERALD_BLOCK);
         ItemMeta meta = item.getItemMeta();
@@ -401,6 +468,18 @@ public class PluginOverviewGui implements Listener {
     }
 
     private ItemStack createRemoveItem(ManagedPlugin plugin) {
+        if (isSelfPlugin(plugin)) {
+            ItemStack item = new ItemStack(Material.BARRIER);
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Removal not possible");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "NeverUp2Late cannot remove itself."
+                ));
+                item.setItemMeta(meta);
+            }
+            return item;
+        }
         ItemStack item = new ItemStack(Material.TNT);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
@@ -415,6 +494,18 @@ public class PluginOverviewGui implements Listener {
     }
 
     private ItemStack createRenameItem(ManagedPlugin plugin) {
+        if (isSelfPlugin(plugin)) {
+            ItemStack item = new ItemStack(Material.NAME_TAG);
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Rename not available");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "NeverUp2Late manages its own file name."
+                ));
+                item.setItemMeta(meta);
+            }
+            return item;
+        }
         ItemStack item = new ItemStack(Material.NAME_TAG);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
@@ -429,6 +520,9 @@ public class PluginOverviewGui implements Listener {
     }
 
     private Optional<ItemStack> createQuickRenameItem(ManagedPlugin plugin) {
+        if (isSelfPlugin(plugin)) {
+            return Optional.empty();
+        }
         Path path = plugin.getPath();
         if (path == null) {
             return Optional.empty();
@@ -498,6 +592,10 @@ public class PluginOverviewGui implements Listener {
         if (!checkPermission(player, Permissions.GUI_MANAGE_LIFECYCLE)) {
             return;
         }
+        if (isSelfPlugin(plugin)) {
+            player.sendMessage(ChatColor.RED + "NeverUp2Late cannot toggle its own state while running.");
+            return;
+        }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
         if (manager == null) {
             player.sendMessage(ChatColor.RED + "Plugin management is disabled.");
@@ -539,6 +637,10 @@ public class PluginOverviewGui implements Listener {
 
     private void toggleLoad(Player player, ManagedPlugin plugin) {
         if (!checkPermission(player, Permissions.GUI_MANAGE_LIFECYCLE)) {
+            return;
+        }
+        if (isSelfPlugin(plugin)) {
+            player.sendMessage(ChatColor.RED + "NeverUp2Late must remain loaded to manage updates.");
             return;
         }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
@@ -1332,6 +1434,10 @@ public class PluginOverviewGui implements Listener {
         if (!checkPermission(player, Permissions.GUI_MANAGE_REMOVE)) {
             return;
         }
+        if (isSelfPlugin(plugin)) {
+            player.sendMessage(ChatColor.RED + "NeverUp2Late cannot remove itself while running.");
+            return;
+        }
         pendingRemovalRequests.put(player.getUniqueId(), plugin);
         player.closeInventory();
         player.sendMessage(ChatColor.RED + "Are you sure you want to remove "
@@ -1360,6 +1466,10 @@ public class PluginOverviewGui implements Listener {
 
     private void beginRename(Player player, ManagedPlugin plugin) {
         if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
+            return;
+        }
+        if (isSelfPlugin(plugin)) {
+            player.sendMessage(ChatColor.RED + "NeverUp2Late manages its own filename automatically.");
             return;
         }
         Path path = plugin.getPath();
@@ -1397,6 +1507,10 @@ public class PluginOverviewGui implements Listener {
     }
 
     private void requestRename(Player player, ManagedPlugin plugin, String requestedName) {
+        if (isSelfPlugin(plugin)) {
+            player.sendMessage(ChatColor.RED + "NeverUp2Late cannot be renamed from within the GUI.");
+            return;
+        }
         String pluginName = plugin.getName();
         coordinator.renameManagedPlugin(player, plugin, requestedName);
         PluginLifecycleManager lifecycleManager = context.getPluginLifecycleManager();
@@ -1409,6 +1523,10 @@ public class PluginOverviewGui implements Listener {
 
     private void quickRenameToDataDirectory(Player player, ManagedPlugin plugin) {
         if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
+            return;
+        }
+        if (isSelfPlugin(plugin)) {
+            player.sendMessage(ChatColor.RED + "The NU2L plugin keeps its filename unchanged.");
             return;
         }
 

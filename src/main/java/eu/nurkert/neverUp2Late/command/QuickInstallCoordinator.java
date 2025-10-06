@@ -64,6 +64,7 @@ import java.util.regex.Matcher;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import java.security.CodeSource;
 
 public class QuickInstallCoordinator {
 
@@ -1692,12 +1693,46 @@ public class QuickInstallCoordinator {
         return false;
     }
 
+    private boolean isSelfPlugin(ManagedPlugin target) {
+        if (target == null) {
+            return false;
+        }
+        if (target.getPlugin().map(plugin::equals).orElse(false)) {
+            return true;
+        }
+        String targetName = target.getName();
+        if (targetName != null && targetName.equalsIgnoreCase(plugin.getName())) {
+            return true;
+        }
+        Path path = target.getPath();
+        if (path == null) {
+            return false;
+        }
+        try {
+            CodeSource codeSource = plugin.getClass().getProtectionDomain().getCodeSource();
+            if (codeSource == null || codeSource.getLocation() == null) {
+                return false;
+            }
+            Path selfPath = Path.of(codeSource.getLocation().toURI());
+            if (!Files.exists(selfPath)) {
+                return false;
+            }
+            return path.toAbsolutePath().normalize().equals(selfPath.toAbsolutePath().normalize());
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     public void removeManagedPlugin(CommandSender sender, ManagedPlugin target) {
         if (target == null) {
             send(sender, ChatColor.RED + "Unknown plugin – action cancelled.");
             return;
         }
         if (!hasPermission(sender, Permissions.GUI_MANAGE_REMOVE)) {
+            return;
+        }
+        if (isSelfPlugin(target)) {
+            send(sender, ChatColor.RED + "NeverUp2Late cannot remove itself while it is running.");
             return;
         }
         if (pluginLifecycleManager == null) {
@@ -1854,6 +1889,10 @@ public class QuickInstallCoordinator {
             return;
         }
         if (!hasPermission(sender, Permissions.GUI_MANAGE_RENAME)) {
+            return;
+        }
+        if (isSelfPlugin(target)) {
+            send(sender, ChatColor.RED + "NeverUp2Late manages its own file name and cannot be renamed here.");
             return;
         }
         if (pluginLifecycleManager == null) {
