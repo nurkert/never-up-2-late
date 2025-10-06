@@ -496,10 +496,47 @@ public class SpigotFetcher extends JsonUpdateFetcher {
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
             return trimmed;
         }
-        if (trimmed.startsWith("/")) {
-            return API_ROOT + trimmed.substring(1);
+
+        String normalized = trimmed;
+        if (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
         }
-        return API_ROOT + trimmed;
+
+        normalized = normalizeResourcePath(normalized);
+
+        return API_ROOT + normalized;
+    }
+
+    private String normalizeResourcePath(String path) {
+        if (!path.startsWith("resources/")) {
+            return path;
+        }
+
+        int queryIndex = path.indexOf('?');
+        String query = "";
+        String basePath = path;
+        if (queryIndex >= 0) {
+            basePath = path.substring(0, queryIndex);
+            query = path.substring(queryIndex);
+        }
+
+        int nextSlash = basePath.indexOf('/', "resources/".length());
+        String resourceSegment = nextSlash == -1
+                ? basePath.substring("resources/".length())
+                : basePath.substring("resources/".length(), nextSlash);
+
+        int lastDot = resourceSegment.lastIndexOf('.');
+        if (lastDot == -1 || lastDot == resourceSegment.length() - 1) {
+            return basePath + query;
+        }
+
+        String possibleId = resourceSegment.substring(lastDot + 1);
+        if (!isNumeric(possibleId)) {
+            return basePath + query;
+        }
+
+        String remainder = nextSlash == -1 ? "" : basePath.substring(nextSlash);
+        return "resources/" + possibleId + remainder + query;
     }
 
     private String resourceUrl() {
