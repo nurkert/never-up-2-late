@@ -200,6 +200,24 @@ class QuickInstallCoordinatorTest {
         assertTrue(candidates.contains("Chunky"));
     }
 
+    @Test
+    void determineFilenameFallsBackWhenDownloadNameGeneric() throws Exception {
+        QuickInstallCoordinator coordinator = newCoordinator(false);
+        Method method = QuickInstallCoordinator.class.getDeclaredMethod(
+                "determineFilename",
+                String.class,
+                String.class
+        );
+        method.setAccessible(true);
+
+        String fallback = "chunky.jar";
+        String result = (String) method.invoke(coordinator,
+                "https://api.spiget.org/v2/resources/chunky.81534/download",
+                fallback);
+
+        assertEquals(fallback, result);
+    }
+
     private QuickInstallCoordinator newCoordinator(boolean ignoreCompatibilityWarnings) throws Exception {
         Unsafe unsafe = getUnsafe();
         QuickInstallCoordinator coordinator = (QuickInstallCoordinator) unsafe.allocateInstance(QuickInstallCoordinator.class);

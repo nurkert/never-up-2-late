@@ -1351,15 +1351,18 @@ public class QuickInstallCoordinator {
     }
 
     private String determineFilename(String downloadUrl, String fallback) {
+        String sanitizedFallback = fallback != null && !fallback.isBlank() ? fallback : null;
         try {
             URI uri = new URI(downloadUrl);
             String path = Optional.ofNullable(uri.getPath()).orElse("");
             int lastSlash = path.lastIndexOf('/');
             String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-            candidate = candidate.isBlank() ? fallback : candidate;
             candidate = candidate.split("\\?")[0];
-            if (candidate.isBlank()) {
-                candidate = fallback;
+            if (candidate.isBlank() || !candidate.contains(".")) {
+                candidate = sanitizedFallback != null ? sanitizedFallback : candidate;
+            }
+            if (candidate == null || candidate.isBlank()) {
+                candidate = "download.jar";
             }
             if (!candidate.contains(".")) {
                 candidate = candidate + ".jar";
@@ -1367,7 +1370,7 @@ public class QuickInstallCoordinator {
             return candidate;
         } catch (Exception e) {
             logger.log(Level.FINE, "Failed to parse filename from " + downloadUrl, e);
-            return fallback;
+            return sanitizedFallback != null ? sanitizedFallback : fallback;
         }
     }
 
