@@ -32,6 +32,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -46,6 +47,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.security.CodeSource;
 
 /**
  * Coordinates the interactive initial setup wizard that is shown to operators when the plugin is installed
@@ -61,6 +63,9 @@ public class InitialSetupManager implements Listener {
     private static final int RESTART_NOW_SLOT = 11;
     private static final int RESTART_LATER_SLOT = 15;
     private static final int[] STAGE_HEADER_SLOTS = {0, 1, 2};
+    private static final String SELF_UPDATE_SOURCE_NAME = "neverup2late";
+    private static final String SELF_UPDATE_FETCHER = "spigot";
+    private static final int SELF_UPDATE_RESOURCE_ID = 120768;
 
     private final PluginContext context;
     private final SetupStateRepository setupStateRepository;
@@ -740,6 +745,7 @@ public class InitialSetupManager implements Listener {
                 result.add(configuration);
             }
         }
+        ensureSelfUpdateSource(result);
         return result;
     }
 
@@ -827,6 +833,109 @@ public class InitialSetupManager implements Listener {
         return configuration;
     }
 
+    private void ensureSelfUpdateSource(List<SourceConfiguration> sources) {
+        if (sources == null) {
+            return;
+        }
+
+        SourceConfiguration existing = null;
+        for (SourceConfiguration source : sources) {
+            if (isSelfUpdateSource(source)) {
+                existing = source;
+                break;
+            }
+        }
+
+        if (existing == null) {
+            existing = new SourceConfiguration();
+            existing.name = SELF_UPDATE_SOURCE_NAME;
+            existing.type = SELF_UPDATE_FETCHER;
+            existing.target = TargetDirectory.PLUGINS;
+            existing.targetConfigValue = TargetDirectory.PLUGINS.name().toLowerCase(Locale.ROOT);
+            existing.filename = determineSelfPluginFilename();
+            existing.enabled = true;
+            existing.options = new LinkedHashMap<>();
+            sources.add(existing);
+        } else {
+            if (existing.type == null || existing.type.isBlank()) {
+                existing.type = SELF_UPDATE_FETCHER;
+            }
+            if (existing.target == null) {
+                existing.target = TargetDirectory.PLUGINS;
+            }
+            if (existing.targetConfigValue == null || existing.targetConfigValue.isBlank()) {
+                existing.targetConfigValue = TargetDirectory.PLUGINS.name().toLowerCase(Locale.ROOT);
+            }
+            Map<String, Object> normalizedOptions = new LinkedHashMap<>();
+            if (existing.options != null) {
+                normalizedOptions.putAll(existing.options);
+            }
+            existing.options = normalizedOptions;
+            if (existing.filename == null || existing.filename.isBlank()) {
+                existing.filename = determineSelfPluginFilename();
+            }
+        }
+
+        existing.pluginName = plugin.getName();
+        existing.options.putIfAbsent("resourceId", SELF_UPDATE_RESOURCE_ID);
+        existing.options.put("installedPlugin", plugin.getName());
+
+        updateSourceDetection(existing);
+
+        if (updateSettingsRepository != null && existing.pluginName != null) {
+            PluginUpdateSettings settings = updateSettingsRepository.getSettings(existing.pluginName);
+            existing.autoUpdate = settings.autoUpdateEnabled();
+        }
+    }
+
+    private boolean isSelfUpdateSource(SourceConfiguration source) {
+        if (source == null) {
+            return false;
+        }
+        String pluginName = plugin.getName();
+        if (pluginName == null || pluginName.isBlank()) {
+            return false;
+        }
+        if (source.name != null && source.name.equalsIgnoreCase(SELF_UPDATE_SOURCE_NAME)) {
+            return true;
+        }
+        if (source.pluginName != null && source.pluginName.equalsIgnoreCase(pluginName)) {
+            return true;
+        }
+        Object installedPlugin = source.options != null ? source.options.get("installedPlugin") : null;
+        return installedPlugin != null && installedPlugin.toString().equalsIgnoreCase(pluginName);
+    }
+
+    private String determineSelfPluginFilename() {
+        Path path = resolveSelfPluginPath();
+        if (path != null && path.getFileName() != null) {
+            return path.getFileName().toString();
+        }
+        String pluginName = plugin.getName();
+        return (pluginName == null || pluginName.isBlank()) ? "NeverUp2Late.jar" : pluginName + ".jar";
+    }
+
+    private Path resolveSelfPluginPath() {
+        if (pluginLifecycleManager != null) {
+            Optional<ManagedPlugin> managed = pluginLifecycleManager.findByName(plugin.getName());
+            if (managed.isPresent() && managed.get().getPath() != null) {
+                return managed.get().getPath();
+            }
+        }
+        try {
+            CodeSource codeSource = plugin.getClass().getProtectionDomain().getCodeSource();
+            if (codeSource != null && codeSource.getLocation() != null) {
+                Path location = Path.of(codeSource.getLocation().toURI());
+                if (Files.isRegularFile(location)) {
+                    return location.toAbsolutePath().normalize();
+                }
+            }
+        } catch (Exception ex) {
+            logger.log(Level.FINE, "Unable to resolve NU2L plugin path", ex);
+        }
+        return null;
+    }
+
     private TargetDirectory parseTargetDirectory(String targetValue) {
         if (targetValue == null || targetValue.isBlank()) {
             return TargetDirectory.PLUGINS;
@@ -894,6 +1003,7 @@ public class InitialSetupManager implements Listener {
             updateSourceDetection(configuration);
             fallback.add(configuration);
         }
+        ensureSelfUpdateSource(fallback);
         return fallback;
     }
 

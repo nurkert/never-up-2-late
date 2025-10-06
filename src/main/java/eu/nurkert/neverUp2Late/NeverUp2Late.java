@@ -54,6 +54,7 @@ public final class NeverUp2Late extends JavaPlugin {
                     getLogger()
             );
             pluginLifecycleManager.registerLoadedPlugins(this);
+            pluginLifecycleManager.registerPlugin(this);
         } else {
             getLogger().fine("Plugin lifecycle management is disabled (pluginLifecycle.autoManage=false).");
         }
