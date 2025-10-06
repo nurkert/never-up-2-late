@@ -4,6 +4,7 @@ import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.fetcher.AssetPatternBuilder;
 import eu.nurkert.neverUp2Late.fetcher.GithubReleaseFetcher;
+import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
 import eu.nurkert.neverUp2Late.fetcher.exception.CompatibilityMismatchException;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
@@ -474,6 +475,87 @@ public class QuickInstallCoordinator {
         return new ArrayList<>(matches);
     }
 
+    private boolean fetcherMatchesPlan(UpdateSource source, InstallationPlan plan) {
+        if (source == null || plan == null) {
+            return false;
+        }
+
+        UpdateFetcher fetcher = source.getFetcher();
+        if (fetcher == null) {
+            return false;
+        }
+
+        String type = plan.getFetcherType();
+        if (type == null || type.isBlank()) {
+            return false;
+        }
+
+        String normalizedType = type.trim();
+        Class<?> fetcherClass = fetcher.getClass();
+
+        if (normalizedType.contains(".")) {
+            return fetcherClass.getName().equalsIgnoreCase(normalizedType);
+        }
+
+        String target = normalizedType.toLowerCase(Locale.ROOT);
+        String simpleName = fetcherClass.getSimpleName().toLowerCase(Locale.ROOT);
+        if (simpleName.equals(target) || simpleName.equals(target + "fetcher")) {
+            return true;
+        }
+
+        String fullName = fetcherClass.getName().toLowerCase(Locale.ROOT);
+        return fullName.endsWith('.' + target) || fullName.endsWith('.' + target + "fetcher");
+    }
+
+    private void removeConflictingSources(CommandSender sender, List<UpdateSource> conflicts) {
+        if (updateSourceRegistry == null || conflicts == null || conflicts.isEmpty()) {
+            return;
+        }
+
+        Set<String> removed = new LinkedHashSet<>();
+
+        for (UpdateSource conflict : conflicts) {
+            if (conflict == null) {
+                continue;
+            }
+            String name = conflict.getName();
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            if (updateSourceRegistry.unregisterSource(name)) {
+                removed.add(name);
+                if (logger != null) {
+                    logger.log(Level.INFO,
+                            "Removed conflicting update source {0} before applying new quick install plan.",
+                            name);
+                }
+            }
+        }
+
+        if (removed.isEmpty()) {
+            return;
+        }
+
+        if (sender != null) {
+            send(sender, ChatColor.YELLOW + "Removed conflicting update sources: " + String.join(", ", removed));
+        }
+
+        saveConfigQuietly();
+    }
+
+    private void saveConfigQuietly() {
+        if (plugin == null) {
+            return;
+        }
+        try {
+            plugin.saveConfig();
+        } catch (RuntimeException ex) {
+            if (logger != null) {
+                logger.log(Level.WARNING, "Failed to save configuration after removing conflicting sources", ex);
+            }
+        }
+    }
+
     private UpdateSource selectPrimarySource(List<UpdateSource> candidates, InstallationPlan plan) {
         if (candidates == null || candidates.isEmpty()) {
             return null;
@@ -811,8 +893,11 @@ public class QuickInstallCoordinator {
 
         List<UpdateSource> conflicts = findConflictingSources(plan);
         if (!conflicts.isEmpty()) {
-            UpdateSource primary = selectPrimarySource(conflicts, plan);
-            if (primary != null) {
+            Optional<UpdateSource> primaryMatch = conflicts.stream()
+                    .filter(source -> fetcherMatchesPlan(source, plan))
+                    .findFirst();
+            if (primaryMatch.isPresent()) {
+                UpdateSource primary = primaryMatch.get();
                 List<UpdateSource> redundant = new ArrayList<>(conflicts);
                 redundant.remove(primary);
                 if (!redundant.isEmpty()) {
@@ -822,6 +907,8 @@ public class QuickInstallCoordinator {
                 updateHandler.runJobNow(primary, sender);
                 return;
             }
+
+            removeConflictingSources(sender, conflicts);
         }
 
         if (updateSourceRegistry.hasSource(plan.getSourceName())) {
