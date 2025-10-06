@@ -46,6 +46,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -315,13 +316,199 @@ public class QuickInstallCoordinator {
     }
 
     private Path resolveDestination(UpdateSource source) {
-        if (source == null) {
+        if (source == null || plugin == null) {
             return null;
         }
         File pluginsFolder = plugin.getDataFolder().getParentFile();
         File serverFolder = plugin.getServer().getWorldContainer().getAbsoluteFile();
         File directory = source.getTargetDirectory() == TargetDirectory.SERVER ? serverFolder : pluginsFolder;
         return new File(directory, source.getFilename()).toPath();
+    }
+
+    private void deduplicateExistingSources(CommandSender sender) {
+        if (updateSourceRegistry == null) {
+            return;
+        }
+
+        Map<Path, Integer> usage = computePathUsage();
+        Map<String, List<UpdateSource>> groups = new LinkedHashMap<>();
+        Set<String> removed = new LinkedHashSet<>();
+
+        for (UpdateSource source : updateSourceRegistry.getSources()) {
+            String installed = normalizePluginName(source.getInstalledPluginName());
+            if (installed != null) {
+                groups.computeIfAbsent("plugin:" + installed, key -> new ArrayList<>()).add(source);
+            }
+            Path destination = normalizePath(resolveDestination(source));
+            if (destination != null) {
+                groups.computeIfAbsent("path:" + destination, key -> new ArrayList<>()).add(source);
+            }
+        }
+
+        for (List<UpdateSource> group : groups.values()) {
+            List<UpdateSource> candidates = new ArrayList<>();
+            for (UpdateSource source : group) {
+                if (!removed.contains(source.getName())) {
+                    candidates.add(source);
+                }
+            }
+            if (candidates.size() <= 1) {
+                continue;
+            }
+            UpdateSource primary = selectPrimarySource(candidates, null);
+            if (primary == null) {
+                continue;
+            }
+            List<UpdateSource> redundant = new ArrayList<>(candidates);
+            redundant.remove(primary);
+            if (redundant.isEmpty()) {
+                continue;
+            }
+            removed.addAll(cleanupRedundantSources(sender, primary, redundant, usage));
+        }
+    }
+
+    private Map<Path, Integer> computePathUsage() {
+        Map<Path, Integer> usage = new HashMap<>();
+        if (updateSourceRegistry == null) {
+            return usage;
+        }
+        for (UpdateSource source : updateSourceRegistry.getSources()) {
+            Path destination = normalizePath(resolveDestination(source));
+            if (destination != null) {
+                usage.merge(destination, 1, Integer::sum);
+            }
+        }
+        return usage;
+    }
+
+    private Set<String> cleanupRedundantSources(CommandSender sender,
+                                                UpdateSource primary,
+                                                List<UpdateSource> redundant,
+                                                Map<Path, Integer> usage) {
+        if (updateSourceRegistry == null || primary == null || redundant == null || redundant.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> removed = new LinkedHashSet<>();
+        Path primaryPath = normalizePath(resolveDestination(primary));
+
+        for (UpdateSource duplicate : redundant) {
+            if (!updateSourceRegistry.unregisterSource(duplicate.getName())) {
+                continue;
+            }
+            removed.add(duplicate.getName());
+            Path duplicatePath = normalizePath(resolveDestination(duplicate));
+            if (duplicatePath == null) {
+                continue;
+            }
+            int remaining = usage.getOrDefault(duplicatePath, 1) - 1;
+            if (remaining <= 0) {
+                usage.remove(duplicatePath);
+            } else {
+                usage.put(duplicatePath, remaining);
+            }
+            if (remaining <= 0 && (primaryPath == null || !primaryPath.equals(duplicatePath))) {
+                try {
+                    Files.deleteIfExists(duplicatePath);
+                    logger.log(Level.INFO, "Removed duplicate plugin artifact {0}", duplicatePath);
+                    if (sender != null) {
+                        send(sender, ChatColor.GRAY + "Removed duplicate file " + duplicatePath.getFileName());
+                    }
+                } catch (IOException ex) {
+                    logger.log(Level.WARNING, "Failed to delete duplicate artifact " + duplicatePath, ex);
+                }
+            }
+        }
+
+        if (!removed.isEmpty() && sender != null) {
+            send(sender, ChatColor.YELLOW + "Removed duplicate update sources: " + String.join(", ", removed));
+        }
+
+        return removed;
+    }
+
+    private List<UpdateSource> findConflictingSources(InstallationPlan plan) {
+        if (updateSourceRegistry == null || plan == null) {
+            return List.of();
+        }
+
+        Set<UpdateSource> matches = new LinkedHashSet<>();
+        String desiredFilename = normalizeFilename(plan.getFilename());
+        Set<String> candidateNames = new HashSet<>();
+        candidateNames.add(normalizePluginName(plan.getSuggestedName()));
+        candidateNames.add(normalizePluginName(plan.getSourceName()));
+        candidateNames.addAll(plan.getPluginNameCandidates().stream()
+                .map(this::normalizePluginName)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet()));
+
+        Object installedOption = plan.getOptions().get("installedPlugin");
+        if (installedOption instanceof String installed) {
+            String normalized = normalizePluginName(installed);
+            if (normalized != null) {
+                candidateNames.add(normalized);
+            }
+        }
+
+        for (UpdateSource source : updateSourceRegistry.getSources()) {
+            if (source.getTargetDirectory() != plan.getTargetDirectory()) {
+                continue;
+            }
+            String sourceFilename = normalizeFilename(source.getFilename());
+            if (desiredFilename != null && desiredFilename.equals(sourceFilename)) {
+                matches.add(source);
+                continue;
+            }
+            String installed = normalizePluginName(source.getInstalledPluginName());
+            if (installed != null && candidateNames.contains(installed)) {
+                matches.add(source);
+                continue;
+            }
+            String normalizedName = normalizePluginName(source.getName());
+            if (normalizedName != null && candidateNames.contains(normalizedName)) {
+                matches.add(source);
+            }
+        }
+
+        return new ArrayList<>(matches);
+    }
+
+    private UpdateSource selectPrimarySource(List<UpdateSource> candidates, InstallationPlan plan) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        if (plan != null) {
+            String preferred = normalizePluginName(plan.getSuggestedName());
+            for (UpdateSource candidate : candidates) {
+                if (preferred != null && preferred.equals(normalizePluginName(candidate.getName()))) {
+                    return candidate;
+                }
+            }
+        }
+        return candidates.get(0);
+    }
+
+    private Path normalizePath(Path path) {
+        return path != null ? path.toAbsolutePath().normalize() : null;
+    }
+
+    private String normalizeFilename(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizePluginName(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        normalized = normalized.replace(" ", "");
+        normalized = normalized.replace("-", "");
+        normalized = normalized.replace("_", "");
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private void prepareAndInstall(CommandSender sender, InstallationPlan plan) {
@@ -620,6 +807,23 @@ public class QuickInstallCoordinator {
     }
 
     private void finalizeInstallation(CommandSender sender, InstallationPlan plan) {
+        deduplicateExistingSources(sender);
+
+        List<UpdateSource> conflicts = findConflictingSources(plan);
+        if (!conflicts.isEmpty()) {
+            UpdateSource primary = selectPrimarySource(conflicts, plan);
+            if (primary != null) {
+                List<UpdateSource> redundant = new ArrayList<>(conflicts);
+                redundant.remove(primary);
+                if (!redundant.isEmpty()) {
+                    cleanupRedundantSources(sender, primary, redundant, computePathUsage());
+                }
+                send(sender, ChatColor.YELLOW + "Source already exists, starting update…");
+                updateHandler.runJobNow(primary, sender);
+                return;
+            }
+        }
+
         if (updateSourceRegistry.hasSource(plan.getSourceName())) {
             send(sender, ChatColor.YELLOW + "Source already exists, starting update…");
             UpdateSource existing = updateSourceRegistry.findSource(plan.getSourceName()).orElse(null);
