@@ -16,6 +16,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Logger;
 
+import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
+import eu.nurkert.neverUp2Late.fetcher.SpigotFetcher;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 
@@ -332,6 +334,58 @@ class QuickInstallCoordinatorTest {
         assertEquals(existing.getName(), conflicts.get(0).getName());
     }
 
+    @Test
+    void fetcherMatchesPlanRecognisesFetcherTypeBySimpleName() throws Exception {
+        QuickInstallCoordinator coordinator = newCoordinator(false);
+        Object plan = newInstallationPlan(coordinator, "spigot", "timber", "Timber");
+
+        SpigotFetcher.Config config = SpigotFetcher.builder(1).build();
+        UpdateSourceRegistry.UpdateSource source = new UpdateSourceRegistry.UpdateSource(
+                "timber",
+                new SpigotFetcher(config),
+                TargetDirectory.PLUGINS,
+                "Timber.jar",
+                "Timber");
+
+        Method method = QuickInstallCoordinator.class.getDeclaredMethod(
+                "fetcherMatchesPlan",
+                UpdateSourceRegistry.UpdateSource.class,
+                plan.getClass());
+        method.setAccessible(true);
+
+        boolean matches = (boolean) method.invoke(coordinator, source, plan);
+
+        assertTrue(matches);
+    }
+
+    @Test
+    void removeConflictingSourcesUnregistersMismatchedFetcher() throws Exception {
+        QuickInstallCoordinator coordinator = newCoordinator(false);
+        UpdateSourceRegistry registry = new UpdateSourceRegistry(Logger.getLogger("test"), new YamlConfiguration());
+
+        CopyOnWriteArrayList<UpdateSourceRegistry.UpdateSource> sources = new CopyOnWriteArrayList<>();
+        UpdateSourceRegistry.UpdateSource conflict = new UpdateSourceRegistry.UpdateSource(
+                "timber",
+                new StubCurseforgeFetcher(),
+                TargetDirectory.PLUGINS,
+                "Timber.jar",
+                "Timber");
+        sources.add(conflict);
+
+        setField(registry, "sources", sources);
+        setField(coordinator, "updateSourceRegistry", registry);
+
+        Method method = QuickInstallCoordinator.class.getDeclaredMethod(
+                "removeConflictingSources",
+                CommandSender.class,
+                List.class);
+        method.setAccessible(true);
+
+        method.invoke(coordinator, null, List.of(conflict));
+
+        assertTrue(registry.getSources().isEmpty());
+    }
+
     private QuickInstallCoordinator newCoordinator(boolean ignoreCompatibilityWarnings) throws Exception {
         Unsafe unsafe = getUnsafe();
         QuickInstallCoordinator coordinator = (QuickInstallCoordinator) unsafe.allocateInstance(QuickInstallCoordinator.class);
@@ -351,5 +405,81 @@ class QuickInstallCoordinatorTest {
         Field field = Unsafe.class.getDeclaredField("theUnsafe");
         field.setAccessible(true);
         return (Unsafe) field.get(null);
+    }
+
+    private Object newInstallationPlan(QuickInstallCoordinator coordinator,
+                                       String fetcherType,
+                                       String sourceName,
+                                       String suggestedName) throws Exception {
+        Class<?> planClass = null;
+        for (Class<?> inner : QuickInstallCoordinator.class.getDeclaredClasses()) {
+            if ("InstallationPlan".equals(inner.getSimpleName())) {
+                planClass = inner;
+                break;
+            }
+        }
+        if (planClass == null) {
+            throw new IllegalStateException("InstallationPlan class not found");
+        }
+
+        Constructor<?> constructor = null;
+        for (Constructor<?> candidate : planClass.getDeclaredConstructors()) {
+            if (candidate.getParameterCount() == 10) {
+                constructor = candidate;
+                constructor.setAccessible(true);
+                break;
+            }
+        }
+        if (constructor == null) {
+            throw new IllegalStateException("InstallationPlan constructor not found");
+        }
+
+        Map<String, Object> options = new LinkedHashMap<>();
+        Object plan = constructor.newInstance(
+                coordinator,
+                "https://example.com",
+                "Provider",
+                "host",
+                fetcherType,
+                sourceName,
+                suggestedName,
+                TargetDirectory.PLUGINS,
+                options,
+                suggestedName + ".jar");
+
+        Method setFilename = planClass.getDeclaredMethod("setFilename", String.class);
+        setFilename.setAccessible(true);
+        setFilename.invoke(plan, suggestedName + ".jar");
+
+        return plan;
+    }
+
+    private static class StubSpigotFetcher implements UpdateFetcher {
+        @Override
+        public void loadLatestBuildInfo() {
+        }
+
+        @Override
+        public String getLatestVersion() {
+            return null;
+        }
+
+        @Override
+        public int getLatestBuild() {
+            return 0;
+        }
+
+        @Override
+        public String getLatestDownloadUrl() {
+            return null;
+        }
+
+        @Override
+        public String getInstalledVersion() {
+            return null;
+        }
+    }
+
+    private static class StubCurseforgeFetcher extends StubSpigotFetcher {
     }
 }
