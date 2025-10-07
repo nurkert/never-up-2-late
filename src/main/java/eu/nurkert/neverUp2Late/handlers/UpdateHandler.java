@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.net.HttpException;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
@@ -22,11 +23,13 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -217,13 +220,67 @@ public class UpdateHandler {
             notify(sender, ChatColor.RED + "Download failed: " + e.getMessage());
             handleUnknownHost(source, e);
         } catch (IOException e) {
-            notify(sender, ChatColor.RED + "I/O error: " + e.getMessage());
-            logger.log(Level.WARNING,
-                    "I/O error while installing {0}: {1}", new Object[]{source.getName(), e.getMessage()});
+            if (e instanceof HttpException httpException) {
+                handleHttpError(sender, source, httpException);
+            } else {
+                notify(sender, ChatColor.RED + "I/O error: " + e.getMessage());
+                logger.log(Level.WARNING,
+                        "I/O error while installing {0}: {1}", new Object[]{source.getName(), e.getMessage()});
+            }
         } catch (Exception e) {
             notify(sender, ChatColor.RED + "Unexpected error: " + e.getMessage());
             logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
         }
+    }
+
+    private void handleHttpError(CommandSender sender, UpdateSource source, HttpException exception) {
+        int statusCode = exception.getStatusCode();
+        String hostDescription = describeHost(exception.getUrl());
+        String displayHost = hostDescription != null ? hostDescription : "the remote server";
+
+        String message;
+        if (statusCode == 401 || statusCode == 403) {
+            message = "Download blocked by " + displayHost + " (HTTP " + statusCode
+                    + "). This release may require authentication or a paid subscription.";
+        } else {
+            message = "HTTP " + statusCode + " error while downloading from " + displayHost + ".";
+        }
+
+        notify(sender, ChatColor.RED + message);
+        logger.log(Level.WARNING,
+                "HTTP error {0} while installing {1} from {2}: {3}",
+                new Object[]{statusCode, source.getName(), exception.getUrl(), truncate(exception.getResponseBody())});
+    }
+
+    private String describeHost(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            URI uri = URI.create(url);
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return null;
+            }
+            String normalized = host.toLowerCase(Locale.ROOT);
+            if (normalized.startsWith("www.")) {
+                normalized = normalized.substring(4);
+            }
+            return normalized;
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private String truncate(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= 200) {
+            return trimmed;
+        }
+        return trimmed.substring(0, 200) + "…";
     }
 
     private void notify(CommandSender sender, String message) {

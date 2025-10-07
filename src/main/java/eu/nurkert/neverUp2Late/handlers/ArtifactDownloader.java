@@ -1,12 +1,15 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.net.HttpClient;
+import eu.nurkert.neverUp2Late.net.HttpException;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import eu.nurkert.neverUp2Late.net.HttpClient;
-
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -349,6 +352,16 @@ public class ArtifactDownloader {
     private void copyToTempFile(URLConnection connection,
                                 Path tempFile,
                                 ChecksumValidator checksumValidator) throws IOException {
+        if (connection instanceof HttpURLConnection httpConnection) {
+            int status = httpConnection.getResponseCode();
+            if (status >= 400) {
+                throw new HttpException(
+                        httpConnection.getURL().toString(),
+                        status,
+                        readErrorBody(httpConnection));
+            }
+        }
+
         try (InputStream inputStream = connection.getInputStream();
              OutputStream outputStream = Files.newOutputStream(tempFile, StandardOpenOption.WRITE)) {
 
@@ -365,6 +378,18 @@ public class ArtifactDownloader {
                 digestInputStream.transferTo(outputStream);
             }
             checksumValidator.validate(tempFile, digest);
+        }
+    }
+
+    private String readErrorBody(HttpURLConnection connection) {
+        try (InputStream errorStream = connection.getErrorStream()) {
+            if (errorStream == null) {
+                return null;
+            }
+            byte[] data = errorStream.readAllBytes();
+            return data.length == 0 ? null : new String(data, StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
+            return null;
         }
     }
 
