@@ -8,6 +8,7 @@ import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
+import eu.nurkert.neverUp2Late.handlers.PortalVelocityListener;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.plugin.PluginManagerApi;
@@ -121,6 +122,7 @@ public final class NeverUp2Late extends JavaPlugin {
         getServer().getPluginManager().registerEvents(anvilTextPrompt, this);
         getServer().getPluginManager().registerEvents(overviewGui, this);
         getServer().getPluginManager().registerEvents(setupManager, this);
+        getServer().getPluginManager().registerEvents(new PortalVelocityListener(this), this);
     }
 
     @Override
