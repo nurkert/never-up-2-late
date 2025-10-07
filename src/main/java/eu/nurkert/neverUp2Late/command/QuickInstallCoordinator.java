@@ -912,6 +912,8 @@ public class QuickInstallCoordinator {
             removeConflictingSources(sender, conflicts);
         }
 
+        ensurePreferredSourceName(plan);
+
         if (updateSourceRegistry.hasSource(plan.getSourceName())) {
             send(sender, ChatColor.YELLOW + "Source already exists, starting update…");
             UpdateSource existing = updateSourceRegistry.findSource(plan.getSourceName()).orElse(null);
@@ -1673,6 +1675,27 @@ public class QuickInstallCoordinator {
             candidate = base + "-" + counter++;
         }
         return candidate;
+    }
+
+    private void ensurePreferredSourceName(InstallationPlan plan) {
+        if (plan == null || updateSourceRegistry == null) {
+            return;
+        }
+
+        String suggested = plan.getSuggestedName();
+        if (suggested == null || suggested.isBlank()) {
+            return;
+        }
+
+        String current = plan.getSourceName();
+        if (current == null || current.isBlank()
+                || current.equals(suggested)
+                || current.startsWith(suggested + "-")) {
+            String preferred = ensureUniqueName(suggested);
+            if (!preferred.equals(current)) {
+                plan.setSourceName(preferred);
+            }
+        }
     }
 
     private void send(CommandSender sender, String message) {
