@@ -259,6 +259,28 @@ class QuickInstallCoordinatorTest {
     }
 
     @Test
+    void ensurePreferredSourceNameRestoresSuggestedNameWhenAvailable() throws Exception {
+        QuickInstallCoordinator coordinator = newCoordinator(false);
+        UpdateSourceRegistry registry = new UpdateSourceRegistry(Logger.getLogger("test"), new YamlConfiguration());
+        setField(coordinator, "updateSourceRegistry", registry);
+
+        Object plan = newInstallationPlan(coordinator, "spigot", "coreprotect", "CoreProtect");
+        Class<?> planClass = plan.getClass();
+
+        Method setSourceName = planClass.getDeclaredMethod("setSourceName", String.class);
+        setSourceName.setAccessible(true);
+        setSourceName.invoke(plan, "coreprotect-1");
+
+        Method ensurePreferred = QuickInstallCoordinator.class.getDeclaredMethod("ensurePreferredSourceName", planClass);
+        ensurePreferred.setAccessible(true);
+        ensurePreferred.invoke(coordinator, plan);
+
+        Method getSourceName = planClass.getDeclaredMethod("getSourceName");
+        getSourceName.setAccessible(true);
+        assertEquals("coreprotect", getSourceName.invoke(plan));
+    }
+
+    @Test
     void findConflictingSourcesDetectsExistingByInstalledPlugin() throws Exception {
         QuickInstallCoordinator coordinator = newCoordinator(false);
         UpdateSourceRegistry registry = new UpdateSourceRegistry(Logger.getLogger("test"), new YamlConfiguration());
