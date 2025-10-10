@@ -21,15 +21,17 @@ public class PaperFetcher extends JsonUpdateFetcher {
     private static final String API_URL = "https://api.papermc.io/v2/projects/paper";
     private static final Set<String> STABLE_CHANNELS = Set.of("default", "stable");
     private static final Logger LOGGER = Logger.getLogger(PaperFetcher.class.getName());
+    private static final int DEFAULT_MINIMUM_UNSTABLE_BUILD_NUMBER = 50;
 
     private final boolean fetchStableVersions;
+    private final int minimumUnstableBuildNumber;
 
     public PaperFetcher() {
         this(true);
     }
 
     public PaperFetcher(boolean fetchStableVersions) {
-        this(fetchStableVersions, new HttpClient());
+        this(fetchStableVersions, 0, new HttpClient());
     }
 
     public PaperFetcher(ConfigurationSection options) {
@@ -37,12 +39,19 @@ public class PaperFetcher extends JsonUpdateFetcher {
     }
 
     PaperFetcher(boolean fetchStableVersions, HttpClient httpClient) {
+        this(fetchStableVersions, 0, httpClient);
+    }
+
+    PaperFetcher(boolean fetchStableVersions, int minimumUnstableBuildNumber, HttpClient httpClient) {
         super(httpClient);
         this.fetchStableVersions = fetchStableVersions;
+        this.minimumUnstableBuildNumber = Math.max(0, minimumUnstableBuildNumber);
     }
 
     PaperFetcher(ConfigurationSection options, HttpClient httpClient) {
-        this(determineStablePreference(options), httpClient);
+        this(determineStablePreference(options),
+                determineMinimumUnstableBuildNumber(options, determineStablePreference(options)),
+                httpClient);
     }
 
     @Override
@@ -82,9 +91,10 @@ public class PaperFetcher extends JsonUpdateFetcher {
             try {
                 VersionResponse versionResponse = getJson(API_URL + "/versions/" + version, VersionResponse.class);
                 LOGGER.fine("Builds reported for version " + version + ": " + versionResponse.builds());
-                int latestBuild = fetchStableVersions
+                boolean versionIsStable = isStableVersion(version);
+                int latestBuild = (fetchStableVersions || versionIsStable)
                         ? selectLatestStableBuild(version, versionResponse.builds())
-                        : selectLatestBuild(versionResponse.builds());
+                        : selectLatestUnstableBuild(version, versionResponse.builds());
                 String downloadUrl = API_URL + "/versions/" + version + "/builds/" + latestBuild
                         + "/downloads/paper-" + version + "-" + latestBuild + ".jar";
 
@@ -183,5 +193,31 @@ public class PaperFetcher extends JsonUpdateFetcher {
         }
 
         return options.getBoolean("_ignoreUnstableDefault", true);
+    }
+
+    private static int determineMinimumUnstableBuildNumber(ConfigurationSection options, boolean fetchStableVersions) {
+        if (fetchStableVersions) {
+            return 0;
+        }
+
+        int minimum = DEFAULT_MINIMUM_UNSTABLE_BUILD_NUMBER;
+        if (options != null) {
+            minimum = options.getInt("minimumUnstableBuild", minimum);
+        }
+        return Math.max(0, minimum);
+    }
+
+    private int selectLatestUnstableBuild(String version, List<Integer> builds) throws IOException {
+        int latestBuild = selectLatestBuild(builds);
+        if (minimumUnstableBuildNumber > 0 && latestBuild < minimumUnstableBuildNumber) {
+            LOGGER.fine("Latest unstable build " + latestBuild + " for version " + version
+                    + " is below minimum required build " + minimumUnstableBuildNumber);
+            throw new IOException("No unstable builds meeting the minimum build number for version " + version);
+        }
+        return latestBuild;
+    }
+
+    private boolean isStableVersion(String version) {
+        return version != null && !version.contains("-");
     }
 }

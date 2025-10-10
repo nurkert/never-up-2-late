@@ -180,7 +180,7 @@ Key options:
 
 | Type | Notable `options` |
 |------|-------------------|
-| `paper` | No additional fields required; auto-detects the installed Minecraft version. Supports `ignoreUnstable` or `allowUnstable` overrides. |
+| `paper` | No additional fields required; auto-detects the installed Minecraft version. Supports `ignoreUnstable` / `allowUnstable` overrides and `minimumUnstableBuild` (default `50`) to delay prerelease builds until a specific build number is reached. |
 | `geyser` | Preconfigured Modrinth integration with required build numbers; usually needs no extra options. |
 | `hangar` | Specify `owner` + `slug` or `project`. Optional: `platform`, `allowedChannels`, `ignoreUnstable` / `allowUnstable`, `requireReviewed`, `preferPinned`, `pageSize`, `maxPages`, and `installedPlugin` for version detection. |
 | `modrinth` | Provide `project`; optionally filter by `loaders`, `statuses`, `versionTypes`, `gameVersions`, or `preferPrimaryFile`. `installedPlugin` links to an existing plugin. |
