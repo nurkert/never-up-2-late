@@ -117,7 +117,7 @@ class PaperFetcherTest {
     }
 
     @Test
-    void allowsUnstableWhenOptionEnabled() throws Exception {
+    void fallsBackToStableUntilMinimumUnstableBuildReached() throws Exception {
         Map<String, String> responses = new HashMap<>();
         responses.put("https://api.papermc.io/v2/projects/paper",
                 """
@@ -131,6 +131,45 @@ class PaperFetcherTest {
                           "builds": [1, 2]
                         }
                         """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1",
+                """
+                        {
+                          "builds": [15, 16]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/16",
+                """
+                        {
+                          "channel": "stable"
+                        }
+                        """);
+
+        MemoryConfiguration options = new MemoryConfiguration();
+        options.set("_ignoreUnstableDefault", true);
+        options.set("allowUnstable", true);
+
+        PaperFetcher fetcher = new PaperFetcher(options, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("1.20.1", fetcher.getLatestVersion());
+        assertEquals(16, fetcher.getLatestBuild());
+    }
+
+    @Test
+    void allowsUnstableOnceMinimumBuildReached() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.papermc.io/v2/projects/paper",
+                """
+                        {
+                          "versions": ["1.20.1", "1.20.2-rc1"]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.2-rc1",
+                """
+                        {
+                          "builds": [48, 49, 50, 51]
+                        }
+                        """);
 
         MemoryConfiguration options = new MemoryConfiguration();
         options.set("_ignoreUnstableDefault", true);
@@ -140,7 +179,35 @@ class PaperFetcherTest {
         fetcher.loadLatestBuildInfo();
 
         assertEquals("1.20.2-rc1", fetcher.getLatestVersion());
-        assertEquals(2, fetcher.getLatestBuild());
+        assertEquals(51, fetcher.getLatestBuild());
+    }
+
+    @Test
+    void allowsCustomMinimumForUnstableBuilds() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.papermc.io/v2/projects/paper",
+                """
+                        {
+                          "versions": ["1.20.1", "1.20.2-rc1"]
+                        }
+                        """);
+        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.2-rc1",
+                """
+                        {
+                          "builds": [4, 5]
+                        }
+                        """);
+
+        MemoryConfiguration options = new MemoryConfiguration();
+        options.set("_ignoreUnstableDefault", true);
+        options.set("allowUnstable", true);
+        options.set("minimumUnstableBuild", 5);
+
+        PaperFetcher fetcher = new PaperFetcher(options, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("1.20.2-rc1", fetcher.getLatestVersion());
+        assertEquals(5, fetcher.getLatestBuild());
     }
 
     @Test
