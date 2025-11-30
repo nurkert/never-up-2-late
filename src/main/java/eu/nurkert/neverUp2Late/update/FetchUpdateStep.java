@@ -49,6 +49,8 @@ public class FetchUpdateStep implements UpdateStep {
     private boolean isUpdateRequired(UpdateContext context, UpdateFetcher fetcher) {
         String key = context.getSource().getName();
         int storedBuild = persistentPluginHandler.getStoredBuild(key);
+        String storedVersion = persistentPluginHandler.getStoredVersion(key);
+
         if (storedBuild < fetcher.getLatestBuild()) {
             return true;
         }
@@ -58,7 +60,14 @@ public class FetchUpdateStep implements UpdateStep {
         if (installedVersion != null && latestVersion != null) {
             return versionComparator.compare(installedVersion, latestVersion) < 0;
         }
-        return false;
+
+        // Fallback: vergleiche gespeicherten Versionsstring, wenn der Fetcher selbst keinen installedVersion-Wert liefert
+        if (storedVersion != null && latestVersion != null) {
+            return !storedVersion.equalsIgnoreCase(latestVersion);
+        }
+
+        // Wenn weder Build noch Version eine Änderung signalisieren, kein Update.
+        return storedBuild < 0; // Erstinstallation zulassen
     }
 
     private String extractFilename(String url) {

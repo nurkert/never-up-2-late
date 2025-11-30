@@ -309,13 +309,21 @@ public class ArtifactDownloader {
 
         URLConnection connection = openConnection(request);
         Path destination = request.getDestination();
-        Path tempFile = Files.createTempFile(destination.getParent(), destination.getFileName().toString(), ".download");
+        Path parent = destination.getParent();
+        if (parent == null) {
+            throw new IOException("Destination has no parent directory: " + destination);
+        }
+        Files.createDirectories(parent);
+
+        // Laden immer in eine Temp-Datei, Backup erst NACH erfolgreichem Download um Datenverlust auszuschließen.
+        Path tempFile = Files.createTempFile(parent, destination.getFileName().toString(), ".download");
 
         DownloadHook hook = Optional.ofNullable(request.getHook()).orElse(DownloadHook.NO_OP);
         hook.onStart(request.getUrl(), destination);
 
         try {
             copyToTempFile(connection, tempFile, request.getChecksumValidator());
+            // Atomar ersetzen (oder Fallback)
             moveAtomically(tempFile, destination);
             hook.onSuccess(destination);
             return destination;

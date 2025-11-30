@@ -411,15 +411,8 @@ public class QuickInstallCoordinator {
                 usage.put(duplicatePath, remaining);
             }
             if (remaining <= 0 && (primaryPath == null || !primaryPath.equals(duplicatePath))) {
-                try {
-                    Files.deleteIfExists(duplicatePath);
-                    logger.log(Level.INFO, "Removed duplicate plugin artifact {0}", duplicatePath);
-                    if (sender != null) {
-                        send(sender, ChatColor.GRAY + "Removed duplicate file " + duplicatePath.getFileName());
-                    }
-                } catch (IOException ex) {
-                    logger.log(Level.WARNING, "Failed to delete duplicate artifact " + duplicatePath, ex);
-                }
+                // Früher: Datei löschen. Jetzt lassen wir sie bestehen, um Datenverlust zu vermeiden.
+                logger.log(Level.FINE, "Duplicate artifact {0} kept for safety after source cleanup.", duplicatePath);
             }
         }
 
@@ -1652,19 +1645,67 @@ public class QuickInstallCoordinator {
             int lastSlash = path.lastIndexOf('/');
             String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
             candidate = candidate.split("\\?")[0];
-            if (candidate.isBlank() || !candidate.contains(".")) {
-                candidate = sanitizedFallback != null ? sanitizedFallback : candidate;
+
+            // Heuristik 1: Content-Disposition (HEAD), wenn kein brauchbarer Pfadname
+            if (candidate.isBlank() || candidate.equalsIgnoreCase("download")) {
+                String cdName = tryResolveContentDisposition(downloadUrl);
+                if (cdName != null && !cdName.isBlank()) {
+                    candidate = cdName;
+                }
+            }
+
+            // Heuristik 2: Host-spezifischer Default
+            if (candidate.isBlank() || candidate.equalsIgnoreCase("download")) {
+                candidate = sanitizedFallback != null ? sanitizedFallback : null;
             }
             if (candidate == null || candidate.isBlank()) {
-                candidate = "download.jar";
+                candidate = "plugin-" + sanitizeKey(Optional.ofNullable(uri.getHost()).orElse("source")) + ".jar";
             }
-            if (!candidate.contains(".")) {
+
+            // Jar-Endung sicherstellen
+            if (!candidate.toLowerCase(Locale.ROOT).endsWith(".jar")) {
                 candidate = candidate + ".jar";
             }
             return candidate;
         } catch (Exception e) {
             logger.log(Level.FINE, "Failed to parse filename from " + downloadUrl, e);
-            return sanitizedFallback != null ? sanitizedFallback : fallback;
+            if (sanitizedFallback != null && !sanitizedFallback.isBlank()) {
+                return sanitizedFallback.toLowerCase(Locale.ROOT).endsWith(".jar")
+                        ? sanitizedFallback
+                        : sanitizedFallback + ".jar";
+            }
+            return "plugin-source.jar";
+        }
+    }
+
+    private String tryResolveContentDisposition(String url) {
+        try {
+            java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                    .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+                    .build();
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                    .method("HEAD", java.net.http.HttpRequest.BodyPublishers.noBody())
+                    .uri(URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(5))
+                    .build();
+            java.net.http.HttpResponse<Void> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.discarding());
+            String disposition = response.headers().firstValue("Content-Disposition").orElse(null);
+            if (disposition == null || disposition.isBlank()) {
+                return null;
+            }
+            // einfaches Parsing für filename="..."
+            int idx = disposition.toLowerCase(Locale.ROOT).indexOf("filename=");
+            if (idx < 0) {
+                return null;
+            }
+            String part = disposition.substring(idx + "filename=".length()).trim();
+            part = part.replaceAll("^[\\\"']|[\\\"']$", "");
+            if (part.isBlank()) {
+                return null;
+            }
+            return part;
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
@@ -1766,6 +1807,7 @@ public class QuickInstallCoordinator {
         scheduler.runTask(plugin, () -> {
             String pluginName = Optional.ofNullable(target.getName()).orElse("Plugin");
             Path jarPath = target.getPath();
+            ArtifactDownloader.BackupRecord backupRecord = null;
 
             try {
                 if (target.isEnabled()) {
@@ -1782,9 +1824,22 @@ public class QuickInstallCoordinator {
 
             if (jarPath != null) {
                 try {
+                    backupRecord = artifactDownloader.backupExistingFile(jarPath, pluginName, pluginName)
+                            .orElse(null);
                     Files.deleteIfExists(jarPath);
                 } catch (IOException ex) {
-                    send(sender, ChatColor.RED + "Could not delete file: " + jarPath.getFileName());
+                    // rollback backup if deletion failed after moving
+                    if (backupRecord != null) {
+                        try {
+                            Files.move(backupRecord.getPath(), jarPath, StandardCopyOption.REPLACE_EXISTING);
+                            send(sender, ChatColor.YELLOW + "Removal aborted; restored original file from backup.");
+                        } catch (IOException restoreEx) {
+                            send(sender, ChatColor.RED + "Could not delete or restore file: " + jarPath.getFileName());
+                            logger.log(Level.SEVERE, "Failed to restore backup for " + jarPath, restoreEx);
+                        }
+                    } else {
+                        send(sender, ChatColor.RED + "Could not delete file: " + jarPath.getFileName());
+                    }
                     logger.log(Level.WARNING, "Failed to delete plugin jar " + jarPath, ex);
                     return;
                 }

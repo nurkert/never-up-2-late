@@ -4,6 +4,8 @@ import eu.nurkert.neverUp2Late.net.HttpException;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
+import eu.nurkert.neverUp2Late.persistence.SetupStateRepository;
+import eu.nurkert.neverUp2Late.persistence.SetupStateRepository.SetupPhase;
 import eu.nurkert.neverUp2Late.update.DownloadUpdateStep;
 import eu.nurkert.neverUp2Late.update.FetchUpdateStep;
 import eu.nurkert.neverUp2Late.update.InstallUpdateStep;
@@ -33,6 +35,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.Map;
+import java.util.HashMap;
 
 public class UpdateHandler {
 
@@ -51,6 +55,7 @@ public class UpdateHandler {
     private final String messagePrefix;
     private final PluginLifecycleManager pluginLifecycleManager;
     private final PluginUpdateSettingsRepository updateSettingsRepository;
+    private final SetupStateRepository setupStateRepository;
 
     private volatile boolean shuttingDown;
     private BukkitTask scheduledTask;
@@ -66,7 +71,8 @@ public class UpdateHandler {
                          ArtifactDownloader artifactDownloader,
                          VersionComparator versionComparator,
                          PluginLifecycleManager pluginLifecycleManager,
-                         PluginUpdateSettingsRepository updateSettingsRepository) {
+                         PluginUpdateSettingsRepository updateSettingsRepository,
+                         SetupStateRepository setupStateRepository) {
         this.plugin = plugin;
         this.server = plugin.getServer();
         this.scheduler = scheduler;
@@ -80,6 +86,7 @@ public class UpdateHandler {
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
         this.pluginLifecycleManager = pluginLifecycleManager;
         this.updateSettingsRepository = updateSettingsRepository;
+        this.setupStateRepository = setupStateRepository;
     }
 
     public void start() {
@@ -110,15 +117,31 @@ public class UpdateHandler {
         if (shuttingDown || !plugin.isEnabled()) {
             return;
         }
+        if (setupStateRepository != null && setupStateRepository.getPhase() != SetupPhase.COMPLETED) {
+            logger.log(Level.FINE, "Running updates while setup is incomplete (phase={0}).", setupStateRepository.getPhase());
+        }
         boolean networkIssueThisRun = false;
         File pluginsFolder = plugin.getDataFolder().getParentFile();
         File serverFolder = server.getWorldContainer().getAbsoluteFile();
+
+        // Avoid duplicate writes to the same destination within a single run
+        Map<Path, String> destinationsSeen = new HashMap<>();
 
         for (UpdateSource source : updateSourceRegistry.getSources()) {
             if (shuttingDown || !plugin.isEnabled()) {
                 break;
             }
             Path destination = resolveDestination(source, pluginsFolder, serverFolder);
+            Path normalizedDest = destination != null ? destination.toAbsolutePath().normalize() : null;
+            if (normalizedDest != null) {
+                String existing = destinationsSeen.putIfAbsent(normalizedDest, source.getName());
+                if (existing != null) {
+                    logger.log(Level.WARNING,
+                            "Skipped update for source {0} because destination {1} is already handled by {2}.",
+                            new Object[]{source.getName(), normalizedDest, existing});
+                    continue;
+                }
+            }
             if (shouldSkipAutomaticUpdate(source, destination)) {
                 continue;
             }
@@ -305,6 +328,9 @@ public class UpdateHandler {
 
         String pluginName = resolvePluginName(source, destination);
         if (pluginName == null) {
+            pluginName = source.getInstalledPluginName();
+        }
+        if (pluginName == null || pluginName.isBlank()) {
             return false;
         }
 
