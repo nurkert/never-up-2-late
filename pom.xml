@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>eu.nurkert</groupId>
     <artifactId>never-up-2-late</artifactId>
-    <version>2.2.0</version>
+    <version>2.3.0</version>
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
