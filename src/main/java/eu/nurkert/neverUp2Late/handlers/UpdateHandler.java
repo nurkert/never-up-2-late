@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.Map;
@@ -59,6 +60,7 @@ public class UpdateHandler {
 
     private volatile boolean shuttingDown;
     private BukkitTask scheduledTask;
+    private final ReentrantLock updateRunLock = new ReentrantLock();
 
     private boolean networkWarningShown;
 
@@ -117,6 +119,11 @@ public class UpdateHandler {
         if (shuttingDown || !plugin.isEnabled()) {
             return;
         }
+        if (!updateRunLock.tryLock()) {
+            logger.log(Level.FINE, "Skipping update check because another update run is still in progress.");
+            return;
+        }
+        try {
         if (setupStateRepository != null && setupStateRepository.getPhase() != SetupPhase.COMPLETED) {
             logger.log(Level.FINE, "Running updates while setup is incomplete (phase={0}).", setupStateRepository.getPhase());
         }
@@ -132,6 +139,9 @@ public class UpdateHandler {
                 break;
             }
             Path destination = resolveDestination(source, pluginsFolder, serverFolder);
+            if (destination == null) {
+                continue;
+            }
             Path normalizedDest = destination != null ? destination.toAbsolutePath().normalize() : null;
             if (normalizedDest != null) {
                 String existing = destinationsSeen.putIfAbsent(normalizedDest, source.getName());
@@ -171,13 +181,24 @@ public class UpdateHandler {
             logger.log(Level.INFO, "Connection to update servers restored. Resuming normal update checks.");
             networkWarningShown = false;
         }
+        } finally {
+            updateRunLock.unlock();
+        }
     }
 
     private Path resolveDestination(UpdateSource source, File pluginsFolder, File serverFolder) {
+        if (source == null) {
+            return null;
+        }
+        String filename = source.getFilename();
+        if (filename == null || filename.isBlank()) {
+            logger.log(Level.WARNING, "Update source {0} has no filename configured; skipping.", source.getName());
+            return null;
+        }
         File destinationDirectory = source.getTargetDirectory() == TargetDirectory.SERVER
                 ? serverFolder
                 : pluginsFolder;
-        return new File(destinationDirectory, source.getFilename()).toPath();
+        return new File(destinationDirectory, filename).toPath();
     }
 
     /**
@@ -216,16 +237,24 @@ public class UpdateHandler {
             notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
             return;
         }
-        File pluginsFolder = plugin.getDataFolder().getParentFile();
-        File serverFolder = server.getWorldContainer().getAbsoluteFile();
-        Path destination = resolveDestination(source, pluginsFolder, serverFolder);
-        UpdateJob job = createDefaultJob();
-        UpdateContext context = new UpdateContext(source, destination, logger);
-        configureRetention(context, destination);
-
-        notify(sender, ChatColor.YELLOW + "Checking " + displayName(source) + " for new versions…");
-
+        if (!updateRunLock.tryLock()) {
+            notify(sender, ChatColor.RED + "Another update run is currently in progress. Please try again shortly.");
+            return;
+        }
         try {
+            File pluginsFolder = plugin.getDataFolder().getParentFile();
+            File serverFolder = server.getWorldContainer().getAbsoluteFile();
+            Path destination = resolveDestination(source, pluginsFolder, serverFolder);
+            if (destination == null) {
+                notify(sender, ChatColor.RED + "No filename configured for " + displayName(source) + "; update aborted.");
+                return;
+            }
+            UpdateJob job = createDefaultJob();
+            UpdateContext context = new UpdateContext(source, destination, logger);
+            configureRetention(context, destination);
+
+            notify(sender, ChatColor.YELLOW + "Checking " + displayName(source) + " for new versions…");
+
             job.run(context);
             handleFilenameRetention(context);
             if (context.isCancelled()) {
@@ -253,6 +282,8 @@ public class UpdateHandler {
         } catch (Exception e) {
             notify(sender, ChatColor.RED + "Unexpected error: " + e.getMessage());
             logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
+        } finally {
+            updateRunLock.unlock();
         }
     }
 
@@ -379,10 +410,17 @@ public class UpdateHandler {
             return;
         }
         String remoteFilename = context.getRemoteFilename().orElse(null);
+        remoteFilename = sanitizeFilename(remoteFilename);
         if (remoteFilename == null || remoteFilename.isBlank()) {
             return;
         }
         Path newPath = parent.resolve(remoteFilename).toAbsolutePath().normalize();
+        if (!newPath.getParent().equals(parent.toAbsolutePath().normalize())) {
+            logger.log(Level.WARNING,
+                    "Refusing to rename downloaded artifact outside of target directory. Requested filename: {0}",
+                    remoteFilename);
+            return;
+        }
 
         if (Files.exists(currentPath) && !currentPath.equals(newPath)) {
             try {
@@ -411,5 +449,24 @@ public class UpdateHandler {
             configuration.set("filenames." + context.getSource().getName(), currentPath.getFileName().toString());
             plugin.saveConfig();
         }
+    }
+
+    private String sanitizeFilename(String candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        String trimmed = candidate.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        int lastSlash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+        String baseName = lastSlash >= 0 ? trimmed.substring(lastSlash + 1) : trimmed;
+        if (baseName.isEmpty()) {
+            return null;
+        }
+        if (baseName.contains("..")) {
+            return null;
+        }
+        return baseName;
     }
 }

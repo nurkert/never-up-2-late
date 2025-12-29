@@ -7,6 +7,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +31,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
 
 /**
  * Utility responsible for downloading update artifacts in an atomic fashion.
@@ -91,6 +96,52 @@ public class ArtifactDownloader {
         Path backupPath = createUniqueBackupPath(pluginDirectory, timestamp, fileName);
 
         Files.move(normalizedTarget, backupPath, StandardCopyOption.REPLACE_EXISTING);
+        pruneOldBackups(pluginDirectory);
+
+        Instant createdAt = Instant.now();
+        try {
+            createdAt = Files.getLastModifiedTime(backupPath).toInstant();
+        } catch (IOException ignored) {
+        }
+
+        return Optional.of(new BackupRecord(backupPath, createdAt));
+    }
+
+    /**
+     * Copies the provided {@code target} into the configured backup directory without
+     * removing the original file.
+     *
+     * <p>This is primarily used for transactional downloads where the existing
+     * destination should stay intact until the new artifact has been swapped in.</p>
+     */
+    public Optional<BackupRecord> backupExistingFileCopy(Path target,
+                                                        String primaryIdentifier,
+                                                        String secondaryIdentifier) throws IOException {
+        if (!backupsEnabled() || target == null) {
+            return Optional.empty();
+        }
+
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        if (!Files.exists(normalizedTarget) || !Files.isRegularFile(normalizedTarget)) {
+            return Optional.empty();
+        }
+
+        Path root = ensureBackupsRootExists();
+        if (root == null) {
+            return Optional.empty();
+        }
+
+        String key = resolveBackupKey(normalizedTarget, primaryIdentifier, secondaryIdentifier);
+        Path pluginDirectory = root.resolve(key);
+        Files.createDirectories(pluginDirectory);
+
+        String fileName = normalizedTarget.getFileName() != null
+                ? normalizedTarget.getFileName().toString()
+                : "artifact.jar";
+        String timestamp = BACKUP_TIMESTAMP_FORMATTER.format(LocalDateTime.now());
+        Path backupPath = createUniqueBackupPath(pluginDirectory, timestamp, fileName);
+
+        Files.copy(normalizedTarget, backupPath);
         pruneOldBackups(pluginDirectory);
 
         Instant createdAt = Instant.now();
@@ -307,7 +358,6 @@ public class ArtifactDownloader {
     public Path download(DownloadRequest request) throws IOException {
         Objects.requireNonNull(request, "request");
 
-        URLConnection connection = openConnection(request);
         Path destination = request.getDestination();
         Path parent = destination.getParent();
         if (parent == null) {
@@ -315,23 +365,95 @@ public class ArtifactDownloader {
         }
         Files.createDirectories(parent);
 
-        // Laden immer in eine Temp-Datei, Backup erst NACH erfolgreichem Download um Datenverlust auszuschließen.
-        Path tempFile = Files.createTempFile(parent, destination.getFileName().toString(), ".download");
-
         DownloadHook hook = Optional.ofNullable(request.getHook()).orElse(DownloadHook.NO_OP);
         hook.onStart(request.getUrl(), destination);
 
+        int attempts = Math.max(1, request.getMaxAttempts());
+        IOException lastException = null;
+
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            // Laden immer in eine Temp-Datei, Backup erst NACH erfolgreichem Download um Datenverlust auszuschließen.
+            Path tempFile = Files.createTempFile(parent, destination.getFileName().toString(), ".download");
+            try {
+                URLConnection connection = openConnection(request);
+                copyToTempFile(connection, tempFile, request.getChecksumValidator());
+                validateArchiveIfExpected(destination, tempFile);
+                if (request.isBackupExisting()) {
+                    try {
+                        backupExistingFileCopy(destination, request.getBackupPrimaryIdentifier(), request.getBackupSecondaryIdentifier());
+                    } catch (IOException ignored) {
+                        // Backups are best-effort; a failed backup must not prevent installation.
+                    }
+                }
+                // Atomar ersetzen (oder Fallback). Das Ziel bleibt bis hierhin intakt.
+                moveAtomically(tempFile, destination);
+                hook.onSuccess(destination);
+                return destination;
+            } catch (RuntimeException ex) {
+                hook.onFailure(destination, ex);
+                throw ex;
+            } catch (IOException ex) {
+                lastException = ex;
+                if (attempt >= attempts || !isRetryable(ex)) {
+                    hook.onFailure(destination, ex);
+                    throw ex;
+                }
+                sleepBackoff(attempt);
+            } finally {
+                Files.deleteIfExists(tempFile);
+            }
+        }
+
+        if (lastException != null) {
+            hook.onFailure(destination, lastException);
+            throw lastException;
+        }
+        IOException ex = new IOException("Download failed without an error cause: " + destination);
+        hook.onFailure(destination, ex);
+        throw ex;
+    }
+
+    private boolean isRetryable(IOException ex) {
+        if (ex == null) {
+            return false;
+        }
+        if (ex instanceof UnknownHostException) {
+            return false;
+        }
+        if (ex instanceof HttpException httpException) {
+            int status = httpException.getStatusCode();
+            return status == 429 || (status >= 500 && status < 600);
+        }
+        return ex instanceof SocketTimeoutException
+                || ex instanceof ConnectException;
+    }
+
+    private void sleepBackoff(int attempt) {
         try {
-            copyToTempFile(connection, tempFile, request.getChecksumValidator());
-            // Atomar ersetzen (oder Fallback)
-            moveAtomically(tempFile, destination);
-            hook.onSuccess(destination);
-            return destination;
-        } catch (IOException | RuntimeException ex) {
-            hook.onFailure(destination, ex);
-            throw ex;
-        } finally {
-            Files.deleteIfExists(tempFile);
+            Thread.sleep(Math.min(5_000L, 1_000L * attempt));
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void validateArchiveIfExpected(Path destination, Path tempFile) throws IOException {
+        if (destination == null || tempFile == null) {
+            return;
+        }
+        Path fileName = destination.getFileName();
+        if (fileName == null) {
+            return;
+        }
+        String lower = fileName.toString().toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(".jar") && !lower.endsWith(".zip")) {
+            return;
+        }
+        try (ZipFile zipFile = new ZipFile(tempFile.toFile())) {
+            if (zipFile.size() == 0) {
+                throw new IOException("Downloaded archive is empty: " + destination);
+            }
+        } catch (ZipException ex) {
+            throw new IOException("Downloaded file is not a valid JAR/ZIP: " + destination, ex);
         }
     }
 
@@ -417,16 +539,24 @@ public class ArtifactDownloader {
         private final Path destination;
         private final int connectTimeout;
         private final int readTimeout;
+        private final int maxAttempts;
         private final ChecksumValidator checksumValidator;
         private final DownloadHook hook;
+        private final boolean backupExisting;
+        private final String backupPrimaryIdentifier;
+        private final String backupSecondaryIdentifier;
 
         private DownloadRequest(Builder builder) {
             this.url = builder.url;
             this.destination = builder.destination;
             this.connectTimeout = builder.connectTimeout;
             this.readTimeout = builder.readTimeout;
+            this.maxAttempts = builder.maxAttempts;
             this.checksumValidator = builder.checksumValidator;
             this.hook = builder.hook;
+            this.backupExisting = builder.backupExisting;
+            this.backupPrimaryIdentifier = builder.backupPrimaryIdentifier;
+            this.backupSecondaryIdentifier = builder.backupSecondaryIdentifier;
         }
 
         public String getUrl() {
@@ -445,12 +575,28 @@ public class ArtifactDownloader {
             return readTimeout;
         }
 
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
         public ChecksumValidator getChecksumValidator() {
             return checksumValidator;
         }
 
         public DownloadHook getHook() {
             return hook;
+        }
+
+        public boolean isBackupExisting() {
+            return backupExisting;
+        }
+
+        public String getBackupPrimaryIdentifier() {
+            return backupPrimaryIdentifier;
+        }
+
+        public String getBackupSecondaryIdentifier() {
+            return backupSecondaryIdentifier;
         }
 
         public static Builder builder() {
@@ -460,10 +606,14 @@ public class ArtifactDownloader {
         public static class Builder {
             private String url;
             private Path destination;
-            private int connectTimeout = 5_000;
-            private int readTimeout = 10_000;
+            private int connectTimeout = 10_000;
+            private int readTimeout = 60_000;
+            private int maxAttempts = 2;
             private ChecksumValidator checksumValidator;
             private DownloadHook hook;
+            private boolean backupExisting;
+            private String backupPrimaryIdentifier;
+            private String backupSecondaryIdentifier;
 
             public Builder url(String url) {
                 this.url = url;
@@ -485,6 +635,11 @@ public class ArtifactDownloader {
                 return this;
             }
 
+            public Builder maxAttempts(int maxAttempts) {
+                this.maxAttempts = Math.max(1, maxAttempts);
+                return this;
+            }
+
             public Builder checksumValidator(ChecksumValidator checksumValidator) {
                 this.checksumValidator = checksumValidator;
                 return this;
@@ -492,6 +647,17 @@ public class ArtifactDownloader {
 
             public Builder hook(DownloadHook hook) {
                 this.hook = hook;
+                return this;
+            }
+
+            public Builder backupExisting(boolean backupExisting) {
+                this.backupExisting = backupExisting;
+                return this;
+            }
+
+            public Builder backupIdentifiers(String primaryIdentifier, String secondaryIdentifier) {
+                this.backupPrimaryIdentifier = primaryIdentifier;
+                this.backupSecondaryIdentifier = secondaryIdentifier;
                 return this;
             }
 
