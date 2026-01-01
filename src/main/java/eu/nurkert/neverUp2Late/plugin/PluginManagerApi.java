@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.plugin;
 
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
+import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import java.security.CodeSource;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -166,6 +168,12 @@ public class PluginManagerApi implements PluginLifecycleManager {
             return;
         }
 
+        // Ultimate Safety: Find the currently running JAR for this plugin if possible
+        Path runningJar = findByName(pluginName)
+                .map(ManagedPlugin::getPath)
+                .map(p -> p.toAbsolutePath().normalize())
+                .orElse(null);
+
         Path keepPath;
         if (preferredPath != null) {
             keepPath = preferredPath.toAbsolutePath().normalize();
@@ -180,7 +188,14 @@ public class PluginManagerApi implements PluginLifecycleManager {
 
         for (ArchiveUtils.PluginInfo jar : jars) {
             Path jarPath = jar.path().toAbsolutePath().normalize();
+            
+            // NEVER delete the path we decided to keep
             if (jarPath.equals(keepPath)) {
+                continue;
+            }
+            
+            // NEVER delete the currently running JAR file, even if it's older
+            if (runningJar != null && jarPath.equals(runningJar)) {
                 continue;
             }
 

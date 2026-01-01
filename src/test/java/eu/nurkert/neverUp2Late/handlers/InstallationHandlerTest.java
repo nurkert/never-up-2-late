@@ -310,6 +310,10 @@ class InstallationHandlerTest {
         }
 
         @Override
+        public void deleteAllDuplicates(String pluginName, Path preferredPath) {
+        }
+
+        @Override
         public java.util.Optional<eu.nurkert.neverUp2Late.plugin.ManagedPlugin> updateManagedPluginPath(Path oldPath, Path newPath) {
             return java.util.Optional.empty();
         }

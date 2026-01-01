@@ -24,8 +24,8 @@ import java.util.zip.ZipFile;
  */
 public final class ArchiveUtils {
 
-    private static final Pattern PLUGIN_NAME_PATTERN = Pattern.compile("(?m)^name:\s*['"]?([^'\"\s]+)['"]?");
-    private static final Pattern PLUGIN_VERSION_PATTERN = Pattern.compile("(?m)^version:\s*['"]?([^'\"\s]+)['"]?");
+    private static final Pattern PLUGIN_NAME_PATTERN = Pattern.compile("(?m)^name:\s*(.*)$");
+    private static final Pattern PLUGIN_VERSION_PATTERN = Pattern.compile("(?m)^version:\s*(.*)$");
 
     private ArchiveUtils() {
     }
@@ -54,14 +54,33 @@ public final class ArchiveUtils {
                 Matcher versionMatcher = PLUGIN_VERSION_PATTERN.matcher(content);
                 
                 if (nameMatcher.find()) {
-                    String name = nameMatcher.group(1);
-                    String version = versionMatcher.find() ? versionMatcher.group(1) : "0.0.0";
-                    return Optional.of(new PluginInfo(name, version, jarPath));
+                    String rawName = nameMatcher.group(1);
+                    String name = sanitizeYamlValue(rawName);
+                    
+                    String version = "0.0.0";
+                    if (versionMatcher.find()) {
+                        version = sanitizeYamlValue(versionMatcher.group(1));
+                    }
+                    
+                    if (name != null && !name.isBlank()) {
+                        return Optional.of(new PluginInfo(name, version, jarPath));
+                    }
                 }
-            }
-        } catch (Exception ignored) {
-        }
+            } catch (Exception ignored) { /* ignored */ } 
+        } catch (Exception ignored) { /* ignored */ }
         return Optional.empty();
+    }
+
+    private static String sanitizeYamlValue(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+            return trimmed.substring(1, trimmed.length() - 1).trim();
+        }
+        if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+            return trimmed.substring(1, trimmed.length() - 1).trim();
+        }
+        return trimmed;
     }
 
     /**
@@ -80,7 +99,7 @@ public final class ArchiveUtils {
                     }
                 });
             }
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) { /* ignored */ }
         return matches;
     }
 

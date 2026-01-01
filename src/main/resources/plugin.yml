@@ -1,5 +1,5 @@
 name: NeverUp2Late
-version: '2.4.1'
+version: '2.4.3'
 main: eu.nurkert.neverUp2Late.NeverUp2Late
 author: nurkert
 api-version: '1.21'

@@ -945,12 +945,28 @@ public class QuickInstallCoordinator {
     }
 
     private void enforcePluginPathSanity(InstallationPlan plan, CommandSender sender) {
-        Object installedNameObj = plan.getOptions().get("installedPlugin");
-        if (!(installedNameObj instanceof String installedName)) {
+        String installedName = (String) plan.getOptions().get("installedPlugin");
+        
+        // Auto-detect installed plugin if not yet set by reading destination file if it exists
+        if (installedName == null || installedName.isBlank()) {
+            Path dest = resolveDestination(new UpdateSource(plan.getSourceName(), null, plan.getTargetDirectory(), plan.getFilename(), null));
+            if (dest != null && Files.exists(dest)) {
+                ArchiveUtils.getPluginInfo(dest).ifPresent(info -> {
+                    plan.setInstalledPluginName(info.name());
+                    logger.log(Level.INFO, "Auto-detected installed plugin name for orphan file {0}: {1}", 
+                            new Object[]{plan.getFilename(), info.name()});
+                });
+            }
+        }
+        
+        // Re-read after potential auto-detection
+        installedName = (String) plan.getOptions().get("installedPlugin");
+        if (installedName == null || installedName.isBlank()) {
             return;
         }
 
-        pluginLifecycleManager.findByName(installedName).ifPresent(managed -> {
+        final String finalInstalledName = installedName;
+        pluginLifecycleManager.findByName(finalInstalledName).ifPresent(managed -> {
             Path currentJarPath = managed.getPath();
             if (currentJarPath == null) {
                 return;
@@ -962,11 +978,11 @@ public class QuickInstallCoordinator {
             if (!currentFilename.equalsIgnoreCase(planFilename)) {
                 plan.setFilename(currentFilename);
                 logger.log(Level.INFO, "Synchronized plan filename for {0} to existing file: {1}",
-                        new Object[]{installedName, currentFilename});
+                        new Object[]{finalInstalledName, currentFilename});
             }
 
             // Aggressive Cleanup: Delete ANY other JAR file that contains this plugin name
-            pluginLifecycleManager.deleteAllDuplicates(installedName, currentJarPath);
+            pluginLifecycleManager.deleteAllDuplicates(finalInstalledName, currentJarPath);
             
             // Also cleanup the plan filename if it's currently occupied by an orphan (redundant but safe)
             Path potentialDuplicate = currentJarPath.getParent().resolve(planFilename);
