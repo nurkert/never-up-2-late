@@ -1560,51 +1560,143 @@ public class PluginOverviewGui implements Listener {
 
     
 
-        private void cleanupAllJarNames(Player player) {
+            private void cleanupAllJarNames(Player player) {
 
-            if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
+    
 
-                return;
+                if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
 
-            }
+    
 
-            
+                    return;
 
-            List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins().stream()
-
-                    .filter(p -> !isSelfPlugin(p))
-
-                    .toList();
-
-            
-
-            int count = 0;
-
-            for (ManagedPlugin plugin : plugins) {
-
-                if (tryQuickRename(plugin)) {
-
-                    count++;
+    
 
                 }
 
+    
+
+                
+
+    
+
+                List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins().stream()
+
+    
+
+                        .filter(p -> !isSelfPlugin(p))
+
+    
+
+                        .toList();
+
+    
+
+                
+
+    
+
+                int count = 0;
+
+    
+
+                for (ManagedPlugin plugin : plugins) {
+
+    
+
+                    String name = plugin.getName();
+
+    
+
+                    Path currentPath = plugin.getPath();
+
+    
+
+                    
+
+    
+
+                    // 1. Rename to correct name if necessary
+
+    
+
+                    if (tryQuickRename(plugin)) {
+
+    
+
+                        count++;
+
+    
+
+                        // Update currentPath after rename
+
+    
+
+                        currentPath = context.getPluginLifecycleManager().findByName(name)
+
+    
+
+                                .map(ManagedPlugin::getPath)
+
+    
+
+                                .orElse(currentPath);
+
+    
+
+                    }
+
+    
+
+                    
+
+    
+
+                    // 2. Delete ALL other jars that identify as this plugin
+
+    
+
+                    context.getPluginLifecycleManager().deleteAllDuplicates(name, currentPath);
+
+    
+
+                }
+
+    
+
+                
+
+    
+
+                if (count > 0) {
+
+    
+
+                    player.sendMessage(ChatColor.GREEN + "Cleaned up " + count + " plugin filenames and removed duplicates.");
+
+    
+
+                } else {
+
+    
+
+                    player.sendMessage(ChatColor.YELLOW + "All filenames are correct. Scanning for duplicates…");
+
+    
+
+                    player.sendMessage(ChatColor.GREEN + "Duplicate cleanup complete.");
+
+    
+
+                }
+
+    
+
+                openOverview(player);
+
+    
+
             }
-
-            
-
-            if (count > 0) {
-
-                player.sendMessage(ChatColor.GREEN + "Cleaned up " + count + " plugin filenames.");
-
-            } else {
-
-                player.sendMessage(ChatColor.YELLOW + "All filenames are already correct.");
-
-            }
-
-            openOverview(player);
-
-        }
 
     
 

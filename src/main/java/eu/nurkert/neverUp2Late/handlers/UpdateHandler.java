@@ -446,6 +446,14 @@ public class UpdateHandler {
         if (remoteFilename == null || remoteFilename.isBlank()) {
             return;
         }
+        
+        String pluginName = resolvePluginName(context.getSource(), currentPath);
+        if (pluginName != null && !pluginName.isBlank() && pluginLifecycleManager != null) {
+            // Aggressive Cleanup: Delete ANY other JAR file that contains this plugin name
+            // excluding the one we just downloaded.
+            pluginLifecycleManager.deleteAllDuplicates(pluginName, currentPath);
+        }
+
         Path newPath = parent.resolve(remoteFilename).toAbsolutePath().normalize();
         if (!newPath.getParent().equals(parent.toAbsolutePath().normalize())) {
             logger.log(Level.WARNING,

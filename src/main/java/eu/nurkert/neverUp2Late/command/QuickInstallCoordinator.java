@@ -960,21 +960,20 @@ public class QuickInstallCoordinator {
             String planFilename = plan.getFilename();
 
             if (!currentFilename.equalsIgnoreCase(planFilename)) {
-                // Determine if we should rename or just use current
                 plan.setFilename(currentFilename);
                 logger.log(Level.INFO, "Synchronized plan filename for {0} to existing file: {1}",
                         new Object[]{installedName, currentFilename});
             }
 
-            // Cleanup duplicate attempt: If planFilename exists but is NOT currentJarPath, delete it
+            // Aggressive Cleanup: Delete ANY other JAR file that contains this plugin name
+            pluginLifecycleManager.deleteAllDuplicates(installedName, currentJarPath);
+            
+            // Also cleanup the plan filename if it's currently occupied by an orphan (redundant but safe)
             Path potentialDuplicate = currentJarPath.getParent().resolve(planFilename);
             try {
                 if (Files.exists(potentialDuplicate) && !Files.isSameFile(potentialDuplicate, currentJarPath)) {
                     Files.delete(potentialDuplicate);
                     logger.log(Level.INFO, "Deleted duplicate JAR found during installation: {0}", potentialDuplicate);
-                    if (sender != null) {
-                        send(sender, ChatColor.GRAY + "Removed duplicate JAR file: " + planFilename);
-                    }
                 }
             } catch (IOException e) {
                 logger.log(Level.WARNING, "Failed to check or delete duplicate JAR: " + potentialDuplicate, e);

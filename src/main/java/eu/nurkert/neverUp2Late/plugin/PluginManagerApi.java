@@ -156,6 +156,40 @@ public class PluginManagerApi implements PluginLifecycleManager {
     }
 
     @Override
+    public void deleteAllDuplicates(String pluginName, Path excludePath) {
+        if (pluginName == null || pluginName.isBlank() || pluginsDirectory == null) {
+            return;
+        }
+        Path normalizedExclude = excludePath != null ? excludePath.toAbsolutePath().normalize() : null;
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(pluginsDirectory, "*.jar")) {
+            for (Path entry : stream) {
+                Path normalizedEntry = entry.toAbsolutePath().normalize();
+                if (normalizedExclude != null && normalizedEntry.equals(normalizedExclude)) {
+                    continue;
+                }
+
+                ArchiveUtils.getPluginName(normalizedEntry).ifPresent(name -> {
+                    if (name.equalsIgnoreCase(pluginName)) {
+                        try {
+                            Files.delete(normalizedEntry);
+                            logger.log(Level.INFO, "Deleted duplicate JAR for plugin {0}: {1}",
+                                    new Object[]{pluginName, normalizedEntry.getFileName()});
+                            managedPlugins.remove(normalizedEntry);
+                        } catch (IOException e) {
+                            logger.log(Level.WARNING, "Failed to delete duplicate JAR: " + normalizedEntry, e);
+                        }
+                    }
+                });
+            }
+        } catch (IOException ex) {
+            if (logger != null) {
+                logger.log(Level.FINE, "Failed to scan plugins directory for duplicate cleanup of " + pluginName, ex);
+            }
+        }
+    }
+
+    @Override
     public Optional<ManagedPlugin> updateManagedPluginPath(Path oldPath, Path newPath) {
         if (oldPath == null || newPath == null) {
             return Optional.empty();

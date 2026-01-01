@@ -42,5 +42,7 @@ public interface PluginLifecycleManager {
 
     boolean loadPlugin(Path path) throws PluginLifecycleException;
 
+    void deleteAllDuplicates(String pluginName, Path excludePath);
+
     java.util.Optional<ManagedPlugin> updateManagedPluginPath(Path oldPath, Path newPath);
 }
