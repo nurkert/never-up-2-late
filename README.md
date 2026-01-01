@@ -27,11 +27,13 @@ and SpigotMC via the Spiget API.
 
 ## Installation
 
-1. Download the latest release from the [SpigotMC resource page](https://www.spigotmc.org/resources/neverup2late-automatically-keeps-paper-geyser-up-to-date.120768/history).
+1. Download the latest release from the [GitHub release page](https://github.com/nurkert/never-up-2-late/releases).
 2. Copy `NeverUp2Late.jar` into the `plugins` directory of your Paper (or compatible) server.
 3. Start the server once so `config.yml`, state files, and the optional GUI resources are generated.
 4. Adjust `plugins/NeverUp2Late/config.yml` to fit your environment.
 5. Operators can complete the interactive setup wizard or open the GUI via `/nu2l` to review detected sources.
+
+NeverUp2Late automatically adds itself as an update source on new installations, so the plugin will kkeep itself up to date via GitHub in the future.
 
 ### Requirements
 

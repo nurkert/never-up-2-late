@@ -411,7 +411,7 @@ public class QuickInstallCoordinator {
                 usage.put(duplicatePath, remaining);
             }
             if (remaining <= 0 && (primaryPath == null || !primaryPath.equals(duplicatePath))) {
-                // Früher: Datei löschen. Jetzt lassen wir sie bestehen, um Datenverlust zu vermeiden.
+                // Previously: delete file. Now we keep it to prevent data loss.
                 logger.log(Level.FINE, "Duplicate artifact {0} kept for safety after source cleanup.", duplicatePath);
             }
         }
@@ -998,8 +998,12 @@ public class QuickInstallCoordinator {
             return;
         }
 
-        List<Map<?, ?>> existing = new ArrayList<>(configuration.getMapList("updates.sources"));
-        existing.removeIf(map -> plan.getSourceName().equalsIgnoreCase(Objects.toString(map.get("name"), "")));
+        List<Map<?, ?>> entries = new ArrayList<>();
+        for (Map<?, ?> original : configuration.getMapList("updates.sources")) {
+            entries.add(deepCopyMap(original));
+        }
+
+        entries.removeIf(map -> plan.getSourceName().equalsIgnoreCase(Objects.toString(map.get("name"), "")));
 
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("name", plan.getSourceName());
@@ -1009,8 +1013,25 @@ public class QuickInstallCoordinator {
         if (!plan.getOptions().isEmpty()) {
             entry.put("options", new LinkedHashMap<>(plan.getOptions()));
         }
-        existing.add(entry);
-        configuration.set("updates.sources", existing);
+        entries.add(entry);
+        configuration.set("updates.sources", entries);
+    }
+
+    private Map<String, Object> deepCopyMap(Map<?, ?> original) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : original.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            Object value = entry.getValue();
+            if (value instanceof Map) {
+                value = deepCopyMap((Map<?, ?>) value);
+            } else if (value instanceof ConfigurationSection section) {
+                value = deepCopyMap(section.getValues(false));
+            }
+            copy.put(entry.getKey().toString(), value);
+        }
+        return copy;
     }
 
     private void populateSection(ConfigurationSection newSection, InstallationPlan plan) {
@@ -1693,7 +1714,7 @@ public class QuickInstallCoordinator {
             if (disposition == null || disposition.isBlank()) {
                 return null;
             }
-            // einfaches Parsing für filename="..."
+            // Simple parsing for filename="..."
             int idx = disposition.toLowerCase(Locale.ROOT).indexOf("filename=");
             if (idx < 0) {
                 return null;

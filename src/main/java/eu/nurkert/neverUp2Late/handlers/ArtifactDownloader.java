@@ -372,7 +372,7 @@ public class ArtifactDownloader {
         IOException lastException = null;
 
         for (int attempt = 1; attempt <= attempts; attempt++) {
-            // Laden immer in eine Temp-Datei, Backup erst NACH erfolgreichem Download um Datenverlust auszuschließen.
+            // Always download to a temporary file; backup ONLY after successful download to prevent data loss.
             Path tempFile = Files.createTempFile(parent, destination.getFileName().toString(), ".download");
             try {
                 URLConnection connection = openConnection(request);

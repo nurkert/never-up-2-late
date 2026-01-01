@@ -66,8 +66,8 @@ public class FetchUpdateStep implements UpdateStep {
             return !storedVersion.equalsIgnoreCase(latestVersion);
         }
 
-        // Wenn weder Build noch Version eine Änderung signalisieren, kein Update.
-        return storedBuild < 0; // Erstinstallation zulassen
+        // If neither build nor version indicates a change, no update is required.
+        return storedBuild < 0; // Allow initial installation
     }
 
     private String extractFilename(String url) {

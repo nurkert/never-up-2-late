@@ -219,7 +219,18 @@ public class UpdateSourceRegistry {
         geyser.put("type", "geyser");
         geyser.put("target", TargetDirectory.PLUGINS.name());
 
-        return Arrays.asList(paper, geyser);
+        Map<String, Object> self = new HashMap<>();
+        self.put("name", "neverUp2Late");
+        self.put("type", "githubRelease");
+        self.put("target", TargetDirectory.PLUGINS.name());
+        self.put("filename", "NeverUp2Late.jar");
+        Map<String, Object> selfOptions = new HashMap<>();
+        selfOptions.put("owner", "nurkert");
+        selfOptions.put("repository", "never-up-2-late");
+        selfOptions.put("installedPlugin", "NeverUp2Late");
+        self.put("options", selfOptions);
+
+        return Arrays.asList(paper, geyser, self);
     }
 
     private String asString(Object value) {
@@ -410,7 +421,11 @@ public class UpdateSourceRegistry {
             return;
         }
 
-        List<Map<?, ?>> entries = new ArrayList<>(configuration.getMapList("updates.sources"));
+        List<Map<?, ?>> entries = new ArrayList<>();
+        for (Map<?, ?> original : configuration.getMapList("updates.sources")) {
+            entries.add(deepCopyMap(original));
+        }
+
         boolean modified = entries.removeIf(map -> name.equalsIgnoreCase(asString(map.get("name"))));
         if (modified) {
             configuration.set("updates.sources", entries);
@@ -427,25 +442,38 @@ public class UpdateSourceRegistry {
             return;
         }
 
-        List<Map<?, ?>> entries = new ArrayList<>(configuration.getMapList("updates.sources"));
+        List<Map<?, ?>> entries = new ArrayList<>();
         boolean modified = false;
-        for (int i = 0; i < entries.size(); i++) {
-            Map<?, ?> rawEntry = entries.get(i);
-            if (name.equalsIgnoreCase(asString(rawEntry.get("name")))) {
-                Map<String, Object> mutable = new LinkedHashMap<>();
-                for (Map.Entry<?, ?> entry : rawEntry.entrySet()) {
-                    if (entry.getKey() != null) {
-                        mutable.put(entry.getKey().toString(), entry.getValue());
-                    }
-                }
+
+        for (Map<?, ?> original : configuration.getMapList("updates.sources")) {
+            Map<String, Object> mutable = deepCopyMap(original);
+            if (name.equalsIgnoreCase(asString(mutable.get("name")))) {
                 mutable.put("filename", filename);
-                entries.set(i, mutable);
                 modified = true;
             }
+            entries.add(mutable);
         }
+
         if (modified) {
             configuration.set("updates.sources", entries);
         }
+    }
+
+    private Map<String, Object> deepCopyMap(Map<?, ?> original) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : original.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            Object value = entry.getValue();
+            if (value instanceof Map) {
+                value = deepCopyMap((Map<?, ?>) value);
+            } else if (value instanceof ConfigurationSection section) {
+                value = deepCopyMap(section.getValues(false));
+            }
+            copy.put(entry.getKey().toString(), value);
+        }
+        return copy;
     }
 
     public enum TargetDirectory {

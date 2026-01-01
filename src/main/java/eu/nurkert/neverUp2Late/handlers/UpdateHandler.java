@@ -198,7 +198,39 @@ public class UpdateHandler {
         File destinationDirectory = source.getTargetDirectory() == TargetDirectory.SERVER
                 ? serverFolder
                 : pluginsFolder;
-        return new File(destinationDirectory, filename).toPath();
+        Path expectedPath = new File(destinationDirectory, filename).toPath();
+
+        if (Files.exists(expectedPath)) {
+            return expectedPath;
+        }
+
+        // Self-healing: If the expected file is missing, try to find the plugin via the LifecycleManager
+        // and update the configuration if the file has moved (e.g. from a previous crash or manual rename).
+        String installedPluginName = source.getInstalledPluginName();
+        if (installedPluginName != null && !installedPluginName.isBlank() && pluginLifecycleManager != null) {
+            Path actualPath = pluginLifecycleManager.findByName(installedPluginName)
+                    .map(ManagedPlugin::getPath)
+                    .orElse(null);
+
+            if (actualPath != null && Files.exists(actualPath)) {
+                // Ensure the found plugin is actually in the expected directory to avoid path traversal confusion
+                if (actualPath.getParent() != null && actualPath.getParent().equals(destinationDirectory.toPath())) {
+                    String actualFilename = actualPath.getFileName().toString();
+                    if (!actualFilename.equalsIgnoreCase(source.getFilename())) {
+                        logger.log(Level.INFO, "Detected filename mismatch for {0}. recovering from {1} to {2}",
+                                new Object[]{source.getName(), source.getFilename(), actualFilename});
+                        
+                        updateSourceRegistry.updateSourceFilename(source.getName(), actualFilename);
+                        configuration.set("filenames." + source.getName(), actualFilename);
+                        plugin.saveConfig();
+                        
+                        return actualPath;
+                    }
+                }
+            }
+        }
+
+        return expectedPath;
     }
 
     /**
