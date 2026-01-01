@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.util;
 
+import eu.nurkert.neverUp2Late.update.VersionComparator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -7,6 +8,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.DirectoryStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,18 +24,22 @@ import java.util.zip.ZipFile;
  */
 public final class ArchiveUtils {
 
-    private static final Pattern PLUGIN_NAME_PATTERN = Pattern.compile("(?m)^name:\s*['"]?([^'"\s]+)['"]?");
+    private static final Pattern PLUGIN_NAME_PATTERN = Pattern.compile("(?m)^name:\s*['"]?([^'\"\s]+)['"]?");
+    private static final Pattern PLUGIN_VERSION_PATTERN = Pattern.compile("(?m)^version:\s*['"]?([^'\"\s]+)['"]?");
 
     private ArchiveUtils() {
     }
 
+    public record PluginInfo(String name, String version, Path path) {
+    }
+
     /**
-     * Extracts the plugin name from a JAR file's plugin.yml without loading it.
+     * Extracts the plugin name and version from a JAR file's plugin.yml without loading it.
      *
      * @param jarPath path to the JAR file
-     * @return the plugin name if found
+     * @return the plugin info if found
      */
-    public static Optional<String> getPluginName(Path jarPath) {
+    public static Optional<PluginInfo> getPluginInfo(Path jarPath) {
         if (jarPath == null || !Files.exists(jarPath) || !Files.isRegularFile(jarPath)) {
             return Optional.empty();
         }
@@ -44,14 +50,57 @@ public final class ArchiveUtils {
             }
             try (InputStream is = zipFile.getInputStream(entry)) {
                 String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                Matcher matcher = PLUGIN_NAME_PATTERN.matcher(content);
-                if (matcher.find()) {
-                    return Optional.of(matcher.group(1));
+                Matcher nameMatcher = PLUGIN_NAME_PATTERN.matcher(content);
+                Matcher versionMatcher = PLUGIN_VERSION_PATTERN.matcher(content);
+                
+                if (nameMatcher.find()) {
+                    String name = nameMatcher.group(1);
+                    String version = versionMatcher.find() ? versionMatcher.group(1) : "0.0.0";
+                    return Optional.of(new PluginInfo(name, version, jarPath));
                 }
             }
         } catch (Exception ignored) {
         }
         return Optional.empty();
+    }
+
+    /**
+     * Scans a directory for all JARs identifying as the given plugin name.
+     */
+    public static List<PluginInfo> findJarsForPlugin(Path directory, String pluginName) {
+        if (directory == null || pluginName == null || !Files.isDirectory(directory)) {
+            return List.of();
+        }
+        List<PluginInfo> matches = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, "*.jar")) {
+            for (Path entry : stream) {
+                getPluginInfo(entry).ifPresent(info -> {
+                    if (info.name().equalsIgnoreCase(pluginName)) {
+                        matches.add(info);
+                    }
+                });
+            }
+        } catch (IOException ignored) {}
+        return matches;
+    }
+
+    /**
+     * Finds the "best" JAR from a list of plugin infos (highest version, then newest file).
+     */
+    public static Optional<PluginInfo> findBestJar(List<PluginInfo> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return Optional.empty();
+        }
+        VersionComparator comparator = new VersionComparator();
+        return candidates.stream().max((a, b) -> {
+            int v = comparator.compare(a.version(), b.version());
+            if (v != 0) return v;
+            try {
+                return Files.getLastModifiedTime(a.path()).compareTo(Files.getLastModifiedTime(b.path()));
+            } catch (IOException e) {
+                return 0;
+            }
+        });
     }
 
     public static List<ArchiveEntry> listJarEntries(Path archive) throws IOException {

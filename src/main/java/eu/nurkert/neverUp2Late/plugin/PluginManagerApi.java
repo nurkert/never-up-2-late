@@ -156,35 +156,41 @@ public class PluginManagerApi implements PluginLifecycleManager {
     }
 
     @Override
-    public void deleteAllDuplicates(String pluginName, Path excludePath) {
+    public void deleteAllDuplicates(String pluginName, Path preferredPath) {
         if (pluginName == null || pluginName.isBlank() || pluginsDirectory == null) {
             return;
         }
-        Path normalizedExclude = excludePath != null ? excludePath.toAbsolutePath().normalize() : null;
 
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(pluginsDirectory, "*.jar")) {
-            for (Path entry : stream) {
-                Path normalizedEntry = entry.toAbsolutePath().normalize();
-                if (normalizedExclude != null && normalizedEntry.equals(normalizedExclude)) {
-                    continue;
-                }
+        List<ArchiveUtils.PluginInfo> jars = ArchiveUtils.findJarsForPlugin(pluginsDirectory, pluginName);
+        if (jars.isEmpty()) {
+            return;
+        }
 
-                ArchiveUtils.getPluginName(normalizedEntry).ifPresent(name -> {
-                    if (name.equalsIgnoreCase(pluginName)) {
-                        try {
-                            Files.delete(normalizedEntry);
-                            logger.log(Level.INFO, "Deleted duplicate JAR for plugin {0}: {1}",
-                                    new Object[]{pluginName, normalizedEntry.getFileName()});
-                            managedPlugins.remove(normalizedEntry);
-                        } catch (IOException e) {
-                            logger.log(Level.WARNING, "Failed to delete duplicate JAR: " + normalizedEntry, e);
-                        }
-                    }
-                });
+        Path keepPath;
+        if (preferredPath != null) {
+            keepPath = preferredPath.toAbsolutePath().normalize();
+        } else {
+            // Cleanup mode: find highest version
+            keepPath = ArchiveUtils.findBestJar(jars).map(ArchiveUtils.PluginInfo::path).orElse(null);
+        }
+
+        if (keepPath == null) {
+            return;
+        }
+
+        for (ArchiveUtils.PluginInfo jar : jars) {
+            Path jarPath = jar.path().toAbsolutePath().normalize();
+            if (jarPath.equals(keepPath)) {
+                continue;
             }
-        } catch (IOException ex) {
-            if (logger != null) {
-                logger.log(Level.FINE, "Failed to scan plugins directory for duplicate cleanup of " + pluginName, ex);
+
+            try {
+                Files.delete(jarPath);
+                logger.log(Level.INFO, "Deleted old/duplicate JAR for plugin {0}: {1} (Version {2})",
+                        new Object[]{pluginName, jarPath.getFileName(), jar.version()});
+                managedPlugins.remove(jarPath);
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Failed to delete duplicate JAR: " + jarPath, e);
             }
         }
     }
