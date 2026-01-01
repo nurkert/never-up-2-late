@@ -884,6 +884,7 @@ public class QuickInstallCoordinator {
 
     private void finalizeInstallation(CommandSender sender, InstallationPlan plan) {
         deduplicateExistingSources(sender);
+        enforcePluginPathSanity(plan, sender);
 
         List<UpdateSource> conflicts = findConflictingSources(plan);
         if (!conflicts.isEmpty()) {
@@ -941,6 +942,44 @@ public class QuickInstallCoordinator {
                 + ChatColor.GREEN + " → " + ChatColor.AQUA + source.getFilename() + ChatColor.GREEN + ".");
         send(sender, ChatColor.GREEN + "Starting installation…");
         updateHandler.runJobNow(source, sender);
+    }
+
+    private void enforcePluginPathSanity(InstallationPlan plan, CommandSender sender) {
+        Object installedNameObj = plan.getOptions().get("installedPlugin");
+        if (!(installedNameObj instanceof String installedName)) {
+            return;
+        }
+
+        pluginLifecycleManager.findByName(installedName).ifPresent(managed -> {
+            Path currentJarPath = managed.getPath();
+            if (currentJarPath == null) {
+                return;
+            }
+
+            String currentFilename = currentJarPath.getFileName().toString();
+            String planFilename = plan.getFilename();
+
+            if (!currentFilename.equalsIgnoreCase(planFilename)) {
+                // Determine if we should rename or just use current
+                plan.setFilename(currentFilename);
+                logger.log(Level.INFO, "Synchronized plan filename for {0} to existing file: {1}",
+                        new Object[]{installedName, currentFilename});
+            }
+
+            // Cleanup duplicate attempt: If planFilename exists but is NOT currentJarPath, delete it
+            Path potentialDuplicate = currentJarPath.getParent().resolve(planFilename);
+            try {
+                if (Files.exists(potentialDuplicate) && !Files.isSameFile(potentialDuplicate, currentJarPath)) {
+                    Files.delete(potentialDuplicate);
+                    logger.log(Level.INFO, "Deleted duplicate JAR found during installation: {0}", potentialDuplicate);
+                    if (sender != null) {
+                        send(sender, ChatColor.GRAY + "Removed duplicate JAR file: " + planFilename);
+                    }
+                }
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Failed to check or delete duplicate JAR: " + potentialDuplicate, e);
+            }
+        });
     }
 
     private ConfigurationSnapshot persistSourceConfiguration(InstallationPlan plan, CommandSender sender) {

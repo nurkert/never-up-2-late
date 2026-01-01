@@ -165,6 +165,7 @@ public class PluginOverviewGui implements Listener {
             slotMapping.put(slot, plugin);
         }
 
+        inventory.setItem(size - 2, createCleanupButton());
         inventory.setItem(size - 1, createInstallButton());
 
         openInventories.put(player.getUniqueId(), InventorySession.overview(inventory, slotMapping));
@@ -813,9 +814,17 @@ public class PluginOverviewGui implements Listener {
         }
 
         if (session.view() == View.OVERVIEW) {
-            int installSlot = session.inventory().getSize() - 1;
+            int size = session.inventory().getSize();
+            int installSlot = size - 1;
+            int cleanupSlot = size - 2;
+            
             if (event.getRawSlot() == installSlot) {
                 beginStandaloneInstall(player);
+                return;
+            }
+            
+            if (event.getRawSlot() == cleanupSlot) {
+                cleanupAllJarNames(player);
                 return;
             }
 
@@ -1521,47 +1530,207 @@ public class PluginOverviewGui implements Listener {
         }
     }
 
-    private void quickRenameToDataDirectory(Player player, ManagedPlugin plugin) {
-        if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
-            return;
-        }
-        if (isSelfPlugin(plugin)) {
-            player.sendMessage(ChatColor.RED + "The NU2L plugin keeps its filename unchanged.");
-            return;
+        private ItemStack createCleanupButton() {
+
+            ItemStack item = new ItemStack(Material.RECOVERY_COMPASS);
+
+            ItemMeta meta = item.getItemMeta();
+
+            if (meta != null) {
+
+                meta.setDisplayName(ChatColor.GOLD + "Cleanup All JAR Names");
+
+                meta.setLore(List.of(
+
+                        ChatColor.GRAY + "Renames all plugin files to match",
+
+                        ChatColor.GRAY + "their data folder names.",
+
+                        ChatColor.YELLOW + "Ensures consistent and clean naming."
+
+                ));
+
+                item.setItemMeta(meta);
+
+            }
+
+            return item;
+
         }
 
-        Path path = plugin.getPath();
-        if (path == null) {
-            player.sendMessage(ChatColor.RED + "Could not determine a file path for this plugin.");
-            return;
+    
+
+        private void cleanupAllJarNames(Player player) {
+
+            if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
+
+                return;
+
+            }
+
+            
+
+            List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins().stream()
+
+                    .filter(p -> !isSelfPlugin(p))
+
+                    .toList();
+
+            
+
+            int count = 0;
+
+            for (ManagedPlugin plugin : plugins) {
+
+                if (tryQuickRename(plugin)) {
+
+                    count++;
+
+                }
+
+            }
+
+            
+
+            if (count > 0) {
+
+                player.sendMessage(ChatColor.GREEN + "Cleaned up " + count + " plugin filenames.");
+
+            } else {
+
+                player.sendMessage(ChatColor.YELLOW + "All filenames are already correct.");
+
+            }
+
+            openOverview(player);
+
         }
 
-        Optional<Plugin> loadedPlugin = plugin.getPlugin();
-        if (loadedPlugin.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "The plugin must be loaded to determine the data folder name.");
-            return;
+    
+
+        private boolean tryQuickRename(ManagedPlugin plugin) {
+
+            Path path = plugin.getPath();
+
+            if (path == null) return false;
+
+    
+
+            Optional<Plugin> loadedPlugin = plugin.getPlugin();
+
+            if (loadedPlugin.isEmpty()) return false;
+
+    
+
+            File dataFolder = loadedPlugin.get().getDataFolder();
+
+            if (dataFolder == null) return false;
+
+    
+
+            String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
+
+            if (sanitized == null) return false;
+
+    
+
+            String current = path.getFileName().toString();
+
+            if (sanitized.equals(current)) return false;
+
+    
+
+            coordinator.renameManagedPlugin(null, plugin, sanitized);
+
+            return true;
+
         }
 
-        File dataFolder = loadedPlugin.get().getDataFolder();
-        if (dataFolder == null) {
-            player.sendMessage(ChatColor.RED + "Could not find a data folder for this plugin.");
-            return;
-        }
+    
 
-        String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
-        if (sanitized == null) {
-            player.sendMessage(ChatColor.RED + "The data folder name is invalid.");
-            return;
-        }
+        private void quickRenameToDataDirectory(Player player, ManagedPlugin plugin) {
 
-        String current = path.getFileName().toString();
-        if (sanitized.equals(current)) {
-            player.sendMessage(ChatColor.GRAY + "The file is already named after the data folder.");
-            return;
-        }
+            if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
 
-        requestRename(player, plugin, sanitized);
-    }
+                return;
+
+            }
+
+    
+
+            if (isSelfPlugin(plugin)) {
+
+                player.sendMessage(ChatColor.RED + "NeverUp2Late manages its own filename.");
+
+                return;
+
+            }
+
+    
+
+            Path path = plugin.getPath();
+
+            if (path == null) {
+
+                player.sendMessage(ChatColor.RED + "Could not determine a file path.");
+
+                return;
+
+            }
+
+    
+
+            Optional<Plugin> loadedPlugin = plugin.getPlugin();
+
+            if (loadedPlugin.isEmpty()) {
+
+                player.sendMessage(ChatColor.RED + "Plugin must be loaded to determine the data folder name.");
+
+                return;
+
+            }
+
+    
+
+            File dataFolder = loadedPlugin.get().getDataFolder();
+
+            if (dataFolder == null) {
+
+                player.sendMessage(ChatColor.RED + "Could not find a data folder.");
+
+                return;
+
+            }
+
+    
+
+            String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
+
+            if (sanitized == null) {
+
+                player.sendMessage(ChatColor.RED + "Data folder name is invalid.");
+
+                return;
+
+            }
+
+    
+
+            String current = path.getFileName().toString();
+
+            if (sanitized.equals(current)) {
+
+                player.sendMessage(ChatColor.YELLOW + "Filename is already correct.");
+
+                return;
+
+            }
+
+    
+
+            requestRename(player, plugin, sanitized);
+
+        }
 
     private String stripJarExtension(String value) {
         if (value == null) {

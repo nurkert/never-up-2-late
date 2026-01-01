@@ -456,7 +456,12 @@ public class UpdateHandler {
 
         if (Files.exists(currentPath) && !currentPath.equals(newPath)) {
             try {
-                Files.deleteIfExists(newPath);
+                // Proactive cleanup: If a file already exists at newPath, delete it to prevent duplicates
+                if (Files.exists(newPath)) {
+                    Files.delete(newPath);
+                    logger.log(Level.INFO, "Deleted existing file at {0} to prevent duplicate JARs after update.", newPath);
+                }
+                
                 try {
                     Files.move(currentPath, newPath,
                             StandardCopyOption.REPLACE_EXISTING,

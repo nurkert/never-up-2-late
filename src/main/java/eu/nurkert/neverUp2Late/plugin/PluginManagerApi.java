@@ -195,13 +195,17 @@ public class PluginManagerApi implements PluginLifecycleManager {
         if (fromCodeSource != null) {
             return Optional.of(fromCodeSource);
         }
+        
+        // Fallback: Scan directory
         if (pluginsDirectory == null) {
             return Optional.empty();
         }
+        
         String unifiedName = unify(plugin.getName());
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(pluginsDirectory, "*.jar")) {
             for (Path entry : stream) {
-                if (unify(entry.getFileName().toString()).contains(unifiedName)) {
+                String entryUnified = unify(entry.getFileName().toString());
+                if (entryUnified.equals(unifiedName) || entryUnified.equals(unifiedName + "jar")) {
                     return Optional.of(entry.toAbsolutePath().normalize());
                 }
             }
