@@ -15,6 +15,7 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.update.VersionComparator;
+import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import org.bukkit.ChatColor;
 import org.bukkit.Server;
 import org.bukkit.command.CommandSender;
@@ -33,6 +34,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -388,6 +390,9 @@ public class UpdateHandler {
         if (source.getTargetDirectory() != TargetDirectory.PLUGINS) {
             return false;
         }
+        if (destination != null && !Files.isRegularFile(destination)) {
+            return false;
+        }
 
         String pluginName = resolvePluginName(source, destination);
         if (pluginName == null) {
@@ -433,7 +438,10 @@ public class UpdateHandler {
         if (!context.shouldRetainUpstreamFilename()) {
             return;
         }
-        Path currentPath = context.getDownloadDestination();
+        if (context.isCancelled() || context.getDownloadedArtifact().isEmpty()) {
+            return;
+        }
+        Path currentPath = context.getDownloadedArtifact().orElse(null);
         if (currentPath == null) {
             return;
         }
@@ -446,12 +454,22 @@ public class UpdateHandler {
         if (remoteFilename == null || remoteFilename.isBlank()) {
             return;
         }
-        
+
         String pluginName = resolvePluginName(context.getSource(), currentPath);
-        if (pluginName != null && !pluginName.isBlank() && pluginLifecycleManager != null) {
-            // Aggressive Cleanup: Delete ANY other JAR file that contains this plugin name
-            // excluding the one we just downloaded.
-            pluginLifecycleManager.deleteAllDuplicates(pluginName, currentPath);
+        String detectedName = ArchiveUtils.getPluginInfo(currentPath)
+                .map(ArchiveUtils.PluginInfo::name)
+                .orElse(null);
+        boolean nameMismatch = detectedName != null
+                && pluginName != null
+                && !detectedName.equalsIgnoreCase(pluginName);
+        String effectiveName = detectedName != null ? detectedName : pluginName;
+        if (nameMismatch) {
+            logger.log(Level.WARNING,
+                    "Downloaded artifact for {0} identifies as {1}; skipping duplicate cleanup to avoid data loss.",
+                    new Object[]{context.getSource().getName(), detectedName});
+        } else if (effectiveName != null && !effectiveName.isBlank() && pluginLifecycleManager != null) {
+            // Cleanup only when we can confidently identify the plugin.
+            pluginLifecycleManager.deleteAllDuplicates(effectiveName, currentPath);
         }
 
         Path newPath = parent.resolve(remoteFilename).toAbsolutePath().normalize();
@@ -463,30 +481,40 @@ public class UpdateHandler {
         }
 
         if (Files.exists(currentPath) && !currentPath.equals(newPath)) {
+            boolean renamed = false;
             try {
-                // Proactive cleanup: If a file already exists at newPath, delete it to prevent duplicates
-                if (Files.exists(newPath)) {
-                    Files.delete(newPath);
-                    logger.log(Level.INFO, "Deleted existing file at {0} to prevent duplicate JARs after update.", newPath);
-                }
-                
-                try {
-                    Files.move(currentPath, newPath,
-                            StandardCopyOption.REPLACE_EXISTING,
-                            StandardCopyOption.ATOMIC_MOVE);
-                } catch (AtomicMoveNotSupportedException ignored) {
-                    Files.move(currentPath, newPath, StandardCopyOption.REPLACE_EXISTING);
+                if (Files.exists(newPath) && !isSafeToReplace(newPath, effectiveName, currentPath)) {
+                    logger.log(Level.WARNING,
+                            "Refusing to replace existing file {0} because it appears to belong to a different plugin.",
+                            newPath.getFileName());
+                } else {
+                    // Proactive cleanup: If a file already exists at newPath, delete it to prevent duplicates.
+                    if (Files.exists(newPath)) {
+                        Files.delete(newPath);
+                        logger.log(Level.INFO, "Deleted existing file at {0} to prevent duplicate JARs after update.", newPath);
+                    }
+
+                    try {
+                        Files.move(currentPath, newPath,
+                                StandardCopyOption.REPLACE_EXISTING,
+                                StandardCopyOption.ATOMIC_MOVE);
+                    } catch (AtomicMoveNotSupportedException ignored) {
+                        Files.move(currentPath, newPath, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    renamed = true;
                 }
             } catch (IOException ex) {
                 logger.log(Level.WARNING, "Failed to rename downloaded artifact to " + newPath, ex);
                 return;
             }
-            context.setDownloadDestination(newPath);
-            context.setDownloadedArtifact(newPath);
-            if (pluginLifecycleManager != null) {
-                pluginLifecycleManager.updateManagedPluginPath(currentPath, newPath);
+            if (renamed) {
+                context.setDownloadDestination(newPath);
+                context.setDownloadedArtifact(newPath);
+                if (pluginLifecycleManager != null) {
+                    pluginLifecycleManager.updateManagedPluginPath(currentPath, newPath);
+                }
+                currentPath = newPath;
             }
-            currentPath = newPath;
         }
 
         boolean updated = updateSourceRegistry.updateSourceFilename(context.getSource().getName(), currentPath.getFileName().toString());
@@ -494,6 +522,26 @@ public class UpdateHandler {
             configuration.set("filenames." + context.getSource().getName(), currentPath.getFileName().toString());
             plugin.saveConfig();
         }
+    }
+
+    private boolean isSafeToReplace(Path existingPath, String expectedPluginName, Path downloadedPath) {
+        if (existingPath == null) {
+            return false;
+        }
+        if (expectedPluginName != null && !expectedPluginName.isBlank()) {
+            return ArchiveUtils.getPluginInfo(existingPath)
+                    .map(info -> info.name().equalsIgnoreCase(expectedPluginName))
+                    .orElse(false);
+        }
+        if (downloadedPath == null) {
+            return false;
+        }
+        Optional<ArchiveUtils.PluginInfo> existingInfo = ArchiveUtils.getPluginInfo(existingPath);
+        Optional<ArchiveUtils.PluginInfo> downloadedInfo = ArchiveUtils.getPluginInfo(downloadedPath);
+        if (existingInfo.isPresent() && downloadedInfo.isPresent()) {
+            return existingInfo.get().name().equalsIgnoreCase(downloadedInfo.get().name());
+        }
+        return false;
     }
 
     private String sanitizeFilename(String candidate) {

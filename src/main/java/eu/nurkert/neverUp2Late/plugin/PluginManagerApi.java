@@ -162,6 +162,16 @@ public class PluginManagerApi implements PluginLifecycleManager {
         if (pluginName == null || pluginName.isBlank() || pluginsDirectory == null) {
             return;
         }
+        if (preferredPath != null) {
+            Optional<ArchiveUtils.PluginInfo> preferredInfo = ArchiveUtils.getPluginInfo(preferredPath);
+            if (preferredInfo.isEmpty()
+                    || !preferredInfo.get().name().equalsIgnoreCase(pluginName)) {
+                logger.log(Level.WARNING,
+                        "Refusing duplicate cleanup for {0} because preferred path does not match the plugin name.",
+                        pluginName);
+                return;
+            }
+        }
 
         List<ArchiveUtils.PluginInfo> jars = ArchiveUtils.findJarsForPlugin(pluginsDirectory, pluginName);
         if (jars.isEmpty()) {

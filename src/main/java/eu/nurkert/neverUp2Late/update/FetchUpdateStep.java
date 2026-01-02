@@ -4,6 +4,8 @@ import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.logging.Level;
 
 /**
@@ -47,6 +49,10 @@ public class FetchUpdateStep implements UpdateStep {
     }
 
     private boolean isUpdateRequired(UpdateContext context, UpdateFetcher fetcher) {
+        if (isDestinationMissing(context)) {
+            return true;
+        }
+
         String key = context.getSource().getName();
         int storedBuild = persistentPluginHandler.getStoredBuild(key);
         String storedVersion = persistentPluginHandler.getStoredVersion(key);
@@ -68,6 +74,14 @@ public class FetchUpdateStep implements UpdateStep {
 
         // If neither build nor version indicates a change, no update is required.
         return storedBuild < 0; // Allow initial installation
+    }
+
+    private boolean isDestinationMissing(UpdateContext context) {
+        Path destination = context.getDownloadDestination();
+        if (destination == null) {
+            return false;
+        }
+        return !Files.isRegularFile(destination);
     }
 
     private String extractFilename(String url) {
