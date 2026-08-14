@@ -1136,7 +1136,24 @@ public class PluginOverviewGui implements Listener {
 
     private boolean hasPromptExpired(UUID playerId) {
         Long deadline = promptDeadlines.get(playerId);
-        return deadline != null && System.currentTimeMillis() > deadline;
+        if (deadline == null) {
+            return false;
+        }
+        if (!hasPendingPrompt(playerId)) {
+            // A prompt that was answered elsewhere leaves its deadline behind.
+            // Reporting a timeout for it would claim something expired when it
+            // had in fact completed.
+            promptDeadlines.remove(playerId);
+            return false;
+        }
+        return System.currentTimeMillis() > deadline;
+    }
+
+    private boolean hasPendingPrompt(UUID playerId) {
+        return pendingCleanupConfirmations.contains(playerId)
+                || pendingRemovalRequests.containsKey(playerId)
+                || pendingLinkRequests.containsKey(playerId)
+                || pendingSuggestionRequests.containsKey(playerId);
     }
 
     /** Arms a chat prompt, and states the deadline so nobody is left guessing. */
