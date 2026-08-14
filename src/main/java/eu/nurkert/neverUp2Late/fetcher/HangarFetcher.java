@@ -103,22 +103,7 @@ public class HangarFetcher extends JsonUpdateFetcher {
 
     @Override
     public String getInstalledVersion() {
-        String installedPluginName = config.installedPluginName();
-        if (installedPluginName == null || installedPluginName.isBlank()) {
-            return null;
-        }
-
-        PluginManager pluginManager = Bukkit.getPluginManager();
-        if (pluginManager == null) {
-            return null;
-        }
-
-        Plugin plugin = pluginManager.getPlugin(installedPluginName);
-        if (plugin == null) {
-            return null;
-        }
-
-        return plugin.getDescription().getVersion();
+        return installedVersionOf(config.installedPluginName());
     }
 
     private Comparator<VersionResponse> buildComparator() {

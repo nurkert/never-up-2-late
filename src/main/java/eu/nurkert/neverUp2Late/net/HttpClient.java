@@ -26,6 +26,18 @@ public class HttpClient {
             "Accept", "application/json"
     );
 
+    /**
+     * Single underlying client shared by every wrapper instance. Each
+     * {@link java.net.http.HttpClient} owns a selector thread and an executor
+     * pool, so creating one per fetcher (or worse, per request) leaves a
+     * growing number of idle threads behind. The JDK client is thread-safe and
+     * meant to be reused; only headers and timeouts differ per wrapper.
+     */
+    private static final java.net.http.HttpClient SHARED_CLIENT = java.net.http.HttpClient.newBuilder()
+            .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+            .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+            .build();
+
     private final java.net.http.HttpClient client;
     private final Duration requestTimeout;
     private final Map<String, String> defaultHeaders;
@@ -59,6 +71,14 @@ public class HttpClient {
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    /**
+     * Returns the shared JDK client so callers that need the raw API (for
+     * example for a HEAD request) do not have to spin up their own.
+     */
+    public static java.net.http.HttpClient sharedClient() {
+        return SHARED_CLIENT;
     }
 
     /**
@@ -98,9 +118,7 @@ public class HttpClient {
         private final Map<String, String> headers;
 
         private Builder() {
-            this.client = java.net.http.HttpClient.newBuilder()
-                    .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
-                    .build();
+            this.client = SHARED_CLIENT;
             this.requestTimeout = DEFAULT_REQUEST_TIMEOUT;
             this.headers = new LinkedHashMap<>(DEFAULT_HEADERS);
         }

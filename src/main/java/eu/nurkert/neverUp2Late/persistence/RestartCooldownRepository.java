@@ -1,6 +1,7 @@
 package eu.nurkert.neverUp2Late.persistence;
 
 import org.bukkit.configuration.file.FileConfiguration;
+import eu.nurkert.neverUp2Late.util.YamlFiles;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
@@ -26,7 +27,7 @@ public class RestartCooldownRepository {
     private void initialise(File dataFolder) {
         ensureDataFolderExists(dataFolder);
         ensureStateFileExists();
-        configuration = YamlConfiguration.loadConfiguration(stateFile);
+        configuration = YamlFiles.loadOrQuarantine(stateFile, logger);
     }
 
     private void ensureDataFolderExists(File dataFolder) {

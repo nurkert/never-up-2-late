@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.persistence;
 
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import eu.nurkert.neverUp2Late.util.YamlFiles;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -37,6 +38,11 @@ public class UpdateStateRepository {
     private final File dataFolder;
     private final Logger logger;
     private final File stateFile;
+    /**
+     * Guarded by the instance lock: the async update run records new builds
+     * while the GUI and commands read the very same FileConfiguration on the
+     * server thread, and YamlConfiguration is not thread-safe.
+     */
     private FileConfiguration configuration;
 
     public UpdateStateRepository(File dataFolder, Logger logger) {
@@ -54,7 +60,7 @@ public class UpdateStateRepository {
         ensureDataFolderExists();
         ensureStateFileExists();
 
-        configuration = YamlConfiguration.loadConfiguration(stateFile);
+        configuration = YamlFiles.loadOrQuarantine(stateFile, logger);
 
         boolean mutated = migrateLegacyState();
         mutated |= ensurePluginsSectionExists();
@@ -101,13 +107,13 @@ public class UpdateStateRepository {
             }
             Object value = configuration.get(key);
             if (value instanceof Number number) {
-                configuration.set(pathForBuild(key), number.intValue());
+                entrySection(key, true).set(BUILD_NODE, number.intValue());
                 mutated = true;
             } else if (value instanceof String string) {
-                configuration.set(pathForVersion(key), string);
+                entrySection(key, true).set(VERSION_NODE, string);
                 mutated = true;
             } else if (value instanceof ConfigurationSection section) {
-                copySection(section, configuration.createSection(ROOT_NODE + "." + key));
+                copySection(section, pluginsSection(true).createSection(key));
                 mutated = true;
             } else if (value != null) {
                 logger.log(Level.WARNING, "Removing unsupported legacy entry {0} from update state", key);
@@ -199,8 +205,8 @@ public class UpdateStateRepository {
         }
     }
 
-    public Optional<PluginState> find(String pluginName) {
-        ConfigurationSection section = configuration.getConfigurationSection(pathForPlugin(pluginName));
+    public synchronized Optional<PluginState> find(String pluginName) {
+        ConfigurationSection section = entrySection(pluginName, false);
         if (section == null) {
             return Optional.empty();
         }
@@ -214,55 +220,72 @@ public class UpdateStateRepository {
         return Optional.of(new PluginState(build, version));
     }
 
-    public boolean hasPluginInfo(String pluginName) {
+    public synchronized boolean hasPluginInfo(String pluginName) {
         return find(pluginName).isPresent();
     }
 
-    public int getStoredBuild(String pluginName) {
+    public synchronized int getStoredBuild(String pluginName) {
         return find(pluginName).map(PluginState::build).orElse(-1);
     }
 
-    public String getStoredVersion(String pluginName) {
+    public synchronized String getStoredVersion(String pluginName) {
         return find(pluginName).map(PluginState::version).orElse(null);
     }
 
-    public void saveLatestBuild(String pluginName, int build, String version) {
+    public synchronized void saveLatestBuild(String pluginName, int build, String version) {
         savePluginState(pluginName, build, version);
     }
 
-    public void savePluginState(String pluginName, Integer build, String version) {
+    public synchronized void savePluginState(String pluginName, Integer build, String version) {
         if (pluginName == null || pluginName.isBlank()) {
             return;
         }
 
-        if (build != null) {
-            configuration.set(pathForBuild(pluginName), build);
-        } else {
-            configuration.set(pathForBuild(pluginName), null);
+        ConfigurationSection entry = entrySection(pluginName, true);
+        if (entry == null) {
+            return;
         }
-
-        if (version != null) {
-            configuration.set(pathForVersion(pluginName), version);
-        } else {
-            configuration.set(pathForVersion(pluginName), null);
+        entry.set(BUILD_NODE, build);
+        entry.set(VERSION_NODE, version);
+        if (build == null && version == null) {
+            pluginsSection(true).set(pluginName, null);
         }
 
         saveInternal();
     }
 
-    private String pathForPlugin(String pluginName) {
-        return ROOT_NODE + "." + pluginName;
+    private ConfigurationSection pluginsSection(boolean create) {
+        ConfigurationSection section = configuration.getConfigurationSection(ROOT_NODE);
+        if (section == null && create) {
+            section = configuration.createSection(ROOT_NODE);
+        }
+        return section;
     }
 
-    private String pathForBuild(String pluginName) {
-        return pathForPlugin(pluginName) + "." + BUILD_NODE;
+    /**
+     * Resolves a plugin's entry by raw key.
+     *
+     * <p>Building the path as {@code "plugins." + name} let a dot inside a
+     * source name split it into nested sections, so "my.plugin" was stored as
+     * plugins -> my -> plugin and the schema check removed it again on the next
+     * start. Addressing the section directly keeps the name intact.</p>
+     */
+    private ConfigurationSection entrySection(String pluginName, boolean create) {
+        if (pluginName == null || pluginName.isBlank()) {
+            return null;
+        }
+        ConfigurationSection plugins = pluginsSection(create);
+        if (plugins == null) {
+            return null;
+        }
+        ConfigurationSection entry = plugins.getConfigurationSection(pluginName);
+        if (entry == null && create) {
+            entry = plugins.createSection(pluginName);
+        }
+        return entry;
     }
 
-    private String pathForVersion(String pluginName) {
-        return pathForPlugin(pluginName) + "." + VERSION_NODE;
-    }
-
-    private void saveInternal() {
+    private synchronized void saveInternal() {
         try {
             configuration.save(stateFile);
         } catch (IOException e) {

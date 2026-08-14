@@ -215,28 +215,37 @@ public class QuickInstallCoordinator {
             return;
         }
 
-        InstallationPlan plan;
-        try {
-            plan = analyse(uri, url);
-        } catch (IllegalArgumentException e) {
-            send(sender, ChatColor.RED + e.getMessage());
-            return;
-        }
+        // analyse() reaches out over the network for some providers (a
+        // CurseForge project page lookup, for one). Doing that on the server
+        // thread freezes every player for as long as the request takes.
+        scheduler.runTaskAsynchronously(plugin, () -> {
+            InstallationPlan plan;
+            try {
+                plan = analyse(uri, url);
+            } catch (IllegalArgumentException e) {
+                send(sender, ChatColor.RED + e.getMessage());
+                return;
+            }
 
-        plan.setSourceName(ensureUniqueName(plan.getSuggestedName()));
-        if (forcedPluginName != null && !forcedPluginName.isBlank()) {
-            plan.setInstalledPluginName(forcedPluginName);
-            send(sender, ChatColor.GRAY + "Linking with selected plugin: " + forcedPluginName);
-        } else {
-            detectInstalledPlugin(plan).ifPresent(installed -> {
-                plan.setInstalledPluginName(installed);
-                send(sender, ChatColor.GRAY + "Linking with installed plugin: " + installed);
+            // Reading the plugin registry belongs on the server thread.
+            runOnMainThread(() -> {
+                plan.setSourceName(ensureUniqueName(plan.getSuggestedName()));
+                if (forcedPluginName != null && !forcedPluginName.isBlank()) {
+                    plan.setInstalledPluginName(forcedPluginName);
+                    send(sender, ChatColor.GRAY + "Linking with selected plugin: " + forcedPluginName);
+                } else {
+                    detectInstalledPlugin(plan).ifPresent(installed -> {
+                        plan.setInstalledPluginName(installed);
+                        send(sender, ChatColor.GRAY + "Linking with installed plugin: " + installed);
+                    });
+                }
+
+                send(sender, ChatColor.AQUA + "Detected source: " + plan.getDisplayName()
+                        + " (" + plan.getProvider() + ")");
+
+                scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, plan));
             });
-        }
-
-        send(sender, ChatColor.AQUA + "Detected source: " + plan.getDisplayName() + " (" + plan.getProvider() + ")");
-
-        scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, plan));
+        });
     }
 
     private void executeRollback(CommandSender sender, String sourceName) {
@@ -945,6 +954,12 @@ public class QuickInstallCoordinator {
     }
 
     private void enforcePluginPathSanity(InstallationPlan plan, CommandSender sender) {
+        if (pluginLifecycleManager == null) {
+            // pluginLifecycle.autoManage is off. There is no plugin registry to
+            // reconcile against, and dereferencing it here aborted the install
+            // with an NPE after the source had already been unregistered.
+            return;
+        }
         String installedName = (String) plan.getOptions().get("installedPlugin");
         
         // Auto-detect installed plugin if not yet set by reading destination file if it exists
@@ -984,12 +999,28 @@ public class QuickInstallCoordinator {
             // Aggressive Cleanup: Delete ANY other JAR file that contains this plugin name
             pluginLifecycleManager.deleteAllDuplicates(finalInstalledName, currentJarPath);
             
-            // Also cleanup the plan filename if it's currently occupied by an orphan (redundant but safe)
+            // Also cleanup the plan filename if it's currently occupied by an orphan.
             Path potentialDuplicate = currentJarPath.getParent().resolve(planFilename);
             try {
                 if (Files.exists(potentialDuplicate) && !Files.isSameFile(potentialDuplicate, currentJarPath)) {
-                    Files.delete(potentialDuplicate);
-                    logger.log(Level.INFO, "Deleted duplicate JAR found during installation: {0}", potentialDuplicate);
+                    // Only ever delete a jar that really is another copy of THIS
+                    // plugin. The plan filename is derived from a URL and can
+                    // easily collide with an unrelated plugin's jar, which used
+                    // to be deleted without ever being looked at.
+                    String occupantName = ArchiveUtils.getPluginInfo(potentialDuplicate)
+                            .map(ArchiveUtils.PluginInfo::name)
+                            .orElse(null);
+                    if (occupantName != null && occupantName.equalsIgnoreCase(finalInstalledName)) {
+                        Files.delete(potentialDuplicate);
+                        logger.log(Level.INFO, "Deleted duplicate JAR found during installation: {0}",
+                                potentialDuplicate);
+                    } else {
+                        logger.log(Level.WARNING,
+                                "Keeping {0}: it belongs to {1}, not to {2}.",
+                                new Object[]{potentialDuplicate.getFileName(),
+                                        occupantName == null ? "an unknown plugin" : occupantName,
+                                        finalInstalledName});
+                    }
                 }
             } catch (IOException e) {
                 logger.log(Level.WARNING, "Failed to check or delete duplicate JAR: " + potentialDuplicate, e);
@@ -1737,11 +1768,12 @@ public class QuickInstallCoordinator {
                 candidate = "plugin-" + sanitizeKey(Optional.ofNullable(uri.getHost()).orElse("source")) + ".jar";
             }
 
-            // Jar-Endung sicherstellen
-            if (!candidate.toLowerCase(Locale.ROOT).endsWith(".jar")) {
-                candidate = candidate + ".jar";
-            }
-            return candidate;
+            // The candidate can come straight from a remote Content-Disposition
+            // header, so it is attacker controlled. Sanitising turns any path
+            // separator into a dash and appends the .jar extension, which keeps
+            // the result a plain file name inside the target directory.
+            String safe = FileNameSanitizer.sanitizeJarFilename(candidate);
+            return safe != null ? safe : "plugin-source.jar";
         } catch (Exception e) {
             logger.log(Level.FINE, "Failed to parse filename from " + downloadUrl, e);
             if (sanitizedFallback != null && !sanitizedFallback.isBlank()) {
@@ -1755,9 +1787,7 @@ public class QuickInstallCoordinator {
 
     private String tryResolveContentDisposition(String url) {
         try {
-            java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
-                    .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
-                    .build();
+            java.net.http.HttpClient client = eu.nurkert.neverUp2Late.net.HttpClient.sharedClient();
             java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
                     .method("HEAD", java.net.http.HttpRequest.BodyPublishers.noBody())
                     .uri(URI.create(url))
@@ -1818,7 +1848,46 @@ public class QuickInstallCoordinator {
         if (sender == null) {
             return;
         }
-        scheduler.runTask(plugin, () -> sender.sendMessage(messagePrefix + message));
+        String text = messagePrefix + message;
+        if (runOnMainThread(() -> sender.sendMessage(text))) {
+            return;
+        }
+        // Nothing can be scheduled any more (the server is going down). Talking
+        // to a Player off the server thread is not safe, so only the console -
+        // which is - gets the message directly; for anyone else it goes to the
+        // log rather than being lost silently.
+        if (sender instanceof org.bukkit.command.ConsoleCommandSender) {
+            sender.sendMessage(text);
+        } else {
+            logger.log(Level.FINE, "Dropped a message during shutdown: {0}", message);
+        }
+    }
+
+    /**
+     * Runs {@code action} on the server thread, or right away if already there.
+     *
+     * <p>Bukkit answers a scheduling attempt on a disabled plugin with an
+     * exception. Unguarded, that turned a shutdown during an install into a
+     * stack trace and aborted the remaining steps - after the jar on disk had
+     * already been replaced.</p>
+     *
+     * @return {@code false} if nothing could be scheduled
+     */
+    private boolean runOnMainThread(Runnable action) {
+        if (!plugin.isEnabled()) {
+            return false;
+        }
+        if (plugin.getServer().isPrimaryThread()) {
+            action.run();
+            return true;
+        }
+        try {
+            scheduler.runTask(plugin, action);
+            return true;
+        } catch (org.bukkit.plugin.IllegalPluginAccessException | IllegalStateException ex) {
+            logger.log(Level.FINE, "Skipped a main thread task because the server is shutting down", ex);
+            return false;
+        }
     }
 
     private boolean hasPermission(CommandSender sender, String permission) {

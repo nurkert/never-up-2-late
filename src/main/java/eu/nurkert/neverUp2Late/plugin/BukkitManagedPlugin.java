@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.plugin;
 
+import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.command.SimpleCommandMap;
 import org.bukkit.plugin.InvalidDescriptionException;
@@ -45,14 +46,31 @@ class BukkitManagedPlugin implements ManagedPlugin {
 
     private Plugin plugin;
     private String lastKnownName;
+    /**
+     * The instance {@link #unload()} just removed. On Paper the reflective purge
+     * cannot reach the real registry, so {@code getPlugin(name)} still answers
+     * with this dead instance - which must not be mistaken for a second copy.
+     */
+    private Plugin unloadedInstance;
 
     BukkitManagedPlugin(Plugin plugin, Path pluginPath, PluginManager pluginManager, Logger logger) {
+        this(plugin, pluginPath, pluginManager, logger, null);
+    }
+
+    BukkitManagedPlugin(Plugin plugin,
+                        Path pluginPath,
+                        PluginManager pluginManager,
+                        Logger logger,
+                        String knownName) {
         this.pluginManager = pluginManager;
         this.logger = logger;
         this.pluginPath = pluginPath.toAbsolutePath().normalize();
         attach(plugin);
         if (lastKnownName == null) {
-            this.lastKnownName = deriveNameFromPath(pluginPath);
+            // Falling back to the file name loses the real plugin name, so after
+            // a rename the entry would be known as "MyPlugin-1.2.3" instead of
+            // "MyPlugin" and every lookup by name would miss it.
+            this.lastKnownName = knownName != null ? knownName : deriveNameFromPath(pluginPath);
         }
     }
 
@@ -98,9 +116,11 @@ class BukkitManagedPlugin implements ManagedPlugin {
         if (plugin != null) {
             throw new PluginLifecycleException("Plugin " + getName() + " is already loaded");
         }
+        refuseDuplicateOfRunningPlugin();
         try {
             Plugin loaded = pluginManager.loadPlugin(pluginPath.toFile());
             attach(loaded);
+            this.unloadedInstance = null;
         } catch (InvalidPluginException | InvalidDescriptionException ex) {
             throw new PluginLifecycleException("Failed to load plugin from " + pluginPath + ": " + ex.getMessage(), ex);
         }
@@ -114,6 +134,18 @@ class BukkitManagedPlugin implements ManagedPlugin {
         if (!plugin.isEnabled()) {
             pluginManager.enablePlugin(plugin);
         }
+        if (!plugin.isEnabled() && logger != null) {
+            // Bukkit swallows anything onEnable throws: it logs the error, marks
+            // the plugin disabled and returns normally. Note it, but do not
+            // treat it as a failure of this call - a plugin is also allowed to
+            // shut itself down on purpose (missing config, missing dependency).
+            logger.log(Level.WARNING, "Plugin {0} is still disabled after enabling it.", getName());
+        }
+    }
+
+    /** @return whether the plugin is running after the operation. */
+    private boolean isRunning() {
+        return plugin != null && plugin.isEnabled();
     }
 
     @Override
@@ -137,14 +169,68 @@ class BukkitManagedPlugin implements ManagedPlugin {
         removePluginFromBukkit(existing);
         detachClassLoader(existing);
         attach(null);
-        System.gc();
+        this.unloadedInstance = existing;
+        // Deliberately no System.gc() here: closing the class loader already
+        // releases the jar handles, while a forced full GC stalls the whole
+        // server for a noticeable moment on every reload. The old class data is
+        // reclaimed by the next regular GC instead.
     }
 
     @Override
     public synchronized void reload() throws PluginLifecycleException {
+        refuseSelfReload();
         unload();
-        load();
-        enable();
+        try {
+            load();
+            enable();
+            if (!isRunning()) {
+                // Reporting success here would cancel the restart that is now
+                // the only thing that can bring the plugin back.
+                throw new PluginLifecycleException("Plugin " + getName()
+                        + " did not come up again after the update");
+            }
+        } catch (PluginLifecycleException ex) {
+            // The plugin is now unloaded and erased from Bukkit's registries.
+            // Say so instead of leaving the caller believing it merely failed to
+            // start - the difference decides whether it schedules the restart
+            // that brings the server back to a complete set of plugins.
+            throw new PluginLifecycleException("Plugin " + getName()
+                    + " is unloaded after a failed reload and needs a server restart: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Reloading NeverUp2Late from inside NeverUp2Late would close the very class
+     * loader this code is running in, mid-update. The caller has to fall back to
+     * a restart instead.
+     */
+    private void refuseSelfReload() throws PluginLifecycleException {
+        Plugin current = plugin;
+        if (current != null && current.getClass().getClassLoader() == getClass().getClassLoader()) {
+            throw new PluginLifecycleException("Refusing to hot-reload " + getName()
+                    + " from within itself; a server restart is required");
+        }
+    }
+
+    /**
+     * Refuses to load a jar whose plugin is already running under a different
+     * handle. Reloading an unknown path creates a fresh handle whose unload is a
+     * no-op, so without this check Bukkit would end up with two live instances
+     * of the same plugin: duplicated listeners, duplicated tasks, two writers on
+     * the same data files.
+     */
+    private void refuseDuplicateOfRunningPlugin() throws PluginLifecycleException {
+        String name = ArchiveUtils.getPluginInfo(pluginPath)
+                .map(ArchiveUtils.PluginInfo::name)
+                .orElse(null);
+        if (name == null) {
+            return;
+        }
+        Plugin running = pluginManager.getPlugin(name);
+        if (running != null && running != plugin && running != unloadedInstance) {
+            throw new PluginLifecycleException("Plugin " + name + " is already running from another file; "
+                    + "loading " + pluginPath.getFileName() + " would start a second copy. A restart is required.");
+        }
     }
 
     private void ensurePluginFileExists() throws PluginLifecycleException {

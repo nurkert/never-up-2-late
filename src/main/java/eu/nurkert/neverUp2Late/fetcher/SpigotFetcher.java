@@ -30,6 +30,8 @@ import java.util.regex.Pattern;
 public class SpigotFetcher extends JsonUpdateFetcher {
 
     private static final String API_ROOT = "https://api.spiget.org/v2/";
+    /** Reused for the occasional CurseForge project page lookup; see {@link #fetchCurseforgeProjectId}. */
+    private static final HttpClient PAGE_CLIENT = HttpClient.builder().build();
     private static final Set<String> CURSEFORGE_TRAILING_SEGMENTS = Set.of(
             "files",
             "download",
@@ -157,21 +159,7 @@ public class SpigotFetcher extends JsonUpdateFetcher {
 
     @Override
     public String getInstalledVersion() {
-        if (installedPluginName == null || installedPluginName.isBlank()) {
-            return null;
-        }
-
-        PluginManager manager = Bukkit.getPluginManager();
-        if (manager == null) {
-            return null;
-        }
-
-        Plugin plugin = manager.getPlugin(installedPluginName);
-        if (plugin == null) {
-            return null;
-        }
-
-        return plugin.getDescription().getVersion();
+        return installedVersionOf(installedPluginName);
     }
 
     private void ensureCompatibility(ResourceResponse resource) throws IOException {
@@ -385,7 +373,7 @@ public class SpigotFetcher extends JsonUpdateFetcher {
 
         String body;
         try {
-            body = new HttpClient().get(projectUrl);
+            body = PAGE_CLIENT.get(projectUrl);
         } catch (IOException e) {
             return -1;
         }

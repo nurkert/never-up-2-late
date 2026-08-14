@@ -23,6 +23,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -31,6 +32,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -907,6 +909,32 @@ public class PluginOverviewGui implements Listener {
         }
     }
 
+    /**
+     * Clicks are cancelled, but a drag is a separate event. Without this an
+     * operator could drag items into the GUI, where they are silently destroyed
+     * when the (holder-less) inventory closes.
+     */
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        InventorySession session = openInventories.get(player.getUniqueId());
+        if (session == null) {
+            return;
+        }
+        if (!event.getView().getTopInventory().equals(session.inventory())) {
+            return;
+        }
+        int size = session.inventory().getSize();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < size) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+    }
+
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
@@ -1560,182 +1588,111 @@ public class PluginOverviewGui implements Listener {
 
     
 
-            private void cleanupAllJarNames(Player player) {
+        private void cleanupAllJarNames(Player player) {
+            if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
+                return;
+            }
+            List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins().stream()
+                    .filter(p -> !isSelfPlugin(p))
+                    .toList();
 
-    
-
-                if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
-
-    
-
-                    return;
-
-    
-
+            int renamed = 0;
+            int blocked = 0;
+            for (ManagedPlugin plugin : plugins) {
+                String name = plugin.getName();
+                Path currentPath = plugin.getPath();
+                Path afterRename = tryQuickRename(plugin);
+                if (afterRename != null) {
+                    renamed++;
+                    currentPath = afterRename;
+                } else if (needsRename(plugin)) {
+                    blocked++;
                 }
-
-    
-
-                
-
-    
-
-                List<ManagedPlugin> plugins = context.getPluginLifecycleManager().getManagedPlugins().stream()
-
-    
-
-                        .filter(p -> !isSelfPlugin(p))
-
-    
-
-                        .toList();
-
-    
-
-                
-
-    
-
-                int count = 0;
-
-    
-
-                for (ManagedPlugin plugin : plugins) {
-
-    
-
-                    String name = plugin.getName();
-
-    
-
-                    Path currentPath = plugin.getPath();
-
-    
-
-                    
-
-    
-
-                    // 1. Rename to correct name if necessary
-
-    
-
-                    if (tryQuickRename(plugin)) {
-
-    
-
-                        count++;
-
-    
-
-                        // Update currentPath after rename
-
-    
-
-                        currentPath = context.getPluginLifecycleManager().findByName(name)
-
-    
-
-                                .map(ManagedPlugin::getPath)
-
-    
-
-                                .orElse(currentPath);
-
-    
-
-                    }
-
-    
-
-                    
-
-    
-
-                    // 2. Delete ALL other jars that identify as this plugin
-
-    
-
+                // Only ever hand the duplicate cleanup the path we know is
+                // current - it deletes files based on it.
+                if (currentPath != null) {
                     context.getPluginLifecycleManager().deleteAllDuplicates(name, currentPath);
-
-    
-
                 }
-
-    
-
-                
-
-    
-
-                if (count > 0) {
-
-    
-
-                    player.sendMessage(ChatColor.GREEN + "Cleaned up " + count + " plugin filenames and removed duplicates.");
-
-    
-
-                } else {
-
-    
-
-                    player.sendMessage(ChatColor.YELLOW + "All filenames are correct. Scanning for duplicates…");
-
-    
-
-                    player.sendMessage(ChatColor.GREEN + "Duplicate cleanup complete.");
-
-    
-
-                }
-
-    
-
-                openOverview(player);
-
-    
-
             }
 
-    
+            if (renamed > 0) {
+                player.sendMessage(ChatColor.GREEN + "Renamed " + renamed
+                        + " plugin file(s) and removed duplicates.");
+                player.sendMessage(ChatColor.GRAY
+                        + "The plugins keep running; the new names take effect on the next restart.");
+            } else {
+                player.sendMessage(ChatColor.GREEN + "All filenames are already correct; duplicates cleaned up.");
+            }
+            if (blocked > 0) {
+                player.sendMessage(ChatColor.YELLOW + String.valueOf(blocked)
+                        + " file(s) could not be renamed while the server is running.");
+            }
+            openOverview(player);
+        }
 
-        private boolean tryQuickRename(ManagedPlugin plugin) {
+        private boolean needsRename(ManagedPlugin plugin) {
+            return desiredFileName(plugin) != null;
+        }
 
+        /**
+         * Name the jar of {@code plugin} should carry, or {@code null} if it
+         * already carries it or cannot be determined.
+         */
+        private String desiredFileName(ManagedPlugin plugin) {
             Path path = plugin.getPath();
-
-            if (path == null) return false;
-
-    
-
+            if (path == null) {
+                return null;
+            }
             Optional<Plugin> loadedPlugin = plugin.getPlugin();
-
-            if (loadedPlugin.isEmpty()) return false;
-
-    
-
+            if (loadedPlugin.isEmpty()) {
+                return null;
+            }
             File dataFolder = loadedPlugin.get().getDataFolder();
-
-            if (dataFolder == null) return false;
-
-    
-
+            if (dataFolder == null) {
+                return null;
+            }
             String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
+            if (sanitized == null || sanitized.equals(path.getFileName().toString())) {
+                return null;
+            }
+            return sanitized;
+        }
 
-            if (sanitized == null) return false;
-
-    
-
-            String current = path.getFileName().toString();
-
-            if (sanitized.equals(current)) return false;
-
-    
-
-            coordinator.renameManagedPlugin(null, plugin, sanitized);
-
-            return true;
-
+        /**
+         * Renames a plugin jar in place, without touching its lifecycle.
+         *
+         * <p>The bulk cleanup used to route every plugin through the regular
+         * rename, which disables and unloads it - one click could take most of
+         * the server's plugins down and nothing brought them back. Renaming the
+         * file is enough: the running plugin holds an open handle and keeps
+         * working, and Bukkit picks up the new name on the next start.</p>
+         *
+         * @return the new path, or {@code null} if nothing was renamed
+         */
+        private Path tryQuickRename(ManagedPlugin plugin) {
+            String sanitized = desiredFileName(plugin);
+            if (sanitized == null) {
+                return null;
+            }
+            Path path = plugin.getPath();
+            Path parent = path.getParent();
+            if (parent == null) {
+                return null;
+            }
+            Path target = parent.resolve(sanitized).toAbsolutePath().normalize();
+            if (!parent.toAbsolutePath().normalize().equals(target.getParent()) || Files.exists(target)) {
+                return null;
+            }
+            try {
+                Files.move(path, target);
+            } catch (IOException ex) {
+                // Typically a locked file on Windows. Leave it alone.
+                context.getPlugin().getLogger().log(Level.FINE,
+                        "Could not rename " + path.getFileName() + " while it is in use", ex);
+                return null;
+            }
+            context.getPluginLifecycleManager().updateManagedPluginPath(path, target);
+            return target;
         }
 
     

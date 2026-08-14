@@ -33,6 +33,7 @@ public class UpdateContext {
     private boolean retainUpstreamFilename;
     private String remoteFilename;
     private Path downloadDestination;
+    private Runnable completionDispatcher;
 
     public UpdateContext(UpdateSource source, Path destination, Logger logger) {
         this.source = Objects.requireNonNull(source, "source");
@@ -148,6 +149,29 @@ public class UpdateContext {
 
     public void setDownloadDestination(Path downloadDestination) {
         this.downloadDestination = downloadDestination;
+    }
+
+    /**
+     * Registers the notification that announces the finished installation. The
+     * pipeline does not send it itself: the caller still has to settle the file
+     * on disk (renaming it to the upstream filename, cleaning up duplicates)
+     * and only then is the destination final. Dispatching earlier would let a
+     * plugin reload race against a jar that is about to move.
+     */
+    public void setCompletionDispatcher(Runnable completionDispatcher) {
+        this.completionDispatcher = completionDispatcher;
+    }
+
+    /**
+     * Sends a pending completion notification, if any. Calling it more than
+     * once is harmless; only the first call dispatches.
+     */
+    public void dispatchCompletion() {
+        Runnable dispatcher = completionDispatcher;
+        completionDispatcher = null;
+        if (dispatcher != null) {
+            dispatcher.run();
+        }
     }
 
     public void log(Level level, String message, Object... args) {

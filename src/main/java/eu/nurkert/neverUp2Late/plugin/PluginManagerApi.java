@@ -229,7 +229,8 @@ public class PluginManagerApi implements PluginLifecycleManager {
         if (existing == null) {
             return Optional.empty();
         }
-        ManagedPlugin replacement = new BukkitManagedPlugin(existing.getPlugin().orElse(null), newPath, pluginManager, logger);
+        ManagedPlugin replacement = new BukkitManagedPlugin(
+                existing.getPlugin().orElse(null), newPath, pluginManager, logger, existing.getName());
         managedPlugins.put(normalize(newPath), replacement);
         return Optional.of(replacement);
     }

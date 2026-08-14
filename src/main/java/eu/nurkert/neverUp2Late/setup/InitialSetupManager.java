@@ -23,6 +23,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -64,8 +65,16 @@ public class InitialSetupManager implements Listener {
     private static final int RESTART_LATER_SLOT = 15;
     private static final int[] STAGE_HEADER_SLOTS = {0, 1, 2};
     private static final String SELF_UPDATE_SOURCE_NAME = "neverup2late";
-    private static final String SELF_UPDATE_FETCHER = "spigot";
-    private static final int SELF_UPDATE_RESOURCE_ID = 120768;
+    /**
+     * NeverUp2Late updates itself from its own GitHub releases. The registry
+     * default said the same while the wizard used to force a SpigotMC resource
+     * here, so finishing the setup quietly rewired the self-update to a
+     * different provider than the one the configuration described.
+     */
+    private static final String SELF_UPDATE_FETCHER = "githubRelease";
+    private static final String SELF_UPDATE_OWNER = "nurkert";
+    private static final String SELF_UPDATE_REPOSITORY = "never-up-2-late";
+    private static final String SELF_UPDATE_ASSET_PATTERN = "^NeverUp2Late\\.jar$";
 
     private final PluginContext context;
     private final SetupStateRepository setupStateRepository;
@@ -128,7 +137,12 @@ public class InitialSetupManager implements Listener {
     }
 
     public void completeSetup(CommandSender sender) {
-        List<SourceConfiguration> sources = createDefaultSourceConfigurations();
+        // Read the sources as they are configured, WITH their options. Building
+        // them from the live registry instead drops every option (a GitHub
+        // owner/repository, a Modrinth project, a Spigot resource id), and
+        // finishing the setup then wrote that stripped list back to disk and
+        // permanently broke every fetcher - including the self-update.
+        List<SourceConfiguration> sources = loadSourceConfigurations();
         if (sources.isEmpty()) {
             sendMessage(sender, ChatColor.RED + "No update sources were found. The setup cannot be completed.");
             return;
@@ -188,7 +202,7 @@ public class InitialSetupManager implements Listener {
         disableSetupMode();
         sessions.remove(player.getUniqueId());
 
-        plugin.getServer().getScheduler().runTask(plugin, () -> updateHandler.start());
+        plugin.getServer().getScheduler().runTask(plugin, () -> updateHandler.startNow());
 
         player.sendMessage(ChatColor.GREEN + "Initial setup complete! Updates are now managed automatically.");
         if (restartImmediately) {
@@ -232,6 +246,9 @@ public class InitialSetupManager implements Listener {
             return;
         }
         if (event.getRawSlot() >= session.inventory.getSize() || event.getRawSlot() < 0) {
+            // A bare return let a shift-click from the player's own inventory
+            // push items into the wizard, where they vanish when it closes.
+            event.setCancelled(true);
             return;
         }
 
@@ -241,6 +258,23 @@ public class InitialSetupManager implements Listener {
             case CONFIGURE -> handleConfigureClick(player, session, event.getRawSlot(), event.isLeftClick(), event.isRightClick(), event.isShiftClick());
             case DOWNLOAD -> handleDownloadClick(player, session, event.getRawSlot());
             case RESTART -> handleRestartClick(player, session, event.getRawSlot());
+        }
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        SetupSession session = sessions.get(player.getUniqueId());
+        if (session == null || !event.getView().getTopInventory().equals(session.inventory)) {
+            return;
+        }
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < session.inventory.getSize()) {
+                event.setCancelled(true);
+                return;
+            }
         }
     }
 
@@ -578,6 +612,11 @@ public class InitialSetupManager implements Listener {
 
     private void triggerDownloads(Player player, SetupSession session) {
         session.downloadsTriggered = true;
+        // Collect first and hand the whole list over at once: one task per
+        // source made them all race for the updater's exclusive lock, and every
+        // source but the first was answered with "another update run is in
+        // progress" and never downloaded.
+        List<UpdateSource> queue = new ArrayList<>();
         for (SourceConfiguration source : session.sources) {
             if (!source.enabled) {
                 continue;
@@ -588,9 +627,16 @@ public class InitialSetupManager implements Listener {
                         + " could not be found. Please check the configuration.");
                 continue;
             }
-            updateHandler.runJobNow(updateSource.get(), player);
+            queue.add(updateSource.get());
         }
-        player.sendMessage(ChatColor.GREEN + "Downloads have been started. You will receive updates in chat.");
+        if (queue.isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "No enabled sources to download.");
+            buildDownloadInventory(player, session);
+            return;
+        }
+        updateHandler.runJobsNow(queue, player);
+        player.sendMessage(ChatColor.GREEN + "Downloads have been started ("
+                + queue.size() + " source(s), one after another). You will receive updates in chat.");
         buildDownloadInventory(player, session);
     }
 
@@ -877,7 +923,13 @@ public class InitialSetupManager implements Listener {
         }
 
         existing.pluginName = plugin.getName();
-        existing.options.putIfAbsent("resourceId", SELF_UPDATE_RESOURCE_ID);
+        // putIfAbsent throughout: an operator who pointed the self-update
+        // somewhere else keeps their choice.
+        if (SELF_UPDATE_FETCHER.equalsIgnoreCase(existing.type)) {
+            existing.options.putIfAbsent("owner", SELF_UPDATE_OWNER);
+            existing.options.putIfAbsent("repository", SELF_UPDATE_REPOSITORY);
+            existing.options.putIfAbsent("assetPattern", SELF_UPDATE_ASSET_PATTERN);
+        }
         existing.options.put("installedPlugin", plugin.getName());
 
         updateSourceDetection(existing);
@@ -980,7 +1032,7 @@ public class InitialSetupManager implements Listener {
         setupStateRepository.setPhase(SetupPhase.COMPLETED);
         disableSetupMode();
         sessions.clear();
-        plugin.getServer().getScheduler().runTask(plugin, () -> updateHandler.start());
+        plugin.getServer().getScheduler().runTask(plugin, () -> updateHandler.startNow());
         sendMessage(sender, completionMessage);
         if (sender != null) {
             logger.info(ChatColor.stripColor(completionMessage));

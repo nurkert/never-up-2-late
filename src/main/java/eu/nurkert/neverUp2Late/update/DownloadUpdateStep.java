@@ -46,7 +46,12 @@ public class DownloadUpdateStep implements UpdateStep {
             return;
         }
         Files.createDirectories(parent);
-        Path staging = Files.createTempFile(parent, "nu2l-", "-" + safeFileName(targetPath));
+        // The staging file lives next to the target so the final move stays on
+        // one filesystem and therefore atomic. It must NOT end in .jar: it sits
+        // in the plugins directory, and a shutdown in the middle of a download
+        // would otherwise leave a half-written jar that Bukkit happily tries to
+        // load as a second copy of the plugin on the next start.
+        Path staging = Files.createTempFile(parent, "nu2l-", "-" + safeFileName(targetPath) + ".part");
 
         try {
             ArtifactDownloader.DownloadHook hook = context.getDownloadHook().orElse(null);

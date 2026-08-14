@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.persistence;
 
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import eu.nurkert.neverUp2Late.util.YamlFiles;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -46,7 +47,7 @@ public class PluginUpdateSettingsRepository {
     private void initialise() {
         ensureDataFolderExists();
         ensureStateFileExists();
-        configuration = YamlConfiguration.loadConfiguration(stateFile);
+        configuration = YamlFiles.loadOrQuarantine(stateFile, logger);
         if (configuration.getConfigurationSection(ROOT_NODE) == null) {
             configuration.createSection(ROOT_NODE);
             saveInternal();

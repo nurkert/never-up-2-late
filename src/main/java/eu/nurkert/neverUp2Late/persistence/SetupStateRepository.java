@@ -1,6 +1,7 @@
 package eu.nurkert.neverUp2Late.persistence;
 
 import org.bukkit.configuration.file.FileConfiguration;
+import eu.nurkert.neverUp2Late.util.YamlFiles;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -57,7 +58,7 @@ public class SetupStateRepository {
     private void initialise() {
         ensureDataFolderExists();
         ensureStateFileExists();
-        configuration = YamlConfiguration.loadConfiguration(stateFile);
+        configuration = YamlFiles.loadOrQuarantine(stateFile, logger);
         if (!configuration.isConfigurationSection(ROOT_NODE)) {
             configuration.createSection(ROOT_NODE);
             configuration.set(ROOT_NODE + "." + PHASE_NODE, SetupPhase.UNINITIALISED.name());

@@ -110,22 +110,7 @@ public class CurseforgeFetcher extends JsonUpdateFetcher {
 
     @Override
     public String getInstalledVersion() {
-        String pluginName = config.installedPluginName();
-        if (pluginName == null || pluginName.isBlank()) {
-            return null;
-        }
-
-        PluginManager pluginManager = Bukkit.getPluginManager();
-        if (pluginManager == null) {
-            return null;
-        }
-
-        Plugin plugin = pluginManager.getPlugin(pluginName);
-        if (plugin == null) {
-            return null;
-        }
-
-        return plugin.getDescription().getVersion();
+        return installedVersionOf(config.installedPluginName());
     }
 
     private boolean isEligible(CurseforgeFile file) {

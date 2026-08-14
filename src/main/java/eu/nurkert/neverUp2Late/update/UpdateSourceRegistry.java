@@ -146,6 +146,18 @@ public class UpdateSourceRegistry {
         }
 
         if (configuredSources == null || configuredSources.isEmpty()) {
+            // "Not configured yet" and "deliberately emptied" look the same in an
+            // empty list, but they mean the opposite. Only a config that never
+            // mentioned updates.sources gets the defaults - otherwise removing
+            // the last source brought Paper, Geyser and the self-update entry
+            // back on the next start, and they started updating again.
+            // isSet, not contains: contains also sees the defaults shipped
+            // inside the jar and would therefore always be true.
+            if (configuration.isSet("updates.sources")) {
+                logger.log(Level.FINE,
+                        "updates.sources is present but empty; leaving it empty instead of applying defaults.");
+                return;
+            }
             logger.log(Level.INFO,
                     "No update sources configured under updates.sources; applying legacy defaults for Paper and Geyser.");
             configuredSources = createLegacyDefaults();
@@ -220,13 +232,14 @@ public class UpdateSourceRegistry {
         geyser.put("target", TargetDirectory.PLUGINS.name());
 
         Map<String, Object> self = new HashMap<>();
-        self.put("name", "neverUp2Late");
+        self.put("name", "neverup2late");
         self.put("type", "githubRelease");
         self.put("target", TargetDirectory.PLUGINS.name());
         self.put("filename", "NeverUp2Late.jar");
         Map<String, Object> selfOptions = new HashMap<>();
         selfOptions.put("owner", "nurkert");
         selfOptions.put("repository", "never-up-2-late");
+        selfOptions.put("assetPattern", "^NeverUp2Late\\.jar$");
         selfOptions.put("installedPlugin", "NeverUp2Late");
         self.put("options", selfOptions);
 

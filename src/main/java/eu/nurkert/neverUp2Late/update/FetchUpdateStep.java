@@ -16,10 +16,18 @@ public class FetchUpdateStep implements UpdateStep {
 
     private final PersistentPluginHandler persistentPluginHandler;
     private final VersionComparator versionComparator;
+    private final boolean respectManualRollback;
 
     public FetchUpdateStep(PersistentPluginHandler persistentPluginHandler, VersionComparator versionComparator) {
+        this(persistentPluginHandler, versionComparator, true);
+    }
+
+    public FetchUpdateStep(PersistentPluginHandler persistentPluginHandler,
+                           VersionComparator versionComparator,
+                           boolean respectManualRollback) {
         this.persistentPluginHandler = persistentPluginHandler;
         this.versionComparator = versionComparator;
+        this.respectManualRollback = respectManualRollback;
     }
 
     @Override
@@ -56,18 +64,29 @@ public class FetchUpdateStep implements UpdateStep {
         String key = context.getSource().getName();
         int storedBuild = persistentPluginHandler.getStoredBuild(key);
         String storedVersion = persistentPluginHandler.getStoredVersion(key);
+        String latestVersion = fetcher.getLatestVersion();
 
         if (storedBuild < fetcher.getLatestBuild()) {
             return true;
         }
 
+        // We already wrote exactly this version to disk. Whether the *running*
+        // plugin reports it yet is irrelevant - it will after the pending
+        // restart. Trusting the live value here is what made the updater
+        // re-download and re-install the same build on every single cycle
+        // whenever the two sides spell a version differently (a "v" prefix, a
+        // "-SNAPSHOT" suffix), and what silently undid a manual rollback.
+        if (respectManualRollback && storedVersion != null && latestVersion != null
+                && storedVersion.equalsIgnoreCase(latestVersion)) {
+            return false;
+        }
+
         String installedVersion = fetcher.getInstalledVersion();
-        String latestVersion = fetcher.getLatestVersion();
         if (installedVersion != null && latestVersion != null) {
             return versionComparator.compare(installedVersion, latestVersion) < 0;
         }
 
-        // Fallback: vergleiche gespeicherten Versionsstring, wenn der Fetcher selbst keinen installedVersion-Wert liefert
+        // Fallback: compare the stored version string when the fetcher does not report an installed version itself.
         if (storedVersion != null && latestVersion != null) {
             return !storedVersion.equalsIgnoreCase(latestVersion);
         }

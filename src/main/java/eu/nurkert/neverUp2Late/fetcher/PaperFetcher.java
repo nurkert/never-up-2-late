@@ -25,6 +25,7 @@ public class PaperFetcher extends JsonUpdateFetcher {
 
     private final boolean fetchStableVersions;
     private final int minimumUnstableBuildNumber;
+    private final boolean allowGameVersionUpgrade;
 
     public PaperFetcher() {
         this(true);
@@ -43,14 +44,23 @@ public class PaperFetcher extends JsonUpdateFetcher {
     }
 
     PaperFetcher(boolean fetchStableVersions, int minimumUnstableBuildNumber, HttpClient httpClient) {
+        this(fetchStableVersions, minimumUnstableBuildNumber, false, httpClient);
+    }
+
+    PaperFetcher(boolean fetchStableVersions,
+                 int minimumUnstableBuildNumber,
+                 boolean allowGameVersionUpgrade,
+                 HttpClient httpClient) {
         super(httpClient);
         this.fetchStableVersions = fetchStableVersions;
         this.minimumUnstableBuildNumber = Math.max(0, minimumUnstableBuildNumber);
+        this.allowGameVersionUpgrade = allowGameVersionUpgrade;
     }
 
     PaperFetcher(ConfigurationSection options, HttpClient httpClient) {
         this(determineStablePreference(options),
                 determineMinimumUnstableBuildNumber(options, determineStablePreference(options)),
+                options != null && options.getBoolean("allowGameVersionUpgrade", false),
                 httpClient);
     }
 
@@ -71,8 +81,16 @@ public class PaperFetcher extends JsonUpdateFetcher {
         LOGGER.fine("Paper API returned versions: " + versions);
 
         String newestVersion = versions.get(0);
-        String installedVersion = null;
-        boolean restrictToInstalled = false;
+        // Stay on the Minecraft version the server actually runs. Paper
+        // publishes builds for the next major version long before an operator
+        // is ready for it, and installing one silently restarts the server into
+        // a version its worlds and plugins were never prepared for. Only an
+        // explicit opt-in lifts the cap.
+        String installedVersion = allowGameVersionUpgrade ? null : getInstalledVersion();
+        boolean restrictToInstalled = !allowGameVersionUpgrade;
+        if (restrictToInstalled) {
+            LOGGER.fine("Restricting Paper updates to the installed Minecraft version " + installedVersion);
+        }
 
         Exception lastError = null;
         for (String version : versions) {
@@ -81,11 +99,22 @@ public class PaperFetcher extends JsonUpdateFetcher {
                     installedVersion = getInstalledVersion();
                     LOGGER.fine("Installed Minecraft version detected as " + installedVersion);
                 }
-                if (installedVersion != null && !installedVersion.isEmpty()
-                        && comparator.compare(version, installedVersion) > 0) {
-                    LOGGER.fine("Skipping version " + version
-                            + " because it exceeds installed version " + installedVersion);
-                    continue;
+                if (installedVersion != null && !installedVersion.isEmpty()) {
+                    int order = comparator.compare(version, installedVersion);
+                    if (order > 0) {
+                        LOGGER.fine("Skipping version " + version
+                                + " because it exceeds installed version " + installedVersion);
+                        continue;
+                    }
+                    if (order < 0) {
+                        // The list is sorted descending, so everything from here
+                        // on is older than what the server runs. Walking on would
+                        // hand out a build for a previous Minecraft version and
+                        // downgrade the server.
+                        LOGGER.warning("No Paper build found for the installed Minecraft version "
+                                + installedVersion + "; leaving the server jar untouched.");
+                        break;
+                    }
                 }
             }
             try {

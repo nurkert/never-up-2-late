@@ -41,6 +41,7 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BukkitManagedPluginTest {
@@ -139,10 +140,82 @@ class BukkitManagedPluginTest {
         }
     }
 
+    @Test
+    void refusesToLoadAJarWhosePluginIsAlreadyRunning() throws Exception {
+        Path directory = Files.createTempDirectory("nu2l-guard-");
+        Path jar = writePluginJar(directory, "TestPlugin", "1.0");
+        CountingPlugin running = new CountingPlugin("TestPlugin");
+        CountingPluginManager manager = new CountingPluginManager(running, jar);
+        manager.registered = running;
+
+        // A fresh handle for a path we do not track: its unload() is a no-op, so
+        // loading would put a SECOND copy of TestPlugin into the server.
+        BukkitManagedPlugin managed = new BukkitManagedPlugin(null, jar, manager, LOGGER);
+
+        PluginLifecycleException failure = assertThrows(PluginLifecycleException.class, managed::load);
+        assertTrue(failure.getMessage().contains("already running"), failure.getMessage());
+        assertEquals(0, running.getOnLoadCalls(), "the jar must not have been loaded");
+    }
+
+    @Test
+    void stillReloadsTheInstanceItJustUnloaded() throws Exception {
+        Path directory = Files.createTempDirectory("nu2l-guard-");
+        Path jar = writePluginJar(directory, "TestPlugin", "1.0");
+        CountingPlugin running = new CountingPlugin("TestPlugin");
+        CountingPluginManager manager = new CountingPluginManager(running, jar);
+        // Bukkit still answers with the old instance after unload - on Paper the
+        // reflective purge cannot reach the real registry. That must not be
+        // mistaken for a second copy, or a reload would leave the server without
+        // the plugin at all.
+        manager.registered = running;
+
+        BukkitManagedPlugin managed = new BukkitManagedPlugin(running, jar, manager, LOGGER);
+        managed.unload();
+        managed.load();
+
+        assertEquals(1, running.getOnLoadCalls(), "the reload must go through");
+    }
+
+    @Test
+    void enableDoesNotFailWhenThePluginStaysDisabled() throws Exception {
+        Path directory = Files.createTempDirectory("nu2l-guard-");
+        Path jar = writePluginJar(directory, "TestPlugin", "1.0");
+        CountingPlugin plugin = new CountingPlugin("TestPlugin");
+        CountingPluginManager manager = new CountingPluginManager(plugin, jar);
+        manager.enableSucceeds = false;
+
+        BukkitManagedPlugin managed = new BukkitManagedPlugin(plugin, jar, manager, LOGGER);
+
+        // A plugin may shut itself down on purpose (missing config, missing
+        // dependency). Reporting that as a lifecycle failure would force a
+        // pointless server restart.
+        managed.enable();
+        assertFalse(managed.isEnabled());
+    }
+
+    private static Path writePluginJar(Path directory, String name, String version) throws Exception {
+        Path jar = directory.resolve(name + ".jar");
+        try (java.util.zip.ZipOutputStream zip =
+                     new java.util.zip.ZipOutputStream(Files.newOutputStream(jar))) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("plugin.yml"));
+            zip.write(("name: " + name + "\nversion: " + version + "\nmain: example.Main\n")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        jar.toFile().deleteOnExit();
+        return jar;
+    }
+
+    private static final Logger LOGGER = Logger.getLogger("BukkitManagedPluginTest");
+
     private static final class CountingPluginManager implements PluginManager {
 
         private final Plugin plugin;
         private final Path expectedPath;
+        /** Plugin the server reports as currently running, if any. */
+        private Plugin registered;
+        /** When false, enablePlugin leaves the plugin disabled (as Bukkit does after a failed onEnable). */
+        private boolean enableSucceeds = true;
 
         private CountingPluginManager(Plugin plugin, Path expectedPath) {
             this.plugin = plugin;
@@ -165,7 +238,7 @@ class BukkitManagedPluginTest {
 
         @Override
         public Plugin getPlugin(String name) {
-            throw new UnsupportedOperationException();
+            return registered != null && registered.getName().equals(name) ? registered : null;
         }
 
         @Override
@@ -220,7 +293,9 @@ class BukkitManagedPluginTest {
 
         @Override
         public void enablePlugin(Plugin plugin) {
-            throw new UnsupportedOperationException();
+            if (enableSucceeds && plugin instanceof CountingPlugin counting) {
+                counting.enabled = true;
+            }
         }
 
         @Override
@@ -491,6 +566,7 @@ class BukkitManagedPluginTest {
         private final String name;
         private int onLoadCalls = 0;
         private boolean naggable = true;
+        private boolean enabled = false;
 
         private CountingPlugin(String name) {
             this.name = name;
@@ -544,7 +620,7 @@ class BukkitManagedPluginTest {
 
         @Override
         public boolean isEnabled() {
-            return false;
+            return enabled;
         }
 
         @Override

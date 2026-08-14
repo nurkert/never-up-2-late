@@ -16,10 +16,12 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.update.VersionComparator;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
+import eu.nurkert.neverUp2Late.util.LogThrottle;
 import org.bukkit.ChatColor;
 import org.bukkit.Server;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
@@ -32,9 +34,11 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -44,6 +48,17 @@ import java.util.HashMap;
 public class UpdateHandler {
 
     private static final long MINIMUM_UPDATE_INTERVAL_MINUTES = 30L;
+
+    /**
+     * How long the first check waits after the plugin was enabled. Starting
+     * immediately would put a network round trip, disk writes and possibly a
+     * restart into the middle of the server boot, while worlds are loading and
+     * the other plugins are still enabling.
+     */
+    private static final long DEFAULT_STARTUP_DELAY_SECONDS = 60L;
+
+    /** Time the shutdown waits for an update run that is still in flight. */
+    private static final long SHUTDOWN_GRACE_SECONDS = 5L;
 
     private final JavaPlugin plugin;
     private final Server server;
@@ -63,6 +78,7 @@ public class UpdateHandler {
     private volatile boolean shuttingDown;
     private BukkitTask scheduledTask;
     private final ReentrantLock updateRunLock = new ReentrantLock();
+    private final LogThrottle logThrottle;
 
     private boolean networkWarningShown;
 
@@ -87,13 +103,31 @@ public class UpdateHandler {
         this.artifactDownloader = artifactDownloader;
         this.versionComparator = versionComparator;
         this.logger = plugin.getLogger();
+        this.logThrottle = new LogThrottle(this.logger);
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
         this.pluginLifecycleManager = pluginLifecycleManager;
         this.updateSettingsRepository = updateSettingsRepository;
         this.setupStateRepository = setupStateRepository;
     }
 
+    /**
+     * Starts the periodic check, holding the first run back by the configured
+     * startup delay so it does not collide with the server boot.
+     */
     public void start() {
+        start(Math.max(0L, configuration.getLong("startupDelaySeconds", DEFAULT_STARTUP_DELAY_SECONDS)));
+    }
+
+    /**
+     * Starts the periodic check with the first run right away. Used after the
+     * setup wizard, where the server is long up and the user expects to see
+     * something happen.
+     */
+    public void startNow() {
+        start(0L);
+    }
+
+    private void start(long startupDelaySeconds) {
         long configuredIntervalMinutes = configuration.getInt("updateInterval");
         long intervalMinutes = Math.max(MINIMUM_UPDATE_INTERVAL_MINUTES, configuredIntervalMinutes);
         if (configuredIntervalMinutes < MINIMUM_UPDATE_INTERVAL_MINUTES) {
@@ -106,7 +140,8 @@ public class UpdateHandler {
             scheduledTask.cancel();
         }
         shuttingDown = false;
-        scheduledTask = scheduler.runTaskTimerAsynchronously(plugin, this::checkForUpdates, 0L, intervalTicks);
+        scheduledTask = scheduler.runTaskTimerAsynchronously(
+                plugin, this::checkForUpdates, startupDelaySeconds * 20L, intervalTicks);
     }
 
     public void stop() {
@@ -114,6 +149,32 @@ public class UpdateHandler {
         if (scheduledTask != null) {
             scheduledTask.cancel();
             scheduledTask = null;
+        }
+        awaitRunningUpdate();
+    }
+
+    /**
+     * Lets an update run that is currently in flight finish before the server
+     * tears everything down, so downloads and file moves are not interrupted
+     * halfway through.
+     */
+    private void awaitRunningUpdate() {
+        if (server.isPrimaryThread()) {
+            // Never stall the server thread on shutdown. The volatile
+            // shuttingDown flag already makes the update run bail out at its
+            // next checkpoint, and every download writes to a staging file that
+            // is moved into place atomically - so being cut off mid-transfer
+            // cannot damage the installed artifact.
+            return;
+        }
+        try {
+            if (updateRunLock.tryLock(SHUTDOWN_GRACE_SECONDS, TimeUnit.SECONDS)) {
+                updateRunLock.unlock();
+            } else {
+                logger.log(Level.FINE, "An update run was still active while shutting down.");
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -148,9 +209,9 @@ public class UpdateHandler {
             if (normalizedDest != null) {
                 String existing = destinationsSeen.putIfAbsent(normalizedDest, source.getName());
                 if (existing != null) {
-                    logger.log(Level.WARNING,
+                    logThrottle.log("duplicate-destination:" + source.getName(), Level.WARNING,
                             "Skipped update for source {0} because destination {1} is already handled by {2}.",
-                            new Object[]{source.getName(), normalizedDest, existing});
+                            source.getName(), normalizedDest, existing);
                     continue;
                 }
             }
@@ -162,20 +223,21 @@ public class UpdateHandler {
             configureRetention(context, destination);
 
             try {
-                job.run(context);
-                handleFilenameRetention(context);
+                runJob(job, context);
+                logThrottle.clear(failureKey(source));
             } catch (UnknownHostException e) {
                 networkIssueThisRun = true;
                 handleUnknownHost(source, e);
             } catch (IOException e) {
-                logger.log(Level.WARNING,
-                        "I/O error while updating {0}: {1}", new Object[]{source.getName(), e.getMessage()});
+                logThrottle.log(failureKey(source), Level.WARNING,
+                        "I/O error while updating {0}: {1}", source.getName(), e.getMessage());
             } catch (Exception e) {
                 if (shuttingDown || !plugin.isEnabled()) {
                     logger.log(Level.FINEST, "Update check aborted while plugin is disabling", e);
                     break;
                 }
-                logger.log(Level.SEVERE, "Unexpected error while checking updates for " + source.getName(), e);
+                logThrottle.log(failureKey(source), Level.SEVERE,
+                        "Unexpected error while checking updates for " + source.getName(), e);
             }
         }
 
@@ -194,13 +256,25 @@ public class UpdateHandler {
         }
         String filename = source.getFilename();
         if (filename == null || filename.isBlank()) {
-            logger.log(Level.WARNING, "Update source {0} has no filename configured; skipping.", source.getName());
+            logThrottle.log("no-filename:" + source.getName(), Level.WARNING,
+                    "Update source {0} has no filename configured; skipping.", source.getName());
             return null;
         }
         File destinationDirectory = source.getTargetDirectory() == TargetDirectory.SERVER
                 ? serverFolder
                 : pluginsFolder;
         Path expectedPath = new File(destinationDirectory, filename).toPath();
+
+        // A filename is only ever a name. Anything that escapes the target
+        // directory - whether it came from a config file or from a remote
+        // header - would have us write outside of it.
+        Path expectedParent = expectedPath.toAbsolutePath().normalize().getParent();
+        if (expectedParent == null || !expectedParent.equals(destinationDirectory.toPath().toAbsolutePath().normalize())) {
+            logThrottle.log("unsafe-filename:" + source.getName(), Level.WARNING,
+                    "Skipping update source {0}: the configured filename {1} points outside {2}.",
+                    source.getName(), filename, destinationDirectory);
+            return null;
+        }
 
         if (Files.exists(expectedPath)) {
             return expectedPath;
@@ -219,13 +293,11 @@ public class UpdateHandler {
                 if (actualPath.getParent() != null && actualPath.getParent().equals(destinationDirectory.toPath())) {
                     String actualFilename = actualPath.getFileName().toString();
                     if (!actualFilename.equalsIgnoreCase(source.getFilename())) {
-                        logger.log(Level.INFO, "Detected filename mismatch for {0}. recovering from {1} to {2}",
+                        logger.log(Level.INFO, "Detected filename mismatch for {0}; recovering from {1} to {2}.",
                                 new Object[]{source.getName(), source.getFilename(), actualFilename});
-                        
-                        updateSourceRegistry.updateSourceFilename(source.getName(), actualFilename);
-                        configuration.set("filenames." + source.getName(), actualFilename);
-                        plugin.saveConfig();
-                        
+
+                        persistFilename(source.getName(), actualFilename);
+
                         return actualPath;
                     }
                 }
@@ -236,6 +308,26 @@ public class UpdateHandler {
     }
 
     /**
+     * Runs a pipeline and only afterwards announces the finished installation.
+     * The rename to the upstream filename and the duplicate cleanup happen on
+     * this thread after the pipeline, so dispatching the completion earlier
+     * would let the reload on the main thread race against a jar that is still
+     * being moved.
+     */
+    private void runJob(UpdateJob job, UpdateContext context) throws Exception {
+        try {
+            job.run(context);
+            handleFilenameRetention(context);
+        } finally {
+            context.dispatchCompletion();
+        }
+    }
+
+    private String failureKey(UpdateSource source) {
+        return "update-failure:" + source.getName();
+    }
+
+    /**
      * Creates the default update pipeline consisting of fetch, download and
      * install steps. Plugins can register new steps by overriding this method
      * or by modifying the returned {@link UpdateJob} prior to execution in
@@ -243,7 +335,8 @@ public class UpdateHandler {
      */
     private UpdateJob createDefaultJob() {
         return new UpdateJob()
-                .addStep(new FetchUpdateStep(persistentPluginHandler, versionComparator))
+                .addStep(new FetchUpdateStep(persistentPluginHandler, versionComparator,
+                        configuration.getBoolean("updates.respectManualRollback", true)))
                 .addStep(new DownloadUpdateStep(artifactDownloader))
                 .addStep(new InstallUpdateStep(plugin, persistentPluginHandler, installationHandler));
     }
@@ -259,22 +352,50 @@ public class UpdateHandler {
 
     public void runJobNow(UpdateSource source, CommandSender sender) {
         Objects.requireNonNull(source, "source");
-        if (shuttingDown || !plugin.isEnabled()) {
-            notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
-            return;
-        }
-        scheduler.runTaskAsynchronously(plugin, () -> executeManualRun(source, sender));
+        runJobsNow(List.of(source), sender);
     }
 
-    private void executeManualRun(UpdateSource source, CommandSender sender) {
+    /**
+     * Runs several sources one after another under a single lock.
+     *
+     * <p>Starting one task per source instead makes all of them race for the
+     * same exclusive lock, and every loser is answered with "another update run
+     * is in progress" and simply dropped - which is what happened when the setup
+     * wizard kicked off its downloads.</p>
+     */
+    public void runJobsNow(List<UpdateSource> sources, CommandSender sender) {
+        if (sources == null || sources.isEmpty()) {
+            return;
+        }
         if (shuttingDown || !plugin.isEnabled()) {
             notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
             return;
         }
-        if (!updateRunLock.tryLock()) {
-            notify(sender, ChatColor.RED + "Another update run is currently in progress. Please try again shortly.");
-            return;
-        }
+        List<UpdateSource> queue = List.copyOf(sources);
+        scheduler.runTaskAsynchronously(plugin, () -> {
+            if (shuttingDown || !plugin.isEnabled()) {
+                notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
+                return;
+            }
+            if (!updateRunLock.tryLock()) {
+                notify(sender, ChatColor.RED + "Another update run is currently in progress. Please try again shortly.");
+                return;
+            }
+            try {
+                for (UpdateSource source : queue) {
+                    if (shuttingDown || !plugin.isEnabled()) {
+                        break;
+                    }
+                    executeManualRun(source, sender);
+                }
+            } finally {
+                updateRunLock.unlock();
+            }
+        });
+    }
+
+    /** Runs one manual job. The caller already holds {@link #updateRunLock}. */
+    private void executeManualRun(UpdateSource source, CommandSender sender) {
         try {
             File pluginsFolder = plugin.getDataFolder().getParentFile();
             File serverFolder = server.getWorldContainer().getAbsoluteFile();
@@ -289,8 +410,8 @@ public class UpdateHandler {
 
             notify(sender, ChatColor.YELLOW + "Checking " + displayName(source) + " for new versions…");
 
-            job.run(context);
-            handleFilenameRetention(context);
+            runJob(job, context);
+            logThrottle.clear(failureKey(source));
             if (context.isCancelled()) {
                 String reason = context.getCancelReason().orElse("Installation cancelled.");
                 notify(sender, ChatColor.GOLD + reason);
@@ -316,8 +437,6 @@ public class UpdateHandler {
         } catch (Exception e) {
             notify(sender, ChatColor.RED + "Unexpected error: " + e.getMessage());
             logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
-        } finally {
-            updateRunLock.unlock();
         }
     }
 
@@ -375,7 +494,19 @@ public class UpdateHandler {
         if (sender == null || message == null) {
             return;
         }
-        scheduler.runTask(plugin, () -> sender.sendMessage(messagePrefix + message));
+        String text = messagePrefix + message;
+        if (runOnMainThread(() -> sender.sendMessage(text))) {
+            return;
+        }
+        // Nothing can be scheduled any more (the server is going down). Talking
+        // to a Player off the server thread is not safe, so only the console -
+        // which is - gets the message directly; for anyone else it goes to the
+        // log rather than being lost silently.
+        if (sender instanceof org.bukkit.command.ConsoleCommandSender) {
+            sender.sendMessage(text);
+        } else {
+            logger.log(Level.FINE, "Dropped a message during shutdown: {0}", message);
+        }
     }
 
     private String displayName(UpdateSource source) {
@@ -454,6 +585,16 @@ public class UpdateHandler {
         if (remoteFilename == null || remoteFilename.isBlank()) {
             return;
         }
+        // The upstream name comes from the download URL, which for a Spiget
+        // download or a GitHub source archive is something like "download" or
+        // "v2.4.6.zip". Renaming a plugin jar to that makes Bukkit ignore it
+        // from the next start on, so the plugin would simply be gone.
+        if (!remoteFilename.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            logThrottle.log("upstream-filename:" + context.getSource().getName(), Level.WARNING,
+                    "Keeping the current filename for {0}: the upstream name {1} is not a .jar.",
+                    context.getSource().getName(), remoteFilename);
+            return;
+        }
 
         String pluginName = resolvePluginName(context.getSource(), currentPath);
         String detectedName = ArchiveUtils.getPluginInfo(currentPath)
@@ -480,6 +621,8 @@ public class UpdateHandler {
             return;
         }
 
+        Path renamedFrom = null;
+        Path renamedTo = null;
         if (Files.exists(currentPath) && !currentPath.equals(newPath)) {
             boolean renamed = false;
             try {
@@ -513,14 +656,73 @@ public class UpdateHandler {
                 if (pluginLifecycleManager != null) {
                     pluginLifecycleManager.updateManagedPluginPath(currentPath, newPath);
                 }
+                renamedFrom = currentPath;
+                renamedTo = newPath;
                 currentPath = newPath;
             }
         }
 
-        boolean updated = updateSourceRegistry.updateSourceFilename(context.getSource().getName(), currentPath.getFileName().toString());
-        if (updated) {
-            configuration.set("filenames." + context.getSource().getName(), currentPath.getFileName().toString());
-            plugin.saveConfig();
+        if (!persistFilename(context.getSource().getName(), currentPath.getFileName().toString())
+                && renamedTo != null) {
+            // The server is shutting down and the config write could not be
+            // scheduled. Undo the rename rather than leaving the file under a
+            // name the configuration does not know about.
+            try {
+                Files.move(renamedTo, renamedFrom);
+                context.setDownloadDestination(renamedFrom);
+                context.setDownloadedArtifact(renamedFrom);
+                if (pluginLifecycleManager != null) {
+                    pluginLifecycleManager.updateManagedPluginPath(renamedTo, renamedFrom);
+                }
+                logger.log(Level.FINE, "Reverted the rename of {0} because the config write was not possible.",
+                        renamedTo.getFileName());
+            } catch (IOException ex) {
+                logger.log(Level.WARNING, "Renamed artifact to " + renamedTo.getFileName()
+                        + " but could not record it in the configuration", ex);
+            }
+        }
+    }
+
+    /**
+     * Records a changed jar name in the registry and on disk.
+     *
+     * <p>Runs on the main thread: the update pipeline works asynchronously,
+     * while {@code FileConfiguration} is shared with commands and the GUI and
+     * is not thread-safe. Writing it from the update thread can interleave with
+     * a read on the main thread and leave a damaged config behind.</p>
+     */
+    private boolean persistFilename(String sourceName, String filename) {
+        return runOnMainThread(() -> {
+            if (updateSourceRegistry.updateSourceFilename(sourceName, filename)) {
+                configuration.set("filenames." + sourceName, filename);
+                plugin.saveConfig();
+            }
+        });
+    }
+
+    /**
+     * Executes {@code action} on the server thread, or right away if already
+     * there.
+     *
+     * @return {@code false} if the plugin is already disabled and nothing could
+     *         be scheduled. Bukkit answers a scheduling attempt on a disabled
+     *         plugin with an exception, which would show up as a stack trace in
+     *         the console every time the server stops mid-update.
+     */
+    private boolean runOnMainThread(Runnable action) {
+        if (!plugin.isEnabled()) {
+            return false;
+        }
+        if (server.isPrimaryThread()) {
+            action.run();
+            return true;
+        }
+        try {
+            scheduler.runTask(plugin, action);
+            return true;
+        } catch (IllegalPluginAccessException | IllegalStateException ex) {
+            logger.log(Level.FINE, "Skipped a main thread task because the server is shutting down", ex);
+            return false;
         }
     }
 

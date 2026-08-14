@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
@@ -59,9 +60,86 @@ class InstallationHandlerTest {
         handler.onUpdateCompleted(createEvent());
         assertEquals(0, shutdownCalls.get(), "Restart must be deferred while players are online");
 
-        players.clear();
-        handler.onPlayerLeave(new PlayerQuitEvent(createPlayer(), ""));
+        // Bukkit fires PlayerQuitEvent while the quitting player is STILL listed
+        // as online, so the list must stay populated here. Clearing it first (as
+        // this test used to) hid the fact that the restart never fired.
+        Player leaving = players.iterator().next();
+        handler.onPlayerLeave(new PlayerQuitEvent(leaving, ""));
         assertEquals(1, shutdownCalls.get(), "Restart should happen once the last player leaves");
+    }
+
+    @Test
+    void keepsWaitingWhileOtherPlayersRemainOnline() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Collection<Player> players = new ArrayList<>();
+        players.add(createPlayer());
+        players.add(createPlayer());
+        Logger logger = Logger.getLogger("test");
+
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
+        Server server = createServer(players, shutdownCalls, logger);
+        InstallationHandler handler = new InstallationHandler(server, createRepository(logger), logger, null, null, clock);
+
+        handler.onUpdateCompleted(createEvent());
+
+        Player leaving = players.iterator().next();
+        handler.onPlayerLeave(new PlayerQuitEvent(leaving, ""));
+
+        assertEquals(0, shutdownCalls.get(), "One player is still online, so the restart must keep waiting");
+    }
+
+    @Test
+    void appliesEveryQueuedUpdateNotJustTheLastOne() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Collection<Player> players = new ArrayList<>();
+        players.add(createPlayer());
+        Logger logger = Logger.getLogger("test");
+
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
+        Server server = createServer(players, shutdownCalls, logger);
+        StubLifecycleManager lifecycleManager = new StubLifecycleManager();
+        lifecycleManager.reloadResult = true;
+        InstallationHandler handler =
+                new InstallationHandler(server, createRepository(logger), logger, lifecycleManager, null, clock);
+
+        UpdateCompletedEvent first = createEvent("alpha", TargetDirectory.PLUGINS);
+        UpdateCompletedEvent second = createEvent("beta", TargetDirectory.PLUGINS);
+        lifecycleManager.known.add(first.getDestination());
+        lifecycleManager.known.add(second.getDestination());
+
+        handler.onUpdateCompleted(first);
+        handler.onUpdateCompleted(second);
+        assertEquals(0, lifecycleManager.reloadCount, "Nothing may be applied while a player is online");
+
+        Player leaving = players.iterator().next();
+        handler.onPlayerLeave(new PlayerQuitEvent(leaving, ""));
+
+        assertEquals(2, lifecycleManager.reloadCount,
+                "Both queued updates must be applied; a single pending slot dropped the first one");
+        assertTrue(lifecycleManager.reloadedPaths.contains(first.getDestination()));
+        assertTrue(lifecycleManager.reloadedPaths.contains(second.getDestination()));
+    }
+
+    @Test
+    void neverLoadsAJarThatIsNotAKnownRunningPlugin() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Collection<Player> players = new ArrayList<>();
+        Logger logger = Logger.getLogger("test");
+
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
+        Server server = createServer(players, shutdownCalls, logger);
+        StubLifecycleManager lifecycleManager = new StubLifecycleManager();
+        lifecycleManager.reloadResult = true;
+        InstallationHandler handler =
+                new InstallationHandler(server, createRepository(logger), logger, lifecycleManager, null, clock);
+
+        // 'known' stays empty: the destination is not a plugin we track, which is
+        // what happens right after the jar was renamed. Loading it by path would
+        // start a SECOND copy of an already running plugin.
+        handler.onUpdateCompleted(createEvent());
+
+        assertEquals(0, lifecycleManager.reloadCount, "An unknown jar must not be loaded blind");
+        assertEquals(1, shutdownCalls.get(), "It must fall through to the restart instead");
     }
 
     @Test
@@ -103,6 +181,7 @@ class InstallationHandlerTest {
 
         InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null, clock);
         UpdateCompletedEvent event = createEvent();
+        lifecycleManager.known.add(event.getDestination());
 
         handler.onUpdateCompleted(event);
 
@@ -124,8 +203,10 @@ class InstallationHandlerTest {
         lifecycleManager.reloadResult = false;
 
         InstallationHandler handler = new InstallationHandler(server, repository, logger, lifecycleManager, null, clock);
+        UpdateCompletedEvent event = createEvent();
+        lifecycleManager.known.add(event.getDestination());
 
-        handler.onUpdateCompleted(createEvent());
+        handler.onUpdateCompleted(event);
 
         assertTrue(lifecycleManager.reloadCalled, "Plugin reload should be attempted");
         assertEquals(1, shutdownCalls.get(), "Server restart should occur when reload fails");
@@ -166,6 +247,60 @@ class InstallationHandlerTest {
         paperHandler.onUpdateCompleted(createEvent("paper", TargetDirectory.SERVER));
 
         assertEquals(2, shutdownCalls.get(), "Geyser and Paper updates should restart immediately");
+    }
+
+    @Test
+    void honoursRequireRestartEvenForAJarItDoesNotKnowByPath() throws IOException {
+        // The gate used to sit behind the findByPath lookup, so a jar the manager
+        // did not recognise was hot-reloaded although its setting said otherwise.
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Logger logger = Logger.getLogger("test");
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
+        Server server = createServer(new ArrayList<>(), shutdownCalls, logger);
+
+        StubLifecycleManager lifecycleManager = new StubLifecycleManager();
+        lifecycleManager.reloadResult = true;
+        PluginUpdateSettingsRepository settings = createSettingsRepository(logger);
+        UpdateCompletedEvent event = createEvent();
+        lifecycleManager.known.add(event.getDestination());
+        // REQUIRE_RESTART is the default, so nothing has to be written here.
+
+        InstallationHandler handler = new InstallationHandler(
+                server, createRepository(logger), logger, lifecycleManager, settings, clock);
+        handler.onUpdateCompleted(event);
+
+        assertEquals(0, lifecycleManager.reloadCount, "REQUIRE_RESTART must not hot-reload");
+        assertEquals(1, shutdownCalls.get(), "It must restart instead");
+    }
+
+    @Test
+    void hotReloadsWhenTheSettingAsksForIt() throws IOException {
+        AtomicInteger shutdownCalls = new AtomicInteger();
+        Logger logger = Logger.getLogger("test");
+        Clock clock = MutableClock.fixedAt(LocalDateTime.of(2024, 1, 1, 4, 0));
+        Server server = createServer(new ArrayList<>(), shutdownCalls, logger);
+
+        StubLifecycleManager lifecycleManager = new StubLifecycleManager();
+        lifecycleManager.reloadResult = true;
+        PluginUpdateSettingsRepository settings = createSettingsRepository(logger);
+        UpdateCompletedEvent event = createEvent();
+        lifecycleManager.known.add(event.getDestination());
+        settings.saveSettings(new StubManagedPlugin(event.getDestination()).getName(),
+                new PluginUpdateSettingsRepository.PluginUpdateSettings(
+                        true, PluginUpdateSettingsRepository.UpdateBehaviour.AUTO_RELOAD, false));
+
+        InstallationHandler handler = new InstallationHandler(
+                server, createRepository(logger), logger, lifecycleManager, settings, clock);
+        handler.onUpdateCompleted(event);
+
+        assertEquals(1, lifecycleManager.reloadCount, "AUTO_RELOAD must reload");
+        assertEquals(0, shutdownCalls.get(), "A successful reload makes the restart unnecessary");
+    }
+
+    private PluginUpdateSettingsRepository createSettingsRepository(Logger logger) throws IOException {
+        Path directory = Files.createTempDirectory("nu2l-settings-");
+        directory.toFile().deleteOnExit();
+        return new PluginUpdateSettingsRepository(directory.toFile(), logger);
     }
 
     private RestartCooldownRepository createRepository(Logger logger) throws IOException {
@@ -248,10 +383,67 @@ class InstallationHandlerTest {
         throw new IllegalStateException("Unsupported primitive type: " + returnType);
     }
 
+    /** Stands in for a plugin the lifecycle manager already knows as running. */
+    private record StubManagedPlugin(Path path) implements eu.nurkert.neverUp2Late.plugin.ManagedPlugin {
+        @Override
+        public String getName() {
+            String name = path.getFileName().toString();
+            return name.endsWith(".jar") ? name.substring(0, name.length() - 4) : name;
+        }
+
+        @Override
+        public Path getPath() {
+            return path;
+        }
+
+        @Override
+        public void attach(org.bukkit.plugin.Plugin plugin) {
+        }
+
+        @Override
+        public java.util.Optional<org.bukkit.plugin.Plugin> getPlugin() {
+            return java.util.Optional.empty();
+        }
+
+        @Override
+        public boolean isLoaded() {
+            return true;
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return true;
+        }
+
+        @Override
+        public void load() {
+        }
+
+        @Override
+        public void enable() {
+        }
+
+        @Override
+        public void disable() {
+        }
+
+        @Override
+        public void unload() {
+        }
+
+        @Override
+        public void reload() {
+        }
+    }
+
     private static class StubLifecycleManager implements PluginLifecycleManager {
         boolean reloadCalled;
         boolean reloadResult;
         Path lastReloadPath;
+        int reloadCount;
+        final java.util.List<Path> reloadedPaths = new ArrayList<>();
+        /** Paths the manager knows as currently running plugins. */
+        final java.util.Set<Path> known = new java.util.LinkedHashSet<>();
 
         @Override
         public void registerPlugin(org.bukkit.plugin.Plugin plugin) {
@@ -273,7 +465,10 @@ class InstallationHandlerTest {
 
         @Override
         public java.util.Optional<eu.nurkert.neverUp2Late.plugin.ManagedPlugin> findByPath(Path path) {
-            return java.util.Optional.empty();
+            if (!known.contains(path)) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(new StubManagedPlugin(path));
         }
 
         @Override
@@ -285,7 +480,9 @@ class InstallationHandlerTest {
         @Override
         public boolean reloadPlugin(Path path) {
             reloadCalled = true;
+            reloadCount++;
             lastReloadPath = path;
+            reloadedPaths.add(path);
             return reloadResult;
         }
 

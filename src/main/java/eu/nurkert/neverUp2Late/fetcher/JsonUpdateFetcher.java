@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.PluginManager;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -126,6 +129,30 @@ public abstract class JsonUpdateFetcher implements UpdateFetcher {
             return OptionalInt.of(Integer.parseInt(matcher.group(1)));
         }
         return OptionalInt.empty();
+    }
+
+    /**
+     * Reads the version a plugin currently reports.
+     *
+     * <p>This runs on the update thread while the server thread may be loading
+     * or unloading plugins, and Bukkit's registry is a plain map. A hiccup there
+     * must not take the whole update run down: an unknown version simply means
+     * the decision falls back to the version recorded on disk.</p>
+     */
+    protected static String installedVersionOf(String pluginName) {
+        if (pluginName == null || pluginName.isBlank()) {
+            return null;
+        }
+        try {
+            PluginManager pluginManager = Bukkit.getPluginManager();
+            if (pluginManager == null) {
+                return null;
+            }
+            Plugin plugin = pluginManager.getPlugin(pluginName);
+            return plugin == null ? null : plugin.getDescription().getVersion();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     protected void setLatestBuildInfo(String version, int build, String downloadUrl) {

@@ -243,17 +243,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
             return null;
         }
 
-        PluginManager pluginManager = Bukkit.getPluginManager();
-        if (pluginManager == null) {
-            return null;
-        }
-
-        Plugin plugin = pluginManager.getPlugin(installedPluginName);
-        if (plugin == null) {
-            return null;
-        }
-
-        return plugin.getDescription().getVersion();
+        return installedVersionOf(installedPluginName);
     }
 
     private static Instant publishedAtOrMin(Release release) {

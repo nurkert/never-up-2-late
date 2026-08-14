@@ -1,5 +1,8 @@
 name: NeverUp2Late
-version: '2.4.4'
+# Filled in from the pom during the build - do not edit by hand, otherwise the
+# jar name of a release and the version the plugin reports about itself drift
+# apart and self-updating compares the wrong numbers.
+version: '${project.version}'
 main: eu.nurkert.neverUp2Late.NeverUp2Late
 author: nurkert
 api-version: '1.21'

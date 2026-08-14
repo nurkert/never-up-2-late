@@ -385,7 +385,7 @@ public class ArtifactDownloader {
                         // Backups are best-effort; a failed backup must not prevent installation.
                     }
                 }
-                // Atomar ersetzen (oder Fallback). Das Ziel bleibt bis hierhin intakt.
+                // Replace atomically (with a fallback). Up to this point the target stays intact.
                 moveAtomically(tempFile, destination);
                 hook.onSuccess(destination);
                 return destination;

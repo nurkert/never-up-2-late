@@ -87,17 +87,7 @@ public class JenkinsFetcher extends JsonUpdateFetcher {
             return null;
         }
 
-        PluginManager pluginManager = Bukkit.getPluginManager();
-        if (pluginManager == null) {
-            return null;
-        }
-
-        Plugin plugin = pluginManager.getPlugin(installedPluginName);
-        if (plugin == null) {
-            return null;
-        }
-
-        return plugin.getDescription().getVersion();
+        return installedVersionOf(installedPluginName);
     }
 
     private Build fetchPreferredBuild() throws IOException {

@@ -32,6 +32,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
     private final Set<String> supportedLoaders;
     private final Set<String> allowedStatuses;
     private final Set<String> allowedVersionTypes;
+    private final boolean preferStableVersions;
     private final Set<String> preferredGameVersions;
     private final boolean preferPrimaryFile;
     private final boolean requireBuildNumber;
@@ -55,6 +56,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         this.supportedLoaders = config.supportedLoaders;
         this.allowedStatuses = config.allowedStatuses;
         this.allowedVersionTypes = config.allowedVersionTypes;
+        this.preferStableVersions = config.preferStableVersions;
         this.preferredGameVersions = config.preferredGameVersions;
         this.preferPrimaryFile = config.preferPrimaryFile;
         this.requireBuildNumber = config.requireBuildNumber;
@@ -71,15 +73,15 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         }
 
         List<VersionResponse> eligible = versions.stream()
-                .filter(version -> allowedStatuses.isEmpty() ||
-                        allowedStatuses.contains(normalize(version.status())))
-                .filter(version -> allowedVersionTypes.isEmpty() ||
-                        allowedVersionTypes.contains(normalize(version.versionType())))
+                .filter(version -> matchesFilter(allowedStatuses, version.status()))
+                .filter(version -> matchesFilter(allowedVersionTypes, version.versionType()))
                 .collect(Collectors.toList());
 
         if (eligible.isEmpty()) {
             throw new IOException("No versions matched the configured criteria for " + apiUrl);
         }
+
+        eligible = applyStabilityPreference(eligible);
 
         String targetGameVersion = determineTargetGameVersion(eligible);
 
@@ -104,17 +106,46 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             return null;
         }
 
-        PluginManager pluginManager = Bukkit.getPluginManager();
-        if (pluginManager == null) {
-            return null;
-        }
+        return installedVersionOf(installedPluginName);
+    }
 
-        Plugin plugin = pluginManager.getPlugin(installedPluginName);
-        if (plugin == null) {
-            return null;
+    /**
+     * Prefers stable releases when the server asked to ignore unstable builds -
+     * but only as a preference. Many Modrinth projects never publish a version
+     * typed "release", and turning the preference into a hard filter froze those
+     * sources: every cycle matched nothing and the plugin simply stopped
+     * updating, visible only as a repeated warning.
+     */
+    private List<VersionResponse> applyStabilityPreference(List<VersionResponse> eligible) {
+        if (!preferStableVersions) {
+            return eligible;
         }
+        List<VersionResponse> stable = eligible.stream()
+                .filter(version -> {
+                    String type = normalize(version.versionType());
+                    return type == null || "release".equals(type);
+                })
+                .collect(Collectors.toList());
+        return stable.isEmpty() ? eligible : stable;
+    }
 
-        return plugin.getDescription().getVersion();
+    /**
+     * Null-safe membership test. Modrinth may leave a status or version type out
+     * entirely, and {@code Set.of(...)} throws on a null argument - which used
+     * to abort the whole update run with a NullPointerException.
+     */
+    private static boolean matchesFilter(Set<String> allowed, String value) {
+        if (allowed.isEmpty()) {
+            return true;
+        }
+        String normalized = normalize(value);
+        if (normalized == null) {
+            // Nothing declared, so there is nothing to exclude on. Filtering it
+            // out instead would stall updates completely whenever the API omits
+            // the field.
+            return true;
+        }
+        return allowed.contains(normalized);
     }
 
     private String determineTargetGameVersion(Collection<VersionResponse> versions) throws IOException {
@@ -310,6 +341,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         private final Set<String> supportedLoaders;
         private final Set<String> allowedStatuses;
         private final Set<String> allowedVersionTypes;
+        private final boolean preferStableVersions;
         private final Set<String> preferredGameVersions;
         private final boolean preferPrimaryFile;
         private final boolean requireBuildNumber;
@@ -322,6 +354,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             this.supportedLoaders = builder.supportedLoaders;
             this.allowedStatuses = builder.allowedStatuses;
             this.allowedVersionTypes = builder.allowedVersionTypes;
+            this.preferStableVersions = builder.preferStableVersions;
             this.preferredGameVersions = builder.preferredGameVersions;
             this.preferPrimaryFile = builder.preferPrimaryFile;
             this.requireBuildNumber = builder.requireBuildNumber;
@@ -337,6 +370,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             builder.loaders(options.getStringList("loaders"));
             builder.statuses(options.getStringList("statuses"));
             builder.versionTypes(options.getStringList("versionTypes"));
+            builder.preferStableVersions(!options.contains("versionTypes") && ignoresUnstableByDefault(options));
             builder.gameVersions(options.getStringList("gameVersions"));
             builder.preferPrimaryFile(options.getBoolean("preferPrimaryFile", true));
             builder.requireBuildNumber(options.getBoolean("requireBuildNumber", false));
@@ -350,6 +384,21 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
 
         public boolean ignoreCompatibilityWarnings() {
             return ignoreCompatibilityWarnings;
+        }
+
+        /**
+         * Mirrors how PaperFetcher reads the global stability preference:
+         * an explicit per-source option wins, otherwise the value the registry
+         * injects from updates.ignoreUnstable / ignoreUnstable applies.
+         */
+        private static boolean ignoresUnstableByDefault(ConfigurationSection options) {
+            if (options.contains("ignoreUnstable")) {
+                return options.getBoolean("ignoreUnstable");
+            }
+            if (options.contains("allowUnstable")) {
+                return !options.getBoolean("allowUnstable");
+            }
+            return options.getBoolean("_ignoreUnstableDefault", true);
         }
 
         private static String requireOption(ConfigurationSection section, String key) {
@@ -366,6 +415,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         private Set<String> supportedLoaders = Set.of();
         private Set<String> allowedStatuses = Set.of("listed");
         private Set<String> allowedVersionTypes = Set.of();
+        private boolean preferStableVersions;
         private Set<String> preferredGameVersions = Set.of();
         private boolean preferPrimaryFile = true;
         private boolean requireBuildNumber = false;
@@ -375,6 +425,11 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
 
         private ConfigBuilder(String projectSlug) {
             this.projectSlug = projectSlug;
+        }
+
+        public ConfigBuilder preferStableVersions(boolean preferStableVersions) {
+            this.preferStableVersions = preferStableVersions;
+            return this;
         }
 
         public ConfigBuilder loaders(Collection<String> loaders) {
