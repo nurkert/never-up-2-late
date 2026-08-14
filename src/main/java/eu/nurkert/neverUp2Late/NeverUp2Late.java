@@ -58,7 +58,7 @@ public final class NeverUp2Late extends JavaPlugin {
         LegacyConfigMigrator migrator = new LegacyConfigMigrator(configuration, updateStateRepository, updateSettingsRepository, getLogger());
         boolean configurationChanged = migrator.migrate();
         if (configurationReadable) {
-            configurationChanged |= new ConfigurationUpgrader(configuration, getLogger()).upgrade();
+            configurationChanged |= new ConfigurationUpgrader(configuration, getDataFolder(), getLogger()).upgrade();
         }
         if (configurationChanged && configurationReadable) {
             saveConfig();

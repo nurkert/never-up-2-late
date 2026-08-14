@@ -2,8 +2,10 @@ package eu.nurkert.neverUp2Late.persistence;
 
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,6 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * is missing, never touch what is there, and never do the same thing twice.
  */
 class ConfigurationUpgraderTest {
+
+    @TempDir
+    Path tempDir;
 
     private final Logger logger = Logger.getLogger("test");
 
@@ -42,7 +47,7 @@ class ConfigurationUpgraderTest {
     void addsTheSettingsAnOlderFileNeverHad() {
         YamlConfiguration configuration = olderInstallation();
 
-        assertTrue(new ConfigurationUpgrader(configuration, logger).upgrade());
+        assertTrue(new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade());
 
         assertEquals(60, configuration.getInt("startupDelaySeconds"));
         assertTrue(configuration.getBoolean("updates.respectManualRollback"));
@@ -58,7 +63,7 @@ class ConfigurationUpgraderTest {
         configuration.set("updates.respectManualRollback", false);
         configuration.set("filenames.neverup2late", "MyOwnName.jar");
 
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
 
         assertEquals(5, configuration.getInt("startupDelaySeconds"));
         assertFalse(configuration.getBoolean("updates.respectManualRollback"));
@@ -72,7 +77,7 @@ class ConfigurationUpgraderTest {
                 Map.of("name", "paper", "type", "paper", "target", "server", "enabled", true),
                 Map.of("name", "NeverUp2Late", "type", "spigot", "target", "plugins", "enabled", false)));
 
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
 
         List<Map<?, ?>> sources = configuration.getMapList("updates.sources");
         assertEquals(2, sources.size(), "the operator's own entry must not be duplicated");
@@ -83,7 +88,7 @@ class ConfigurationUpgraderTest {
     @Test
     void doesNotBringBackSomethingDeletedOnPurpose() {
         YamlConfiguration configuration = olderInstallation();
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
         assertTrue(hasSource(configuration, "neverup2late"));
 
         // The operator decides they would rather update the plugin by hand.
@@ -91,7 +96,7 @@ class ConfigurationUpgraderTest {
                 .filter(entry -> !"neverup2late".equalsIgnoreCase(Objects.toString(entry.get("name"), "")))
                 .toList());
 
-        assertFalse(new ConfigurationUpgrader(configuration, logger).upgrade(),
+        assertFalse(new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade(),
                 "a completed upgrade must not run a second time");
         assertFalse(hasSource(configuration, "neverup2late"),
                 "and must not resurrect what was removed on purpose");
@@ -102,7 +107,7 @@ class ConfigurationUpgraderTest {
         YamlConfiguration shipped =
                 YamlConfiguration.loadConfiguration(new File("src/main/resources/config.yml"));
 
-        assertFalse(new ConfigurationUpgrader(shipped, logger).upgrade(),
+        assertFalse(new ConfigurationUpgrader(shipped, tempDir.toFile(), logger).upgrade(),
                 "the packaged file is already current");
     }
 
@@ -118,7 +123,7 @@ class ConfigurationUpgraderTest {
         configuration.setDefaults(packaged);
 
         assertFalse(configuration.isSet("configVersion"), "the operator's own file has no version");
-        assertTrue(new ConfigurationUpgrader(configuration, logger).upgrade(),
+        assertTrue(new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade(),
                 "an older file must still be upgraded behind the packaged defaults");
         assertTrue(hasSource(configuration, "neverup2late"));
         assertFalse(configuration.options().copyDefaults(),
@@ -130,7 +135,7 @@ class ConfigurationUpgraderTest {
         YamlConfiguration configuration = olderInstallation();
         configuration.set("updates.sources", List.of());
 
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
 
         assertTrue(configuration.getMapList("updates.sources").isEmpty(),
                 "an empty list means 'manage nothing' - putting a source back would restart updating");
@@ -141,7 +146,7 @@ class ConfigurationUpgraderTest {
         YamlConfiguration configuration = olderInstallation();
         configuration.set("updates.sources", List.of("paper", "geyser"));
 
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
 
         assertEquals(List.of("paper", "geyser"), configuration.getList("updates.sources"),
                 "rewriting the list would silently delete what getMapList cannot read");
@@ -155,7 +160,7 @@ class ConfigurationUpgraderTest {
         configuration.set("startupDelaySeconds", 60);
         configuration.set("updates.respectManualRollback", true);
 
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
 
         assertFalse(hasSource(configuration, "neverup2late"));
     }
@@ -168,10 +173,61 @@ class ConfigurationUpgraderTest {
         configuration.set("updateInterval", 180);
         configuration.setDefaults(packaged);
 
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
 
         assertFalse(configuration.isSet("updates.sources"),
                 "a file without its own source list keeps using the packaged ones");
+    }
+
+    @Test
+    void reportsNoChangeWhenNothingWasMissing() {
+        // Saving a file that needed nothing would still rewrite it, and a
+        // rewrite drops the comments inside updates.sources - a parked,
+        // commented-out source and the worked examples this plugin ships.
+        YamlConfiguration configuration = olderInstallation();
+        configuration.set("startupDelaySeconds", 60);
+        configuration.set("updates.respectManualRollback", true);
+        configuration.set("filenames.neverup2late", "NeverUp2Late.jar");
+        configuration.set("updates.sources", List.of(
+                Map.of("name", "paper", "type", "paper", "target", "server", "enabled", true),
+                Map.of("name", "neverup2late", "type", "githubRelease", "target", "plugins",
+                        "enabled", true)));
+
+        assertFalse(new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade(),
+                "nothing was missing, so the operator's file must not be touched");
+    }
+
+    @Test
+    void keepsItsBookkeepingOutOfTheOperatorsFile() {
+        YamlConfiguration configuration = olderInstallation();
+
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
+
+        assertFalse(configuration.isSet("configVersion"),
+                "the version marker belongs in a file the plugin owns");
+        assertTrue(tempDir.resolve("config-upgrade.yml").toFile().isFile(),
+                "and it has to be recorded somewhere, or the upgrade runs forever");
+    }
+
+    @Test
+    void doesNotRepeatItselfAfterARestart() {
+        YamlConfiguration first = olderInstallation();
+        assertTrue(new ConfigurationUpgrader(first, tempDir.toFile(), logger).upgrade());
+
+        // Next boot: the operator removed the source again.
+        YamlConfiguration second = olderInstallation();
+        assertFalse(new ConfigurationUpgrader(second, tempDir.toFile(), logger).upgrade(),
+                "the recorded version must survive the restart");
+        assertFalse(hasSource(second, "neverup2late"));
+    }
+
+    @Test
+    void honoursTheMarkerThatAnEarlierReleaseWroteIntoTheConfig() {
+        YamlConfiguration configuration = olderInstallation();
+        configuration.set("configVersion", 1);
+
+        assertFalse(new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade(),
+                "an installation upgraded by 2.5.1 must not be upgraded twice");
     }
 
     @Test
@@ -180,7 +236,7 @@ class ConfigurationUpgraderTest {
         configuration.set("updates.sources.paper.type", "paper");
         configuration.set("updates.sources.paper.target", "server");
 
-        new ConfigurationUpgrader(configuration, logger).upgrade();
+        new ConfigurationUpgrader(configuration, tempDir.toFile(), logger).upgrade();
 
         assertEquals("githubRelease", configuration.getString("updates.sources.neverup2late.type"));
         assertEquals("nurkert", configuration.getString("updates.sources.neverup2late.options.owner"));

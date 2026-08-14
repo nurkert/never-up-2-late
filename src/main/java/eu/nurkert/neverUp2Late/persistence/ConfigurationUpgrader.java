@@ -1,7 +1,12 @@
 package eu.nurkert.neverUp2Late.persistence;
 
+import eu.nurkert.neverUp2Late.util.YamlFiles;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+
+import java.io.File;
+import java.io.IOException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -29,14 +34,17 @@ public class ConfigurationUpgrader {
     /** Bump when a new step is added below. */
     private static final int CURRENT_VERSION = 1;
     private static final String VERSION_NODE = "configVersion";
+    private static final String STATE_FILE = "config-upgrade.yml";
     private static final String SOURCES_NODE = "updates.sources";
     static final String SELF_SOURCE_NAME = "neverup2late";
 
     private final FileConfiguration configuration;
+    private final File stateFile;
     private final Logger logger;
 
-    public ConfigurationUpgrader(FileConfiguration configuration, Logger logger) {
+    public ConfigurationUpgrader(FileConfiguration configuration, File dataFolder, Logger logger) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
+        this.stateFile = dataFolder == null ? null : new File(dataFolder, STATE_FILE);
         this.logger = logger;
     }
 
@@ -44,7 +52,7 @@ public class ConfigurationUpgrader {
      * @return {@code true} when the configuration changed and should be saved
      */
     public boolean upgrade() {
-        int from = configuration.getInt(VERSION_NODE, 0);
+        int from = appliedVersion();
         if (from >= CURRENT_VERSION) {
             return false;
         }
@@ -62,12 +70,51 @@ public class ConfigurationUpgrader {
             changed |= addSelfUpdateSource(recentFile);
         }
 
-        configuration.set(VERSION_NODE, CURRENT_VERSION);
+        recordApplied();
         if (changed) {
             log(Level.INFO, "Your config.yml was extended with settings added since it was written."
                     + " Existing values were left untouched.");
         }
-        return true;
+        // Only report a change when something really changed. Saving otherwise
+        // rewrites a file that needed nothing, and a rewrite drops the comments
+        // inside updates.sources - the parked, commented-out source an operator
+        // keeps there, and the worked examples this plugin ships.
+        return changed;
+    }
+
+    /**
+     * Which upgrade step this installation has already had.
+     *
+     * <p>Kept in a file the plugin owns. Writing it into config.yml would mean
+     * touching the operator's file even when there was nothing to add.</p>
+     */
+    private int appliedVersion() {
+        // Honour the marker 2.5.1 wrote into config.yml, so that release's
+        // installations are not upgraded a second time.
+        int fromConfig = configuration.isSet(VERSION_NODE) ? configuration.getInt(VERSION_NODE, 0) : 0;
+        if (stateFile == null) {
+            return fromConfig;
+        }
+        return Math.max(fromConfig, YamlFiles.loadOrQuarantine(stateFile, logger).getInt(VERSION_NODE, 0));
+    }
+
+    private void recordApplied() {
+        if (stateFile == null) {
+            return;
+        }
+        try {
+            YamlConfiguration state = YamlFiles.loadOrQuarantine(stateFile, logger);
+            state.set(VERSION_NODE, CURRENT_VERSION);
+            File parent = stateFile.getParentFile();
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                log(Level.WARNING, "Could not create " + parent + "; the config upgrade may run again.");
+                return;
+            }
+            state.save(stateFile);
+        } catch (IOException ex) {
+            log(Level.WARNING, "Could not record the config upgrade (" + ex.getMessage()
+                    + "); it may run again on the next start.");
+        }
     }
 
     private boolean addMissing(String path, Object value, String description) {

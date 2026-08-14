@@ -1,6 +1,5 @@
-# Written by NeverUp2Late. Settings added in later versions are appended to an
-# existing file automatically; values you already set are never changed.
-configVersion: 1
+# Settings added in later versions are appended to an existing file
+# automatically; values you already set are never changed.
 
 # Control the behaviour of the first-run setup wizard
 setup:
