@@ -5,6 +5,7 @@ import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
+import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.UpdateBehaviour;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
@@ -58,6 +59,8 @@ public class PluginOverviewGui implements Listener {
     private static final int MAX_SIZE = 54;
     /** Bottom row reserved for controls, so no plugin ever shares a slot with a button. */
     private static final int CONTROL_ROW_SIZE = 9;
+    private static final eu.nurkert.neverUp2Late.update.VersionComparator VERSION_COMPARATOR =
+            new eu.nurkert.neverUp2Late.update.VersionComparator();
     private static final int DETAIL_INVENTORY_SIZE = 27;
     private static final int DETAIL_STATUS_SLOT = 10;
     private static final int DETAIL_ENABLE_SLOT = 12;
@@ -68,6 +71,8 @@ public class PluginOverviewGui implements Listener {
     private static final int DETAIL_RENAME_SLOT = 21;
     private static final int DETAIL_REMOVE_SLOT = 22;
     private static final int DETAIL_QUICK_RENAME_SLOT = 23;
+    private static final int DETAIL_CHECK_SLOT = 11;
+    private static final int DETAIL_ROLLBACK_SLOT = 19;
     private static final int DETAIL_BACK_SLOT = 26;
     private static final int INSTALL_INVENTORY_SIZE = 27;
     private static final int INSTALL_INFO_SLOT = 18;
@@ -174,6 +179,7 @@ public class PluginOverviewGui implements Listener {
             slotMapping.put(slot, plugin);
         }
 
+        inventory.setItem(size - 3, createCheckAllButton());
         inventory.setItem(size - 2, createCleanupButton());
         inventory.setItem(size - 1, createInstallButton());
 
@@ -205,6 +211,8 @@ public class PluginOverviewGui implements Listener {
         createQuickRenameItem(plugin).ifPresent(item ->
                 inventory.setItem(DETAIL_QUICK_RENAME_SLOT, item));
         inventory.setItem(DETAIL_REMOVE_SLOT, createRemoveItem(plugin));
+        inventory.setItem(DETAIL_CHECK_SLOT, createCheckItem(plugin));
+        createRollbackItem(plugin).ifPresent(item -> inventory.setItem(DETAIL_ROLLBACK_SLOT, item));
         inventory.setItem(DETAIL_BACK_SLOT, createBackItem());
 
         openInventories.put(player.getUniqueId(), InventorySession.detail(inventory, plugin));
@@ -213,13 +221,21 @@ public class PluginOverviewGui implements Listener {
 
     private ItemStack createPluginItem(ManagedPlugin plugin) {
         Optional<UpdateSource> source = findMatchingSource(plugin);
-        Material material = source.isPresent() ? Material.ENCHANTED_BOOK : Material.BOOK;
+        boolean updateWaiting = source
+                .flatMap(linked -> context.getPersistentPluginHandler().getCheckState(linked.getName()))
+                .map(state -> isNewerThanRunning(state, plugin))
+                .orElse(false);
+        Material material = updateWaiting
+                ? Material.WRITABLE_BOOK
+                : source.isPresent() ? Material.ENCHANTED_BOOK : Material.BOOK;
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.GOLD + plugin.getName());
 
             List<String> lore = new ArrayList<>();
+            source.flatMap(linked -> context.getPersistentPluginHandler().getCheckState(linked.getName()))
+                    .ifPresent(state -> lore.addAll(describeCheckState(state, plugin)));
             lore.add(ChatColor.GRAY + "Status: " + statusLabel(plugin));
             plugin.getPlugin().ifPresentOrElse(loaded -> {
                 String version = loaded.getDescription().getVersion();
@@ -235,10 +251,10 @@ public class PluginOverviewGui implements Listener {
                 lore.add(ChatColor.DARK_GRAY + "File: " + ChatColor.WHITE + path.getFileName());
                 source.ifPresentOrElse(linkedSource -> {
                     lore.add(ChatColor.GRAY + "Update source: " + ChatColor.AQUA + linkedSource.getName());
-                    lore.add(ChatColor.YELLOW + "Click to update the link.");
-                }, () -> lore.add(ChatColor.RED + "No update source linked – click to set one."));
+                    lore.add(ChatColor.YELLOW + "Click to change the update source.");
+                }, () -> lore.add(ChatColor.RED + "No update source linked - click to set one."));
             } else {
-                lore.add(ChatColor.RED + "No JAR path found – cannot link.");
+                lore.add(ChatColor.RED + "No jar file found - cannot link.");
             }
 
             PluginUpdateSettings settings = readSettings(plugin);
@@ -331,7 +347,7 @@ public class PluginOverviewGui implements Listener {
             ItemStack item = new ItemStack(Material.BARRIER);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName(ChatColor.DARK_GRAY + "Lifecycle locked");
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Managed by NeverUp2Late");
                 meta.setLore(List.of(
                         ChatColor.GRAY + "NeverUp2Late keeps itself enabled.",
                         ChatColor.GRAY + "Restart the server to reload it."
@@ -344,7 +360,7 @@ public class PluginOverviewGui implements Listener {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             if (!plugin.isLoaded()) {
-                meta.setDisplayName(ChatColor.DARK_GRAY + "Enable (not possible)");
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Cannot be enabled");
                 meta.setLore(List.of(
                         ChatColor.GRAY + "The plugin is not currently loaded.",
                         ChatColor.GRAY + "Load it to enable it."
@@ -370,7 +386,7 @@ public class PluginOverviewGui implements Listener {
             ItemStack item = new ItemStack(Material.BARRIER);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName(ChatColor.DARK_GRAY + "Unload not available");
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Cannot be unloaded");
                 meta.setLore(List.of(
                         ChatColor.GRAY + "NeverUp2Late must stay loaded",
                         ChatColor.GRAY + "while it manages updates."
@@ -392,7 +408,7 @@ public class PluginOverviewGui implements Listener {
             } else {
                 meta.setDisplayName(ChatColor.AQUA + "Load plugin");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Loads the plugin from the JAR file and enables it."
+                        ChatColor.GRAY + "Loads the plugin from the jar file and enables it."
                 ));
             }
             item.setItemMeta(meta);
@@ -404,7 +420,7 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Set update link");
+            meta.setDisplayName(ChatColor.AQUA + "Set update source");
             meta.setLore(List.of(
                     ChatColor.GRAY + "Click to enter a new download URL.",
                     ChatColor.GRAY + "Custom links allow installation and updates."
@@ -434,7 +450,7 @@ public class PluginOverviewGui implements Listener {
                 lore.add(ChatColor.YELLOW + "Click to disable updates.");
                 meta.setLore(lore);
             } else {
-                meta.setDisplayName(ChatColor.GREEN + "No update link active");
+                meta.setDisplayName(ChatColor.GREEN + "No update source linked");
                 List<String> lore = new ArrayList<>();
                 if (!settings.autoUpdateEnabled()) {
                     lore.add(ChatColor.GRAY + "Automatic updates are disabled.");
@@ -454,7 +470,7 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.COMPARATOR);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "Adjust update behavior");
+            meta.setDisplayName(ChatColor.LIGHT_PURPLE + "Adjust update behaviour");
             String current;
             if (!settings.autoUpdateEnabled()) {
                 current = ChatColor.RED + "Automatic updates disabled";
@@ -482,7 +498,7 @@ public class PluginOverviewGui implements Listener {
             ItemStack item = new ItemStack(Material.BARRIER);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName(ChatColor.DARK_GRAY + "Removal not possible");
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Cannot be removed");
                 meta.setLore(List.of(
                         ChatColor.GRAY + "NeverUp2Late cannot remove itself."
                 ));
@@ -508,7 +524,7 @@ public class PluginOverviewGui implements Listener {
             ItemStack item = new ItemStack(Material.NAME_TAG);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName(ChatColor.DARK_GRAY + "Rename not available");
+                meta.setDisplayName(ChatColor.DARK_GRAY + "Cannot be renamed");
                 meta.setLore(List.of(
                         ChatColor.GRAY + "NeverUp2Late manages its own file name."
                 ));
@@ -521,7 +537,7 @@ public class PluginOverviewGui implements Listener {
         if (meta != null) {
             meta.setDisplayName(ChatColor.AQUA + "Rename file");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Changes the JAR file name",
+                    ChatColor.GRAY + "Changes the jar file name",
                     ChatColor.GRAY + "and updates the linked source."
             ));
             item.setItemMeta(meta);
@@ -582,6 +598,92 @@ public class PluginOverviewGui implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private ItemStack createCheckAllButton() {
+        ItemStack item = new ItemStack(Material.SPYGLASS);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.AQUA + "Check for updates now");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Asks every source what it has,",
+                    ChatColor.GRAY + "instead of waiting for the next round.",
+                    ChatColor.DARK_GRAY + "Nothing is installed without your settings allowing it."));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createCheckItem(ManagedPlugin plugin) {
+        boolean linked = findMatchingSource(plugin).isPresent();
+        ItemStack item = new ItemStack(linked ? Material.SPYGLASS : Material.GRAY_DYE);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName((linked ? ChatColor.AQUA : ChatColor.DARK_GRAY) + "Check for updates now");
+            meta.setLore(List.of(linked
+                    ? ChatColor.GRAY + "Ask this plugin's source right away."
+                    : ChatColor.GRAY + "Link an update source first."));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private Optional<ItemStack> createRollbackItem(ManagedPlugin plugin) {
+        Optional<UpdateSource> source = findMatchingSource(plugin);
+        if (source.isEmpty()) {
+            return Optional.empty();
+        }
+        ItemStack item = new ItemStack(Material.CLOCK);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GOLD + "Restore previous version");
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "Puts the last backup back in place.",
+                    ChatColor.GRAY + "Takes effect after a restart.",
+                    ChatColor.DARK_GRAY + "The restored version is kept - it will not be",
+                    ChatColor.DARK_GRAY + "replaced again until something newer appears."));
+            item.setItemMeta(meta);
+        }
+        return Optional.of(item);
+    }
+
+    private void checkAllSourcesNow(Player player) {
+        if (!checkPermission(player, Permissions.INSTALL)) {
+            return;
+        }
+        List<UpdateSource> sources = List.copyOf(context.getUpdateSourceRegistry().getSources());
+        if (sources.isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "No update sources are configured yet.");
+            return;
+        }
+        player.closeInventory();
+        context.getUpdateHandler().runJobsNow(sources, player);
+    }
+
+    private void checkSourceNow(Player player, ManagedPlugin plugin) {
+        if (!checkPermission(player, Permissions.INSTALL)) {
+            return;
+        }
+        Optional<UpdateSource> source = findMatchingSource(plugin);
+        if (source.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "This plugin has no update source linked yet.");
+            return;
+        }
+        player.closeInventory();
+        context.getUpdateHandler().runJobNow(source.get(), player);
+    }
+
+    private void rollbackPlugin(Player player, ManagedPlugin plugin) {
+        if (!checkPermission(player, Permissions.GUI_MANAGE_LIFECYCLE)) {
+            return;
+        }
+        Optional<UpdateSource> source = findMatchingSource(plugin);
+        if (source.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "This plugin has no update source, so there is no backup to restore.");
+            return;
+        }
+        player.closeInventory();
+        coordinator.rollback(player, source.get().getName());
     }
 
     private ItemStack createInstallButton() {
@@ -676,7 +778,7 @@ public class PluginOverviewGui implements Listener {
             } else {
                 Path path = plugin.getPath();
                 if (path == null) {
-                    player.sendMessage(ChatColor.RED + "No JAR path is known for this plugin.");
+                    player.sendMessage(ChatColor.RED + "No jar path is known for this plugin.");
                     return;
                 }
                 if (manager.loadPlugin(path)) {
@@ -841,6 +943,11 @@ public class PluginOverviewGui implements Listener {
                 return;
             }
 
+            if (event.getRawSlot() == size - 3) {
+                checkAllSourcesNow(player);
+                return;
+            }
+
             ManagedPlugin plugin = session.plugins().get(event.getRawSlot());
             if (plugin == null) {
                 return;
@@ -878,6 +985,14 @@ public class PluginOverviewGui implements Listener {
         int slot = event.getRawSlot();
         if (slot == DETAIL_BACK_SLOT) {
             openOverview(player);
+            return;
+        }
+        if (slot == DETAIL_CHECK_SLOT) {
+            checkSourceNow(player, plugin);
+            return;
+        }
+        if (slot == DETAIL_ROLLBACK_SLOT) {
+            rollbackPlugin(player, plugin);
             return;
         }
         if (slot == DETAIL_ENABLE_SLOT) {
@@ -1027,7 +1142,7 @@ public class PluginOverviewGui implements Listener {
 
         Path path = plugin.getPath();
         if (path == null) {
-            player.sendMessage(ChatColor.RED + "Could not find a JAR for this plugin.");
+            player.sendMessage(ChatColor.RED + "Could not find a jar for this plugin.");
             return;
         }
 
@@ -1177,7 +1292,7 @@ public class PluginOverviewGui implements Listener {
                 lore.add(ChatColor.GRAY + "Adjust the search term or try a direct link.");
             } else {
                 lore.add(ChatColor.GREEN + "Projects found: " + ChatColor.WHITE + resultCount);
-                lore.add(ChatColor.GRAY + "Click an entry to download the JAR.");
+                lore.add(ChatColor.GRAY + "Click an entry to download the jar.");
             }
             lore.add(" ");
             lore.add(ChatColor.DARK_GRAY + "Plugins are not activated automatically.");
@@ -1210,7 +1325,7 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Enter direct link");
+            meta.setDisplayName(ChatColor.YELLOW + "Enter a direct link");
             meta.setLore(List.of(
                     ChatColor.GRAY + "Opens an anvil dialog",
                     ChatColor.GRAY + "for direct download links (e.g. SpigotMC/Spiget)."
@@ -1431,7 +1546,7 @@ public class PluginOverviewGui implements Listener {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Enter link manually");
+            meta.setDisplayName(ChatColor.AQUA + "Enter a link manually");
             meta.setLore(List.of(
                     ChatColor.GRAY + "Opens chat input,",
                     ChatColor.GRAY + "so you can enter a URL manually."
@@ -1577,7 +1692,7 @@ public class PluginOverviewGui implements Listener {
 
             if (meta != null) {
 
-                meta.setDisplayName(ChatColor.GOLD + "Cleanup All JAR Names");
+                meta.setDisplayName(ChatColor.GOLD + "Tidy up jar names");
 
                 meta.setLore(List.of(
 
@@ -1800,6 +1915,64 @@ public class PluginOverviewGui implements Listener {
             return value.substring(0, value.length() - 4);
         }
         return value;
+    }
+
+    /**
+     * The two lines an operator opens this screen for: is there something newer,
+     * and did the last look actually work. Everything else on the item describes
+     * what is installed or which policy applies - neither answers the question.
+     */
+    private List<String> describeCheckState(UpdateStateRepository.CheckState state, ManagedPlugin plugin) {
+        List<String> lines = new ArrayList<>();
+        if (state.result() == UpdateStateRepository.CheckResult.FAILED) {
+            String reason = state.error() == null || state.error().isBlank() ? "unknown reason" : state.error();
+            lines.add(ChatColor.RED + "Last check failed: " + ChatColor.WHITE + reason);
+        } else if (isNewerThanRunning(state, plugin)) {
+            lines.add(ChatColor.GREEN + "" + ChatColor.BOLD + "Update ready: "
+                    + ChatColor.WHITE + state.latestVersion());
+            lines.add(ChatColor.GRAY + "Applied on the next restart.");
+        } else {
+            lines.add(ChatColor.GREEN + "Up to date.");
+        }
+        lines.add(ChatColor.DARK_GRAY + "Checked " + describeAge(state.checkedAt()));
+        return lines;
+    }
+
+    /**
+     * Whether the version already written to disk differs from the one the
+     * running plugin reports - i.e. a jar is waiting for a restart.
+     */
+    private boolean isNewerThanRunning(UpdateStateRepository.CheckState state, ManagedPlugin plugin) {
+        String available = state.latestVersion();
+        if (available == null || available.isBlank()) {
+            return false;
+        }
+        String running = plugin.getPlugin()
+                .map(loaded -> loaded.getDescription().getVersion())
+                .orElse(null);
+        if (running == null || running.isBlank()) {
+            return false;
+        }
+        return VERSION_COMPARATOR.compare(running, available) < 0;
+    }
+
+    private String describeAge(long epochMillis) {
+        if (epochMillis <= 0L) {
+            return "never";
+        }
+        long minutes = Math.max(0L, (System.currentTimeMillis() - epochMillis) / 60_000L);
+        if (minutes < 1L) {
+            return "just now";
+        }
+        if (minutes < 60L) {
+            return minutes + " min ago";
+        }
+        long hours = minutes / 60L;
+        if (hours < 24L) {
+            return hours + (hours == 1L ? " hour ago" : " hours ago");
+        }
+        long days = hours / 24L;
+        return days + (days == 1L ? " day ago" : " days ago");
     }
 
     private Optional<UpdateSource> findMatchingSource(ManagedPlugin plugin) {

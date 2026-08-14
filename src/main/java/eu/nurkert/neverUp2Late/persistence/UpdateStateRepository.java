@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -33,6 +34,15 @@ public class UpdateStateRepository {
     private static final String ROOT_NODE = "plugins";
     private static final String BUILD_NODE = "build";
     private static final String VERSION_NODE = "version";
+    /** What the source offered the last time we looked, and how that look went. */
+    private static final String LATEST_VERSION_NODE = "latestVersion";
+    private static final String LATEST_BUILD_NODE = "latestBuild";
+    private static final String CHECKED_AT_NODE = "checkedAt";
+    private static final String RESULT_NODE = "result";
+    private static final String ERROR_NODE = "error";
+    private static final Set<String> KNOWN_FIELDS = Set.of(
+            BUILD_NODE, VERSION_NODE, LATEST_VERSION_NODE, LATEST_BUILD_NODE,
+            CHECKED_AT_NODE, RESULT_NODE, ERROR_NODE);
     private static final String FILE_NAME = "plugins.yml";
 
     private final File dataFolder;
@@ -176,7 +186,7 @@ public class UpdateStateRepository {
                     section.set(childKey, value.toString());
                     mutated = true;
                 }
-            } else {
+            } else if (!KNOWN_FIELDS.contains(childKey)) {
                 logger.log(Level.WARNING,
                         "Removing unknown field {0} for plugin entry {1}", new Object[]{childKey, pluginKey});
                 section.set(childKey, null);
@@ -197,12 +207,44 @@ public class UpdateStateRepository {
                 throw new IllegalStateException("Plugin entry '" + pluginKey + "' must be a configuration section");
             }
             for (String childKey : section.getKeys(false)) {
-                if (!BUILD_NODE.equals(childKey) && !VERSION_NODE.equals(childKey)) {
+                if (!KNOWN_FIELDS.contains(childKey)) {
                     throw new IllegalStateException(
                             "Unknown field '" + childKey + "' for plugin entry '" + pluginKey + "'");
                 }
             }
         }
+    }
+
+    /**
+     * Records what a check found, so the GUI and the status command can answer
+     * "is there something new" without going to the network. The pipeline
+     * already computes all of this on every cycle and used to discard it.
+     */
+    public synchronized void saveCheckState(String sourceName, CheckState state) {
+        ConfigurationSection entry = entrySection(sourceName, true);
+        if (entry == null || state == null) {
+            return;
+        }
+        entry.set(LATEST_VERSION_NODE, state.latestVersion());
+        entry.set(LATEST_BUILD_NODE, state.latestBuild() > 0 ? state.latestBuild() : null);
+        entry.set(CHECKED_AT_NODE, state.checkedAt());
+        entry.set(RESULT_NODE, state.result().name());
+        entry.set(ERROR_NODE, state.error());
+        saveInternal();
+    }
+
+    public synchronized Optional<CheckState> findCheckState(String sourceName) {
+        ConfigurationSection entry = entrySection(sourceName, false);
+        if (entry == null || !entry.contains(CHECKED_AT_NODE)) {
+            return Optional.empty();
+        }
+        CheckResult result = CheckResult.parse(entry.getString(RESULT_NODE));
+        return Optional.of(new CheckState(
+                entry.getString(LATEST_VERSION_NODE),
+                entry.getInt(LATEST_BUILD_NODE, 0),
+                entry.getLong(CHECKED_AT_NODE),
+                result,
+                entry.getString(ERROR_NODE)));
     }
 
     public synchronized Optional<PluginState> find(String pluginName) {
@@ -305,5 +347,31 @@ public class UpdateStateRepository {
     }
 
     public record PluginState(int build, String version) {
+    }
+
+    /** Outcome of the last check for one source. */
+    public enum CheckResult {
+        /** A new build was found and installed. */
+        UPDATED,
+        /** The source answered, and what it offers is already on disk. */
+        UP_TO_DATE,
+        /** The check itself failed - network, HTTP status, bad response. */
+        FAILED;
+
+        static CheckResult parse(String value) {
+            if (value == null) {
+                return UP_TO_DATE;
+            }
+            for (CheckResult candidate : values()) {
+                if (candidate.name().equalsIgnoreCase(value)) {
+                    return candidate;
+                }
+            }
+            return UP_TO_DATE;
+        }
+    }
+
+    public record CheckState(String latestVersion, int latestBuild, long checkedAt,
+                             CheckResult result, String error) {
     }
 }

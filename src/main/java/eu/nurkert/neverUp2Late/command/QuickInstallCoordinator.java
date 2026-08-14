@@ -672,7 +672,7 @@ public class QuickInstallCoordinator {
 
         send(sender, ChatColor.GREEN + "Using asset \"" + assetName + "\". Regex created automatically.");
         if (asset.archive()) {
-            send(sender, ChatColor.GOLD + "Note: The selected asset is an archive. NU2L will automatically extract the matching JAR file.");
+            send(sender, ChatColor.GOLD + "Note: The selected asset is an archive. NU2L will automatically extract the matching jar file.");
         }
 
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
@@ -732,7 +732,7 @@ public class QuickInstallCoordinator {
         pending.plan().setFilename(extractFileNameForArchive(selected));
         pendingArchiveSelections.remove(key);
 
-        send(sender, ChatColor.GREEN + "Using JAR \"" + selected.fullPath() + "\" from the archive.");
+        send(sender, ChatColor.GREEN + "Using jar \"" + selected.fullPath() + "\" from the archive.");
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
     }
 
@@ -760,7 +760,7 @@ public class QuickInstallCoordinator {
         }
 
         if (entries.isEmpty()) {
-            send(sender, ChatColor.RED + "The archive does not contain any JAR files.");
+            send(sender, ChatColor.RED + "The archive does not contain any jar files.");
             return false;
         }
 
@@ -782,7 +782,7 @@ public class QuickInstallCoordinator {
 
         if (entries.size() == 1) {
             applyArchiveSelection(plan, entries.get(0), entries);
-            send(sender, ChatColor.GRAY + "Found JAR in archive: " + entries.get(0).fullPath());
+            send(sender, ChatColor.GRAY + "Found a jar in the archive: " + entries.get(0).fullPath());
             return true;
         }
 
@@ -819,7 +819,7 @@ public class QuickInstallCoordinator {
         String key = selectionKey(sender);
         pendingArchiveSelections.put(key, new ArchivePendingSelection(plan, List.copyOf(entries)));
 
-        send(sender, ChatColor.GOLD + "The archive contains multiple JAR files:");
+        send(sender, ChatColor.GOLD + "The archive contains multiple jar files:");
         for (int i = 0; i < entries.size(); i++) {
             ArchiveEntry entry = entries.get(i);
             send(sender, ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
@@ -845,7 +845,7 @@ public class QuickInstallCoordinator {
 
         String typeLabel = switch (selection.getAssetType()) {
             case ARCHIVE -> "archives";
-            case JAR -> "JAR files";
+            case JAR -> "jar files";
             default -> "assets";
         };
 
@@ -1012,7 +1012,7 @@ public class QuickInstallCoordinator {
                             .orElse(null);
                     if (occupantName != null && occupantName.equalsIgnoreCase(finalInstalledName)) {
                         Files.delete(potentialDuplicate);
-                        logger.log(Level.INFO, "Deleted duplicate JAR found during installation: {0}",
+                        logger.log(Level.INFO, "Deleted duplicate jar found during installation: {0}",
                                 potentialDuplicate);
                     } else {
                         logger.log(Level.WARNING,
@@ -1023,7 +1023,7 @@ public class QuickInstallCoordinator {
                     }
                 }
             } catch (IOException e) {
-                logger.log(Level.WARNING, "Failed to check or delete duplicate JAR: " + potentialDuplicate, e);
+                logger.log(Level.WARNING, "Failed to check or delete duplicate jar: " + potentialDuplicate, e);
             }
         });
     }

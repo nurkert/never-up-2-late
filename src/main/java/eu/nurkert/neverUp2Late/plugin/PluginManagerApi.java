@@ -211,11 +211,11 @@ public class PluginManagerApi implements PluginLifecycleManager {
 
             try {
                 Files.delete(jarPath);
-                logger.log(Level.INFO, "Deleted old/duplicate JAR for plugin {0}: {1} (Version {2})",
+                logger.log(Level.INFO, "Deleted old/duplicate jar for plugin {0}: {1} (Version {2})",
                         new Object[]{pluginName, jarPath.getFileName(), jar.version()});
                 managedPlugins.remove(jarPath);
             } catch (IOException e) {
-                logger.log(Level.WARNING, "Failed to delete duplicate JAR: " + jarPath, e);
+                logger.log(Level.WARNING, "Failed to delete duplicate jar: " + jarPath, e);
             }
         }
     }

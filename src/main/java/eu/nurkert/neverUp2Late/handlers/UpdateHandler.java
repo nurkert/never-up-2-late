@@ -5,6 +5,8 @@ import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.persistence.SetupStateRepository;
+import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository.CheckResult;
+import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository.CheckState;
 import eu.nurkert.neverUp2Late.persistence.SetupStateRepository.SetupPhase;
 import eu.nurkert.neverUp2Late.update.DownloadUpdateStep;
 import eu.nurkert.neverUp2Late.update.FetchUpdateStep;
@@ -327,9 +329,53 @@ public class UpdateHandler {
         try {
             job.run(context);
             handleFilenameRetention(context);
+            recordCheck(context, null);
+        } catch (Exception failure) {
+            recordCheck(context, failure);
+            throw failure;
         } finally {
             context.dispatchCompletion();
         }
+    }
+
+    /**
+     * Stores what this run found. Everything here is already computed by the
+     * pipeline and used to be thrown away, which is why neither the GUI nor the
+     * status command could ever answer "is there something newer".
+     */
+    private void recordCheck(UpdateContext context, Exception failure) {
+        UpdateSource source = context.getSource();
+        CheckResult result;
+        String error = null;
+        if (failure != null) {
+            result = CheckResult.FAILED;
+            error = failure.getMessage() != null ? failure.getMessage() : failure.getClass().getSimpleName();
+        } else if (context.isCancelled()) {
+            result = CheckResult.UP_TO_DATE;
+        } else {
+            result = CheckResult.UPDATED;
+            // The one line that was missing: an automatic update left no trace
+            // at all, so an operator could never learn that anything happened.
+            logger.log(Level.INFO, "Updated {0} to {1} ({2}).", new Object[]{
+                    source.getName(),
+                    describeVersion(context),
+                    context.getDownloadDestination().getFileName()});
+        }
+        try {
+            persistentPluginHandler.saveCheckState(source.getName(), new CheckState(
+                    context.getLatestVersion(), context.getLatestBuild(),
+                    System.currentTimeMillis(), result, truncate(error)));
+        } catch (RuntimeException ex) {
+            logger.log(Level.FINE, "Could not record the check result for " + source.getName(), ex);
+        }
+    }
+
+    private String describeVersion(UpdateContext context) {
+        String version = context.getLatestVersion();
+        if (version != null && !version.isBlank()) {
+            return version;
+        }
+        return "build " + context.getLatestBuild();
     }
 
     private String failureKey(UpdateSource source) {

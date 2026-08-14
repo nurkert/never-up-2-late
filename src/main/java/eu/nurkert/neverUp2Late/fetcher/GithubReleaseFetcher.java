@@ -422,7 +422,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
         public Path process(UpdateContext context, Path downloadedFile) throws IOException {
             List<ArchiveEntry> entries = ArchiveUtils.listJarEntries(downloadedFile);
             if (entries.isEmpty()) {
-                throw new IOException("The archive does not contain any JAR files: " + downloadedFile);
+                throw new IOException("The archive does not contain any jar files: " + downloadedFile);
             }
 
             ArchiveEntry selected = selectEntry(entries);
@@ -448,7 +448,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
                         .filter(entry -> entryPattern.matcher(entry.fullPath()).matches()
                                 || entryPattern.matcher(entry.fileName()).matches())
                         .findFirst()
-                        .orElseThrow(() -> new IOException("No JAR in the archive matched the regex: "
+                        .orElseThrow(() -> new IOException("No jar in the archive matched the regex: "
                                 + entryPattern.pattern()));
             }
             if (entries.size() == 1) {
@@ -457,7 +457,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
             String candidates = entries.stream()
                     .map(ArchiveEntry::fullPath)
                     .collect(Collectors.joining(", "));
-            throw new IOException("Multiple JAR files found in the archive. Please configure 'archiveEntryPattern'. Candidates: "
+            throw new IOException("Multiple jar files found in the archive. Please configure 'archiveEntryPattern'. Candidates: "
                     + candidates);
         }
 

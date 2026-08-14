@@ -135,7 +135,7 @@ public class DownloadUpdateStep implements UpdateStep {
                 throw new IOException("Downloaded archive is empty: " + expectedDestination);
             }
         } catch (ZipException ex) {
-            throw new IOException("Downloaded file is not a valid JAR/ZIP: " + expectedDestination, ex);
+            throw new IOException("Downloaded file is not a valid jar/ZIP: " + expectedDestination, ex);
         }
     }
 

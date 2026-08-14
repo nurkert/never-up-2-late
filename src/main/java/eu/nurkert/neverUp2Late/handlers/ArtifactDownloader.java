@@ -453,7 +453,7 @@ public class ArtifactDownloader {
                 throw new IOException("Downloaded archive is empty: " + destination);
             }
         } catch (ZipException ex) {
-            throw new IOException("Downloaded file is not a valid JAR/ZIP: " + destination, ex);
+            throw new IOException("Downloaded file is not a valid jar/ZIP: " + destination, ex);
         }
     }
 

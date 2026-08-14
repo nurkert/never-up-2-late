@@ -53,6 +53,14 @@ public class PersistentPluginHandler {
         return states;
     }
 
+    public void saveCheckState(String sourceName, UpdateStateRepository.CheckState state) {
+        repository.saveCheckState(sourceName, state);
+    }
+
+    public Optional<UpdateStateRepository.CheckState> getCheckState(String sourceName) {
+        return repository.findCheckState(sourceName);
+    }
+
     public boolean hasPluginInfo(String pluginName) {
         return repository.hasPluginInfo(pluginName);
     }

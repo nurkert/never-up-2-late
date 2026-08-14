@@ -333,7 +333,7 @@ public class InitialSetupManager implements Listener {
         ItemStack info = new ItemStack(Material.WRITABLE_BOOK);
         ItemMeta meta = info.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "What is being configured?");
+            meta.setDisplayName(ChatColor.GOLD + "What will be managed");
             meta.setLore(List.of(
                     ChatColor.GRAY + "• Left-click: enable/disable source",
                     ChatColor.GRAY + "• Right-click: toggle automatic updates",
@@ -364,7 +364,7 @@ public class InitialSetupManager implements Listener {
         ItemStack continueItem = new ItemStack(Material.LIME_CONCRETE);
         ItemMeta continueMeta = continueItem.getItemMeta();
         if (continueMeta != null) {
-            continueMeta.setDisplayName(ChatColor.GREEN + "Save & prepare downloads");
+            continueMeta.setDisplayName(ChatColor.GREEN + "Save and prepare downloads");
             continueMeta.setLore(List.of(
                     ChatColor.GRAY + "Current settings will be saved",
                     ChatColor.GRAY + "and the update sources reloaded."
@@ -412,7 +412,7 @@ public class InitialSetupManager implements Listener {
         ItemStack continueButton = new ItemStack(Material.GOLD_BLOCK);
         ItemMeta continueMeta = continueButton.getItemMeta();
         if (continueMeta != null) {
-            continueMeta.setDisplayName(ChatColor.YELLOW + "Continue to restart prompt");
+            continueMeta.setDisplayName(ChatColor.YELLOW + "Continue");
             continueMeta.setLore(List.of(
                     ChatColor.GRAY + "Confirm that the downloads",
                     ChatColor.GRAY + "have finished."

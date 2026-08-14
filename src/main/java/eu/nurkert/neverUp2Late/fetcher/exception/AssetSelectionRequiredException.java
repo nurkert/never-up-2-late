@@ -40,7 +40,7 @@ public class AssetSelectionRequiredException extends Exception {
     }
 
     public enum AssetType {
-        JAR("JAR"),
+        JAR("jar"),
         ARCHIVE("Archive"),
         UNKNOWN("Asset");
 
