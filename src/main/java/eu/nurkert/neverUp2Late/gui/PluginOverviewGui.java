@@ -87,6 +87,14 @@ public class PluginOverviewGui implements Listener {
     private final Map<UUID, ManagedPlugin> pendingRemovalRequests = new ConcurrentHashMap<>();
     private final Map<UUID, ManagedPlugin> pendingSuggestionRequests = new ConcurrentHashMap<>();
     private final Map<UUID, String> pendingInstallSearches = new ConcurrentHashMap<>();
+    /**
+     * When each pending chat prompt stops listening. Without it the listener
+     * stayed armed forever and swallowed whatever the operator said next -
+     * minutes later, about something else entirely.
+     */
+    private final Map<UUID, Long> promptDeadlines = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> pendingCleanupConfirmations = ConcurrentHashMap.newKeySet();
+    private static final long PROMPT_TIMEOUT_MILLIS = 60_000L;
     private final PluginUpdateSettingsRepository updateSettingsRepository;
     private final PluginLinkSuggester linkSuggester;
     private final AnvilTextPrompt anvilTextPrompt;
@@ -939,7 +947,7 @@ public class PluginOverviewGui implements Listener {
             }
             
             if (event.getRawSlot() == cleanupSlot) {
-                cleanupAllJarNames(player);
+                confirmCleanupAllJarNames(player);
                 return;
             }
 
@@ -1078,14 +1086,37 @@ public class PluginOverviewGui implements Listener {
         pendingRemovalRequests.remove(playerId);
         pendingSuggestionRequests.remove(playerId);
         pendingInstallSearches.remove(playerId);
+        pendingCleanupConfirmations.remove(playerId);
     }
 
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
+        if (hasPromptExpired(playerId)) {
+            clearPrompts(playerId);
+            // This handler runs off the server thread; talking to a Player
+            // belongs on it.
+            context.getScheduler().runTask(context.getPlugin(), () -> player.sendMessage(
+                    ChatColor.GRAY + "The previous NU2L prompt timed out - nothing was changed."));
+            return;
+        }
+        if (pendingCleanupConfirmations.remove(playerId)) {
+            event.setCancelled(true);
+            String answer = event.getMessage() == null ? "" : event.getMessage().trim();
+            context.getScheduler().runTask(context.getPlugin(), () -> {
+                promptDeadlines.remove(playerId);
+                if (answer.equalsIgnoreCase("yes")) {
+                    cleanupAllJarNames(player);
+                } else {
+                    player.sendMessage(ChatColor.YELLOW + "Nothing was renamed.");
+                }
+            });
+            return;
+        }
         ManagedPlugin pendingRemoval = pendingRemovalRequests.get(playerId);
         if (pendingRemoval != null) {
+            promptDeadlines.remove(playerId);
             event.setCancelled(true);
             context.getScheduler().runTask(context.getPlugin(),
                     () -> handleRemovalInput(player, pendingRemoval, event.getMessage()));
@@ -1096,10 +1127,38 @@ public class PluginOverviewGui implements Listener {
             return;
         }
 
+        promptDeadlines.remove(playerId);
         event.setCancelled(true);
         String message = event.getMessage() != null ? event.getMessage().trim() : "";
         context.getScheduler().runTask(context.getPlugin(),
                 () -> handleChatInput(player, message, request));
+    }
+
+    private boolean hasPromptExpired(UUID playerId) {
+        Long deadline = promptDeadlines.get(playerId);
+        return deadline != null && System.currentTimeMillis() > deadline;
+    }
+
+    /** Arms a chat prompt, and states the deadline so nobody is left guessing. */
+    private void armPrompt(Player player) {
+        // Starting any prompt cancels whatever was pending before, so the answer
+        // can never be routed to a question the operator has moved on from.
+        UUID id = player.getUniqueId();
+        pendingCleanupConfirmations.remove(id);
+        pendingLinkRequests.remove(id);
+        pendingRemovalRequests.remove(id);
+        pendingSuggestionRequests.remove(id);
+        promptDeadlines.put(player.getUniqueId(), System.currentTimeMillis() + PROMPT_TIMEOUT_MILLIS);
+        player.sendMessage(ChatColor.DARK_GRAY + "You have 60 seconds; type "
+                + ChatColor.GRAY + "cancel" + ChatColor.DARK_GRAY + " to abort.");
+    }
+
+    private void clearPrompts(UUID playerId) {
+        promptDeadlines.remove(playerId);
+        pendingCleanupConfirmations.remove(playerId);
+        pendingLinkRequests.remove(playerId);
+        pendingRemovalRequests.remove(playerId);
+        pendingSuggestionRequests.remove(playerId);
     }
 
     private void handleChatInput(Player player, String message, LinkRequest request) {
@@ -1159,6 +1218,7 @@ public class PluginOverviewGui implements Listener {
         }
 
         pendingSuggestionRequests.put(playerId, plugin);
+        armPrompt(player);
         player.sendMessage(ChatColor.GRAY + "Searching for matching sources…");
 
         context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
@@ -1465,6 +1525,7 @@ public class PluginOverviewGui implements Listener {
         String pluginName = Objects.requireNonNullElse(plugin.getName(),
                 plugin.getPath() != null ? plugin.getPath().getFileName().toString() : "Plugin");
         pendingLinkRequests.put(playerId, new LinkRequest(pluginName, false));
+        armPrompt(player);
 
         player.sendMessage(ChatColor.AQUA + "Set update link for " + pluginName + ".");
         existingSource.ifPresentOrElse(source ->
@@ -1602,6 +1663,7 @@ public class PluginOverviewGui implements Listener {
             return;
         }
         pendingRemovalRequests.put(player.getUniqueId(), plugin);
+        armPrompt(player);
         player.closeInventory();
         player.sendMessage(ChatColor.RED + "Are you sure you want to remove "
                 + ChatColor.AQUA + plugin.getName() + ChatColor.RED + "?");
@@ -1713,6 +1775,45 @@ public class PluginOverviewGui implements Listener {
         }
 
     
+
+        /**
+         * Asks first. This renames files across every plugin and deletes any
+         * duplicate jars it finds, from a single click - while removing one
+         * single plugin has always required typing "yes".
+         */
+        private void confirmCleanupAllJarNames(Player player) {
+            if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {
+                return;
+            }
+            List<ManagedPlugin> affected = context.getPluginLifecycleManager().getManagedPlugins().stream()
+                    .filter(p -> !isSelfPlugin(p))
+                    .filter(this::needsRename)
+                    .toList();
+            player.closeInventory();
+            if (affected.isEmpty()) {
+                // No renames - but the action still deletes duplicate jars, and
+                // deleting files is exactly what needs asking about.
+                player.sendMessage(ChatColor.GOLD + "All filenames are already tidy.");
+                player.sendMessage(ChatColor.GRAY + "Continuing removes duplicate jars of the same plugin.");
+                player.sendMessage(ChatColor.YELLOW + "Type " + ChatColor.WHITE + "yes"
+                        + ChatColor.YELLOW + " to go ahead.");
+                pendingCleanupConfirmations.add(player.getUniqueId());
+                armPrompt(player);
+                return;
+            }
+            player.sendMessage(ChatColor.GOLD + "This renames " + affected.size() + " jar file(s):");
+            affected.stream().limit(8).forEach(p -> player.sendMessage(ChatColor.GRAY + "  "
+                    + p.getPath().getFileName() + ChatColor.DARK_GRAY + " → " + ChatColor.WHITE
+                    + desiredFileName(p)));
+            if (affected.size() > 8) {
+                player.sendMessage(ChatColor.DARK_GRAY + "  … and " + (affected.size() - 8) + " more");
+            }
+            player.sendMessage(ChatColor.GRAY + "Duplicate jars of the same plugin are deleted.");
+            player.sendMessage(ChatColor.YELLOW + "Type " + ChatColor.WHITE + "yes"
+                    + ChatColor.YELLOW + " to go ahead.");
+            pendingCleanupConfirmations.add(player.getUniqueId());
+            armPrompt(player);
+        }
 
         private void cleanupAllJarNames(Player player) {
             if (!checkPermission(player, Permissions.GUI_MANAGE_RENAME)) {

@@ -65,6 +65,8 @@ public class InitialSetupManager implements Listener {
     private static final int RESTART_NOW_SLOT = 11;
     private static final int RESTART_LATER_SLOT = 15;
     private static final int[] STAGE_HEADER_SLOTS = {0, 1, 2};
+    /** Every stage offers a way out; a wizard you cannot leave is a trap. */
+    private static final int CLOSE_SLOT = 8;
     private static final String SELF_UPDATE_SOURCE_NAME = "neverup2late";
     /**
      * NeverUp2Late updates itself from its own GitHub releases. The registry
@@ -244,6 +246,31 @@ public class InitialSetupManager implements Listener {
         }, 40L);
     }
 
+    private ItemStack createCloseItem(Stage stage) {
+        ItemStack item = new ItemStack(Material.BARRIER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            if (stage == Stage.RESTART) {
+                // Everything is decided by now; leaving here means "later",
+                // not "never" - otherwise the setup would stay unfinished and
+                // updates would stay paused for good.
+                meta.setDisplayName(ChatColor.GRAY + "Finish, restart later");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "Completes the setup without restarting.",
+                        ChatColor.GRAY + "Downloaded updates apply on your next restart."));
+            } else {
+                meta.setDisplayName(ChatColor.GRAY + "Not now");
+                meta.setLore(List.of(
+                        ChatColor.GRAY + "Closes the wizard and discards the",
+                        ChatColor.GRAY + "choices on this screen.",
+                        ChatColor.GRAY + "Nothing is updated until the setup is done.",
+                        ChatColor.DARK_GRAY + "Reopen it any time with /nu2l setup."));
+            }
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) {
@@ -264,6 +291,19 @@ public class InitialSetupManager implements Listener {
         }
 
         event.setCancelled(true);
+
+        if (event.getRawSlot() == CLOSE_SLOT) {
+            if (session.stage == Stage.RESTART) {
+                player.closeInventory();
+                finishSetup(player, false);
+                return;
+            }
+            sessions.remove(player.getUniqueId());
+            player.closeInventory();
+            player.sendMessage(ChatColor.GRAY + "Setup closed. Run "
+                    + ChatColor.WHITE + "/nu2l setup" + ChatColor.GRAY + " whenever it suits you.");
+            return;
+        }
 
         switch (session.stage) {
             case CONFIGURE -> handleConfigureClick(player, session, event.getRawSlot(), event.isLeftClick(), event.isRightClick(), event.isShiftClick());
@@ -513,6 +553,7 @@ public class InitialSetupManager implements Listener {
             inventory.setItem(slot, filler);
         }
         applyStageHeader(inventory, stage);
+        inventory.setItem(CLOSE_SLOT, createCloseItem(stage));
         return inventory;
     }
 

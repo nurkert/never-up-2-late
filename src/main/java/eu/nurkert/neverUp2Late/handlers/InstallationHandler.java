@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
@@ -12,6 +13,7 @@ import eu.nurkert.neverUp2Late.update.UpdateCompletionListener;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
+import org.bukkit.ChatColor;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -61,6 +63,9 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     private final Logger logger;
     private BukkitTask deferredRestartTask;
     private BukkitTask retryTask;
+    /** Updates already announced, so a queue is not re-announced on every quit. */
+    private final Set<Path> announcedPending =
+            Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 
     public InstallationHandler(JavaPlugin plugin,
                                PluginLifecycleManager pluginLifecycleManager,
@@ -160,6 +165,31 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
         applyPendingEvents(leavingPlayer, false);
     }
 
+    /**
+     * Tells the people who can act on it that a restart is armed - once per
+     * update, and only to players holding a NeverUp2Late permission. Everyone
+     * else has no use for the message, and the restart itself only happens on an
+     * empty server, which is exactly when nobody can be told any more.
+     */
+    private void announcePending(UpdateCompletedEvent event) {
+        if (!announcedPending.add(event.getDestination())) {
+            return;
+        }
+        String name = event.getSource() != null ? event.getSource().getName() : "a plugin";
+        String message = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] "
+                + ChatColor.YELLOW + "An update for " + ChatColor.WHITE + name + ChatColor.YELLOW
+                + " is ready. The server restarts to apply it once everyone has left.";
+        try {
+            for (Player online : server.getOnlinePlayers()) {
+                if (online.hasPermission(Permissions.GUI_OPEN) || online.hasPermission(Permissions.INSTALL)) {
+                    online.sendMessage(message);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // A courtesy, never a reason to disturb the update flow.
+        }
+    }
+
     private void applyPendingEvents(Player leavingPlayer, boolean deferToNextTick) {
         if (deferToNextTick) {
             if (!isServerEmpty(leavingPlayer) || pendingEvents.isEmpty()) {
@@ -171,6 +201,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
         if (!isServerEmpty(leavingPlayer)) {
             // Players are online: hold everything back, but make sure the
             // maintenance window still gets a chance to fire on its own.
+            snapshotPending().forEach(this::announcePending);
             if (deferredRestartTask == null) {
                 for (UpdateCompletedEvent waiting : snapshotPending()) {
                     if (shouldDeferForPluginWindow(waiting)) {
@@ -256,6 +287,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
 
     private void forget(UpdateCompletedEvent event) {
         pendingEvents.remove(event.getDestination());
+        announcedPending.remove(event.getDestination());
     }
 
     private List<UpdateCompletedEvent> snapshotPending() {
@@ -447,7 +479,10 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                 }
             }
 
-            logger.log(Level.INFO, "Restarting server to complete plugin update.");
+            // A restart applies everything that is waiting, not just the update
+            // that happened to trigger it.
+            logger.log(Level.INFO, "Restarting server to apply pending updates ({0} and any others queued).",
+                    event.getSource() != null ? event.getSource().getName() : "an update");
             restarted = true;
             server.shutdown();
             return false;

@@ -478,6 +478,78 @@ public class QuickInstallCoordinator {
         return new ArrayList<>(matches);
     }
 
+    /**
+     * Whether an existing source and a new plan point at the same thing.
+     *
+     * <p>The fetcher class only says which provider is involved; what identifies
+     * the artifact lives in the options - owner and repository, the project
+     * slug, the resource id. Options that merely describe handling are ignored,
+     * so re-installing the same link does not count as a change.</p>
+     */
+    private boolean describesSameArtifact(UpdateSource source, InstallationPlan plan) {
+        if (!fetcherMatchesPlan(source, plan)) {
+            return false;
+        }
+        return identifyingOptions(configuredOptions(source.getName()))
+                .equals(identifyingOptions(plan.getOptions()));
+    }
+
+    private static final Set<String> NON_IDENTIFYING_OPTIONS =
+            Set.of("installedplugin", "ignorecompatibilitywarnings", "_ignoreunstabledefault",
+                    "preferredgameversions", "maxgameversion");
+
+    private Map<String, String> identifyingOptions(Map<String, Object> options) {
+        Map<String, String> identity = new LinkedHashMap<>();
+        if (options == null) {
+            return identity;
+        }
+        options.forEach((key, value) -> {
+            if (key == null || value == null) {
+                return;
+            }
+            String normalized = key.toLowerCase(Locale.ROOT);
+            if (NON_IDENTIFYING_OPTIONS.contains(normalized)) {
+                return;
+            }
+            identity.put(normalized, String.valueOf(value));
+        });
+        return identity;
+    }
+
+    /** Reads the options a source is configured with, in either config layout. */
+    private Map<String, Object> configuredOptions(String sourceName) {
+        synchronized (configurationLock) {
+            ConfigurationSection section = configuration.getConfigurationSection("updates.sources");
+            if (section != null && !section.getKeys(false).isEmpty()) {
+                // Sources are matched case-insensitively everywhere else, so a
+                // key that differs only in case must not read as "no options" -
+                // that would make every install look like a re-link.
+                ConfigurationSection entry = section.getKeys(false).stream()
+                        .filter(key -> key.equalsIgnoreCase(sourceName))
+                        .findFirst()
+                        .map(section::getConfigurationSection)
+                        .orElse(null);
+                ConfigurationSection options = entry == null ? null : entry.getConfigurationSection("options");
+                return options == null ? Map.of() : options.getValues(true);
+            }
+            for (Map<?, ?> raw : configuration.getMapList("updates.sources")) {
+                if (!sourceName.equalsIgnoreCase(Objects.toString(raw.get("name"), ""))) {
+                    continue;
+                }
+                Object options = raw.get("options");
+                if (options instanceof Map<?, ?> map) {
+                    Map<String, Object> copy = new LinkedHashMap<>();
+                    map.forEach((k, v) -> copy.put(String.valueOf(k), v));
+                    return copy;
+                }
+                if (options instanceof ConfigurationSection configured) {
+                    return configured.getValues(true);
+                }
+            }
+            return Map.of();
+        }
+    }
+
     private boolean fetcherMatchesPlan(UpdateSource source, InstallationPlan plan) {
         if (source == null || plan == null) {
             return false;
@@ -892,6 +964,7 @@ public class QuickInstallCoordinator {
     }
 
     private void finalizeInstallation(CommandSender sender, InstallationPlan plan) {
+        String relinkedSource = null;
         deduplicateExistingSources(sender);
         enforcePluginPathSanity(plan, sender);
 
@@ -907,12 +980,28 @@ public class QuickInstallCoordinator {
                 if (!redundant.isEmpty()) {
                     cleanupRedundantSources(sender, primary, redundant, computePathUsage());
                 }
-                send(sender, ChatColor.YELLOW + "Source already exists, starting update…");
-                updateHandler.runJobNow(primary, sender);
-                return;
+                if (describesSameArtifact(primary, plan)) {
+                    send(sender, ChatColor.YELLOW + "This link is already configured as "
+                            + ChatColor.AQUA + primary.getName() + ChatColor.YELLOW + "; checking for a new version…");
+                    updateHandler.runJobNow(primary, sender);
+                    return;
+                }
+                // Same provider, different target. Matching on the fetcher class
+                // alone made every GitHub link look like every other one, so the
+                // new URL was dropped and the old source re-run - while the
+                // message claimed an update was starting. Re-link instead, by
+                // letting the plan replace that entry.
+                send(sender, ChatColor.YELLOW + "Pointing " + ChatColor.AQUA + primary.getName()
+                        + ChatColor.YELLOW + " at the new link.");
+                // Reuse the entry: applyPlanToConfiguration replaces a source of
+                // the same name. The old registration is dropped further down,
+                // once the new configuration is safely on disk - unregistering
+                // here would lose the source entirely if the write then failed.
+                plan.setSourceName(primary.getName());
+                relinkedSource = primary.getName();
+            } else {
+                removeConflictingSources(sender, conflicts);
             }
-
-            removeConflictingSources(sender, conflicts);
         }
 
         ensurePreferredSourceName(plan);
@@ -931,6 +1020,14 @@ public class QuickInstallCoordinator {
             return;
         }
 
+        if (relinkedSource != null) {
+            updateSourceRegistry.unregisterSource(relinkedSource);
+            // The recorded build and version belong to the artifact this source
+            // used to point at. Keeping them would make the first check of the
+            // new target look like "already installed".
+            persistentPluginHandler.removePluginInfo(relinkedSource);
+        }
+
         UpdateSource source;
         try {
             source = updateSourceRegistry.registerDynamicSource(
@@ -943,6 +1040,10 @@ public class QuickInstallCoordinator {
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Failed to register dynamic source " + plan.getSourceName(), e);
             restoreConfiguration(snapshot);
+            // Rebuild the registry from the restored file, so a re-link that
+            // failed halfway leaves the previous source in place rather than
+            // nothing at all.
+            updateSourceRegistry.reload();
             send(sender, ChatColor.RED + "Could not register source: " + e.getMessage());
             return;
         }

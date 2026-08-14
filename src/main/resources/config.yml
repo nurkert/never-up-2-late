@@ -82,10 +82,14 @@ updates:
       enabled: false
 
     # NeverUp2Late keeps itself up to date from its GitHub releases. Set
-    # enabled: false if you would rather update it by hand. Like every other
-    # plugin it follows the per-plugin update settings, so by default a new
-    # version is downloaded and applied on the next restart rather than being
-    # hot-reloaded into a running server.
+    # enabled: false if you would rather update it by hand.
+    #
+    # It cannot reload itself into a running server - that would close the class
+    # loader it is executing in - so a new version is applied by a restart. Like
+    # every plugin update, that restart waits for an empty server and for the
+    # 03:00-06:00 maintenance window. In other words: with this enabled, your
+    # server may restart at night to install a new NeverUp2Late. Anyone online
+    # is told before it happens, and nothing restarts while players are on.
     - name: neverup2late
       type: githubRelease
       target: plugins
