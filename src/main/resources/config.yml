@@ -9,9 +9,15 @@ filenames:
   geyser: "Geyser-Spigot.jar"
   floodgate: "floodgate-spigot.jar"
   paper: "paper.jar"
+  neverup2late: "NeverUp2Late.jar"
 
 # Check interval in minutes
 updateInterval: 180
+
+# Seconds to wait after the server started before the first check runs. This
+# keeps the download and the file work out of the boot phase, while worlds are
+# loading and the other plugins are still enabling. Set to 0 to check right away.
+startupDelaySeconds: 60
 
 # Controls automatic plugin lifecycle operations (reload/unload).
 pluginLifecycle:
@@ -34,8 +40,17 @@ backups:
 ignoreUnstable: true
 
 updates:
-  # Ignore unstable builds for fetchers that support filtering (e.g. Paper)
+  # Prefer stable builds. Fetchers that can tell releases from pre-releases use
+  # this as a preference, not as a hard rule: if a project only ever publishes
+  # beta versions, it still gets updated instead of quietly freezing. Set a
+  # source's own "versionTypes" option if you want an exact filter.
   ignoreUnstable: true
+
+  # Leave a manual rollback alone. After you restored an older build, the
+  # updater will not push the version you rolled back from onto the server
+  # again - it waits for a genuinely newer one. Set this to false if an update
+  # should always be re-applied instead.
+  respectManualRollback: true
 
   # Configure the update sources that should be checked.
   # - name: identifier used for persistence and filename lookups
@@ -48,12 +63,37 @@ updates:
       target: server
       filename: "paper.jar"
       enabled: true
+      options:
+        # NeverUp2Late never leaves the Minecraft version the server currently
+        # runs. Paper publishes builds for the next major version long before
+        # most servers are ready for it, and installing one would restart the
+        # server into a version its worlds and plugins were not prepared for.
+        # Set this to true only when you want that jump to happen automatically.
+        allowGameVersionUpgrade: false
 
     - name: geyser
       type: geyser
       target: plugins
       filename: "Geyser-Spigot.jar"
       enabled: true
+
+    # NeverUp2Late keeps itself up to date from its GitHub releases. Set
+    # enabled: false if you would rather update it by hand. Like every other
+    # plugin it follows the per-plugin update settings, so by default a new
+    # version is downloaded and applied on the next restart rather than being
+    # hot-reloaded into a running server.
+    - name: neverup2late
+      type: githubRelease
+      target: plugins
+      filename: "NeverUp2Late.jar"
+      enabled: true
+      options:
+        owner: nurkert
+        repository: never-up-2-late
+        # The release ships a stable, version-less jar name next to the
+        # versioned one; picking it keeps the file name constant.
+        assetPattern: "^NeverUp2Late\\.jar$"
+        installedPlugin: "NeverUp2Late"
 
     # The example below illustrates how to configure a GitHub release source.
     # Uncomment and adjust the values to track a real project.
