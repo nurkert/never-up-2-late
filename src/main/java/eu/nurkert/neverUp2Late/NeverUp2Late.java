@@ -18,6 +18,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import eu.nurkert.neverUp2Late.persistence.ConfigurationUpgrader;
 import eu.nurkert.neverUp2Late.persistence.LegacyConfigMigrator;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.SetupStateRepository;
@@ -34,15 +35,50 @@ public final class NeverUp2Late extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        java.io.File configFile = new java.io.File(getDataFolder(), "config.yml");
+        // Whether this server ran NeverUp2Late before, decided before
+        // saveDefaultConfig() can create the file and blur the answer.
+        boolean existingInstallation = configFile.isFile();
         saveDefaultConfig();
         FileConfiguration configuration = getConfig();
+
+        // Bukkit answers an unreadable config.yml with an EMPTY configuration -
+        // it logs the parse error and hands back nothing. Writing that back
+        // would replace the operator's file with a handful of generated keys, so
+        // nothing here may save while the file cannot be read.
+        boolean configurationReadable = isReadable(configFile);
+        if (!configurationReadable) {
+            getLogger().severe("config.yml could not be read - leaving it untouched."
+                    + " Fix the reported YAML error; NeverUp2Late runs on defaults until then.");
+        }
 
         UpdateStateRepository updateStateRepository = UpdateStateRepository.forPlugin(this);
         PluginUpdateSettingsRepository updateSettingsRepository = PluginUpdateSettingsRepository.forPlugin(this);
         SetupStateRepository setupStateRepository = SetupStateRepository.forPlugin(this);
         LegacyConfigMigrator migrator = new LegacyConfigMigrator(configuration, updateStateRepository, updateSettingsRepository, getLogger());
-        if (migrator.migrate()) {
+        boolean configurationChanged = migrator.migrate();
+        if (configurationReadable) {
+            configurationChanged |= new ConfigurationUpgrader(configuration, getLogger()).upgrade();
+        }
+        if (configurationChanged && configurationReadable) {
             saveConfig();
+        }
+
+        // An installation that predates the setup gate has been updating for
+        // months without ever opening the wizard, so its phase is still
+        // UNINITIALISED. Pausing it now would silently stop the updates it has
+        // been doing all along; a recorded update history is proof enough that
+        // this server is set up.
+        // Three conditions, all needed. A config.yml that predates this start
+        // proves the plugin ran here before; recorded update history proves it
+        // actually did the work (an install that never finished its setup has
+        // none, because the gate stopped it); and only UNINITIALISED is rescued,
+        // so a wizard someone is halfway through is never closed behind them.
+        if (existingInstallation
+                && setupStateRepository.getPhase() == SetupPhase.UNINITIALISED
+                && updateStateRepository.hasAnyState()) {
+            getLogger().info("Existing installation detected - keeping updates running without the setup wizard.");
+            setupStateRepository.setPhase(SetupPhase.COMPLETED);
         }
 
         PersistentPluginHandler persistentPluginHandler = new PersistentPluginHandler(updateStateRepository);
@@ -139,6 +175,20 @@ public final class NeverUp2Late extends JavaPlugin {
             } catch (Exception ex) {
                 getLogger().log(java.util.logging.Level.FINE, "Failed to stop update handler during shutdown", ex);
             }
+        }
+    }
+
+    /** @return whether the file parses; an absent file counts as readable. */
+    private boolean isReadable(java.io.File configFile) {
+        if (!configFile.isFile()) {
+            return true;
+        }
+        try {
+            new org.bukkit.configuration.file.YamlConfiguration().load(configFile);
+            return true;
+        } catch (java.io.IOException | org.bukkit.configuration.InvalidConfigurationException ex) {
+            getLogger().log(java.util.logging.Level.SEVERE, "config.yml is not valid YAML", ex);
+            return false;
         }
     }
 

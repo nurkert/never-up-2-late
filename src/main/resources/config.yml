@@ -1,3 +1,7 @@
+# Written by NeverUp2Late. Settings added in later versions are appended to an
+# existing file automatically; values you already set are never changed.
+configVersion: 1
+
 # Control the behaviour of the first-run setup wizard
 setup:
   # When true, NeverUp2Late skips the interactive wizard and applies the default

@@ -262,6 +262,15 @@ public class UpdateStateRepository {
         return Optional.of(new PluginState(build, version));
     }
 
+    /**
+     * Whether anything was ever recorded here - the marker of an installation
+     * that has been running, as opposed to a fresh one.
+     */
+    public synchronized boolean hasAnyState() {
+        ConfigurationSection plugins = pluginsSection(false);
+        return plugins != null && !plugins.getKeys(false).isEmpty();
+    }
+
     public synchronized boolean hasPluginInfo(String pluginName) {
         return find(pluginName).isPresent();
     }

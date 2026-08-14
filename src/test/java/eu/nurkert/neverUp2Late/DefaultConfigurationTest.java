@@ -55,7 +55,7 @@ class DefaultConfigurationTest {
 
         assertTrue(pattern.matcher("NeverUp2Late.jar").matches(),
                 "the release publishes this constant name next to the versioned one");
-        assertFalse(pattern.matcher("never-up-2-late-2.5.0.jar").matches(),
+        assertFalse(pattern.matcher("never-up-2-late-2.5.1.jar").matches(),
                 "picking the versioned asset would rename the jar on every update");
         assertFalse(pattern.matcher("NeverUp2LateXjar").matches(), "the dot must be literal");
     }
