@@ -8,9 +8,12 @@ author: nurkert
 api-version: '1.21'
 commands:
   nu2l:
-    description: Installs plugins directly from a URL.
-    usage: "/<command> <url>"
-    permission: neverup2late.install
+    description: Manage NeverUp2Late - status, updates, plugins and installs.
+    usage: "/<command> help"
+    # Deliberately no command-level permission: Bukkit would enforce it before
+    # the command ever runs, so everyone without neverup2late.install would be
+    # refused - including moderators who only hold neverup2late.gui.open. Each
+    # subcommand checks its own permission instead.
 permissions:
   neverup2late.setup:
     description: Allows completing the initial setup wizard.

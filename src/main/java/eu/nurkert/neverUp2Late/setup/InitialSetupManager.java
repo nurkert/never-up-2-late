@@ -44,6 +44,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -87,6 +88,8 @@ public class InitialSetupManager implements Listener {
     private final Logger logger;
 
     private final Map<UUID, SetupSession> sessions = new ConcurrentHashMap<>();
+    /** Players already told about the pending setup, so nobody is asked twice per session. */
+    private final Set<UUID> invitedThisSession = ConcurrentHashMap.newKeySet();
 
     private volatile boolean setupMode;
 
@@ -223,13 +226,21 @@ public class InitialSetupManager implements Listener {
             return;
         }
 
+        if (!invitedThisSession.add(player.getUniqueId())) {
+            return;
+        }
+
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline()) {
                 return;
             }
-            player.sendMessage(ChatColor.AQUA + "Welcome! NeverUp2Late needs a quick initial setup.");
-            player.sendMessage(ChatColor.GRAY + "A wizard will guide you through the steps – it is opening now.");
-            openWizard(player);
+            // An invitation, not an ambush. Tearing an inventory open in someone's
+            // face on every single join interrupts whatever they were doing and
+            // offers no way to say "not now" - and it did so again on the next
+            // join, and the one after that.
+            player.sendMessage(ChatColor.AQUA + "NeverUp2Late is installed but not set up yet.");
+            player.sendMessage(ChatColor.GRAY + "Run " + ChatColor.WHITE + "/nu2l setup"
+                    + ChatColor.GRAY + " when it suits you - nothing is updated until you do.");
         }, 40L);
     }
 

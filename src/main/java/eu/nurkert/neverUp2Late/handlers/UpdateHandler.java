@@ -188,7 +188,16 @@ public class UpdateHandler {
         }
         try {
         if (setupStateRepository != null && setupStateRepository.getPhase() != SetupPhase.COMPLETED) {
-            logger.log(Level.FINE, "Running updates while setup is incomplete (phase={0}).", setupStateRepository.getPhase());
+            // Nothing is installed, downloaded or restarted before the operator
+            // has confirmed what should be managed. The shipped defaults name a
+            // filename per source, and a file that is simply not there counts as
+            // "needs installing" - so an unconfirmed run would fetch Geyser onto
+            // a server that never asked for it, or a second Paper jar onto every
+            // server whose jar is not called paper.jar, and then restart.
+            logThrottle.log("setup-pending", Level.INFO,
+                    "Waiting for the initial setup before touching anything - run /nu2l setup, "
+                            + "or set setup.skipWizard to true to accept the defaults.");
+            return;
         }
         boolean networkIssueThisRun = false;
         File pluginsFolder = plugin.getDataFolder().getParentFile();

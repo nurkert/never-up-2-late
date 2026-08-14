@@ -1752,7 +1752,7 @@ public class QuickInstallCoordinator {
             String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
             candidate = candidate.split("\\?")[0];
 
-            // Heuristik 1: Content-Disposition (HEAD), wenn kein brauchbarer Pfadname
+            // First guess: the Content-Disposition header, when the path has no usable name
             if (candidate.isBlank() || candidate.equalsIgnoreCase("download")) {
                 String cdName = tryResolveContentDisposition(downloadUrl);
                 if (cdName != null && !cdName.isBlank()) {
@@ -1760,7 +1760,7 @@ public class QuickInstallCoordinator {
                 }
             }
 
-            // Heuristik 2: Host-spezifischer Default
+            // Second guess: a host specific default
             if (candidate.isBlank() || candidate.equalsIgnoreCase("download")) {
                 candidate = sanitizedFallback != null ? sanitizedFallback : null;
             }

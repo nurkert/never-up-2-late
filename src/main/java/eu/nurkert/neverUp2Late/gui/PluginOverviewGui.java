@@ -56,6 +56,8 @@ import java.util.Locale;
 public class PluginOverviewGui implements Listener {
 
     private static final int MAX_SIZE = 54;
+    /** Bottom row reserved for controls, so no plugin ever shares a slot with a button. */
+    private static final int CONTROL_ROW_SIZE = 9;
     private static final int DETAIL_INVENTORY_SIZE = 27;
     private static final int DETAIL_STATUS_SLOT = 10;
     private static final int DETAIL_ENABLE_SLOT = 12;
@@ -147,8 +149,8 @@ public class PluginOverviewGui implements Listener {
                 .sorted(Comparator.comparing(ManagedPlugin::getName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
 
-        int requiredSlots = plugins.size() + 1;
-        int size = Math.max(9, ((requiredSlots + 8) / 9) * 9);
+        int requiredSlots = plugins.size() + CONTROL_ROW_SIZE;
+        int size = Math.max(18, ((requiredSlots + 8) / 9) * 9);
         size = Math.min(size, MAX_SIZE);
 
         Inventory inventory = Bukkit.createInventory(null, size, ChatColor.DARK_PURPLE + "NU2L Plugins");
@@ -159,7 +161,12 @@ public class PluginOverviewGui implements Listener {
         }
 
         Map<Integer, ManagedPlugin> slotMapping = new HashMap<>();
-        int availableSlots = Math.max(0, size - 1);
+        // The bottom row belongs to the controls. Reserving only two slots let
+        // the cleanup button overwrite the plugin that had just been placed
+        // there, so at 8, 17, 26 ... plugins the last one vanished from the
+        // screen while its slot still answered clicks - a click meant for a
+        // plugin then triggered the bulk rename.
+        int availableSlots = Math.max(0, size - CONTROL_ROW_SIZE);
         boolean truncated = plugins.size() > availableSlots;
         for (int slot = 0; slot < availableSlots && slot < plugins.size(); slot++) {
             ManagedPlugin plugin = plugins.get(slot);
@@ -819,6 +826,10 @@ public class PluginOverviewGui implements Listener {
             int size = session.inventory().getSize();
             int installSlot = size - 1;
             int cleanupSlot = size - 2;
+            if (event.getRawSlot() >= size - CONTROL_ROW_SIZE
+                    && event.getRawSlot() != installSlot && event.getRawSlot() != cleanupSlot) {
+                return; // reserved control row, nothing behind it
+            }
             
             if (event.getRawSlot() == installSlot) {
                 beginStandaloneInstall(player);
@@ -987,7 +998,7 @@ public class PluginOverviewGui implements Listener {
             return;
         }
 
-        if (message.equalsIgnoreCase("abbrechen") || message.equalsIgnoreCase("cancel")) {
+        if (message.equalsIgnoreCase("cancel")) {
             pendingLinkRequests.remove(playerId);
             player.sendMessage(ChatColor.YELLOW + "Linking cancelled.");
             return;
@@ -1486,7 +1497,7 @@ public class PluginOverviewGui implements Listener {
         UUID playerId = player.getUniqueId();
         pendingRemovalRequests.remove(playerId);
         String trimmed = message != null ? message.trim() : "";
-        if (trimmed.equalsIgnoreCase("ja") || trimmed.equalsIgnoreCase("yes")) {
+        if (trimmed.equalsIgnoreCase("yes")) {
             coordinator.removeManagedPlugin(player, plugin);
         } else {
             player.sendMessage(ChatColor.YELLOW + "Removal cancelled.");
@@ -1853,7 +1864,7 @@ public class PluginOverviewGui implements Listener {
         if (player.hasPermission(permission) || player.hasPermission(Permissions.GUI_MANAGE)) {
             return true;
         }
-        player.sendMessage(ChatColor.RED + "Dir fehlt die Berechtigung (" + permission + ").");
+        player.sendMessage(ChatColor.RED + "You are missing the permission " + permission + ".");
         return false;
     }
 

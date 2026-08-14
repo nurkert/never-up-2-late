@@ -104,10 +104,13 @@ public final class NeverUp2Late extends JavaPlugin {
         } else if (skipWizard) {
             setupManager.completeSetup(getServer().getConsoleSender());
         } else {
-            // Start right away even in setup mode so pending updates (Paper, for example) are not held back.
+            // The scheduler runs, but every check bails out until the setup is
+            // confirmed - see UpdateHandler#checkForUpdates. Nothing is
+            // downloaded, installed or restarted before the operator has said
+            // what should be managed.
             updateHandler.start();
             setupManager.enableSetupMode();
-            getLogger().info("NeverUp2Late is waiting for the initial setup. Players with neverup2late.setup are guided through it automatically.");
+            getLogger().info("NeverUp2Late is installed but not set up yet - nothing will be updated until you run /nu2l setup.");
         }
         getServer().getPluginManager().registerEvents(installationHandler, this);
 

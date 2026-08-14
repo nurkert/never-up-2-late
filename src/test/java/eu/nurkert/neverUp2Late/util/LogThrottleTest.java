@@ -96,6 +96,32 @@ class LogThrottleTest {
     }
 
     @Test
+    void reportsAPersistentConditionAgainAfterAWhile() {
+        // A source that keeps failing must not become quieter than the startup
+        // messages: it goes silent for a while, then says so again.
+        long[] now = {0L};
+        List<LogRecord> records = new ArrayList<>();
+        Logger logger = Logger.getLogger("nu2l-throttle-repeat-" + UUID.randomUUID());
+        logger.setUseParentHandlers(false);
+        logger.setLevel(Level.ALL);
+        logger.addHandler(new Handler() {
+            @Override public void publish(LogRecord record) { records.add(record); }
+            @Override public void flush() { }
+            @Override public void close() { }
+        });
+        LogThrottle repeating = new LogThrottle(logger, 1000L, () -> now[0]);
+
+        repeating.log("io:paper", Level.WARNING, "still broken");
+        repeating.log("io:paper", Level.WARNING, "still broken");
+        now[0] = 1500L;
+        repeating.log("io:paper", Level.WARNING, "still broken");
+
+        assertEquals(Level.WARNING, records.get(0).getLevel());
+        assertEquals(Level.FINE, records.get(1).getLevel(), "quiet while it is fresh");
+        assertEquals(Level.WARNING, records.get(2).getLevel(), "loud again once the window passed");
+    }
+
+    @Test
     void throwablesAreThrottledByTheirDescription() {
         throttle.log("boom:paper", Level.SEVERE, "Unexpected error", new IllegalStateException("broken"));
         throttle.log("boom:paper", Level.SEVERE, "Unexpected error", new IllegalStateException("broken"));

@@ -71,11 +71,15 @@ updates:
         # Set this to true only when you want that jump to happen automatically.
         allowGameVersionUpgrade: false
 
+    # Geyser lets Bedrock clients join. It ships disabled: NeverUp2Late installs
+    # what you ask it to, and an entry that is enabled here would be downloaded
+    # on the first run whether or not you wanted it. Flip this to true (or pick
+    # it in the setup wizard) if you use Geyser.
     - name: geyser
       type: geyser
       target: plugins
       filename: "Geyser-Spigot.jar"
-      enabled: true
+      enabled: false
 
     # NeverUp2Late keeps itself up to date from its GitHub releases. Set
     # enabled: false if you would rather update it by hand. Like every other
