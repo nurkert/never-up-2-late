@@ -172,16 +172,15 @@ public class HangarFetcher extends JsonUpdateFetcher {
             return buildNumber.getAsInt();
         }
 
+        // Hangar hands out version ids in ascending order, so they do order
+        // releases. A hash of the same fields would not, and used to answer here
+        // whenever the id did not fit an int.
         long id = version.id();
         if (id >= 0 && id <= Integer.MAX_VALUE) {
             return (int) id;
         }
 
-        int hash = Objects.hash(version.id(), version.name());
-        if (hash == Integer.MIN_VALUE) {
-            return Integer.MAX_VALUE;
-        }
-        return Math.abs(hash);
+        return UNKNOWN_BUILD;
     }
 
     private static String trimToNull(String value) {

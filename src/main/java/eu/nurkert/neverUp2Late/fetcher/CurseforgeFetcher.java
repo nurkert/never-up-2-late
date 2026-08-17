@@ -186,16 +186,15 @@ public class CurseforgeFetcher extends JsonUpdateFetcher {
             return buildNumber.getAsInt();
         }
 
+        // CurseForge file ids ascend with upload time, so they do order releases.
+        // A hash of the same fields would not, and used to answer here whenever
+        // the id did not fit an int.
         long id = file.id();
         if (id >= 0 && id <= Integer.MAX_VALUE) {
             return (int) id;
         }
 
-        int hash = Objects.hash(file.id(), file.fileName());
-        if (hash == Integer.MIN_VALUE) {
-            return Integer.MAX_VALUE;
-        }
-        return Math.abs(hash);
+        return UNKNOWN_BUILD;
     }
 
     private static String normalizeGameVersion(String value) {

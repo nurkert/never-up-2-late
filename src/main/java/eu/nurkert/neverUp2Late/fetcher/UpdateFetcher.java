@@ -4,6 +4,20 @@ package eu.nurkert.neverUp2Late.fetcher;
  * UpdateFetcher interface defines methods to fetch the latest build information.
  */
 public interface UpdateFetcher {
+
+    /**
+     * Returned by {@link #getLatestBuild()} when the provider publishes no
+     * monotonic build counter.
+     *
+     * <p>Several providers only ever name their releases ("2.4.6", "v3-beta").
+     * Deriving a number from such a name - a hash, a checksum, a timestamp -
+     * produces something that compares, but not something that orders: two
+     * unrelated values then decide the direction of an update, and an older
+     * release wins whenever its number happens to be larger. Say "unknown"
+     * instead and let the version comparison answer the question.</p>
+     */
+    int UNKNOWN_BUILD = -1;
+
     /**
      * Loads the latest build information.
      *

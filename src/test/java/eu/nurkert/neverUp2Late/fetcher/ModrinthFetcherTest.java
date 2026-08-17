@@ -9,7 +9,6 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ModrinthFetcherTest {
 
     @Test
-    void selectsLatestBuildAndFallsBackToHashForBuildNumber() throws Exception {
+    void selectsLatestVersionAndReportsNoBuildNumberWhenNoneExists() throws Exception {
         Map<String, String> responses = new HashMap<>();
         responses.put("https://api.modrinth.com/v2/project/example/version",
                 """
@@ -56,10 +55,13 @@ class ModrinthFetcherTest {
         assertEquals("1.1.0", fetcher.getLatestVersion());
         assertEquals("https://example.com/1.1.0.jar", fetcher.getLatestDownloadUrl());
 
-        int hash = Objects.hash("2", "1.1.0");
-        int expectedBuild = hash == Integer.MIN_VALUE ? Integer.MAX_VALUE : Math.abs(hash);
-        assertEquals(expectedBuild, fetcher.getLatestBuild());
-        assertTrue(expectedBuild > 0);
+        // Modrinth version ids are opaque strings and "1.1.0" carries no build
+        // counter, so there is no number here that orders releases. Reporting
+        // one anyway - it used to be a hash of the id and the name - let an
+        // older release outrank a newer one whenever its hash was larger, and
+        // that comparison ran before the version comparison could object.
+        assertEquals(UpdateFetcher.UNKNOWN_BUILD, fetcher.getLatestBuild(),
+                "no build counter available, so the version number has to decide");
     }
 
     @Test

@@ -56,17 +56,32 @@ public class FetchUpdateStep implements UpdateStep {
         }
     }
 
+    /**
+     * Decides whether the remote artifact should be installed.
+     *
+     * <p>There is exactly one reason to say yes: what the source offers is
+     * <em>newer</em> than what the server has. Every earlier shortcut around
+     * that question - a destination file that could not be found, a build
+     * number that happened to be larger, a version string that merely differed
+     * - had the same failure mode, which is installing an older build over a
+     * newer one. They are gone; when the comparison cannot be made, the answer
+     * is no and the source is reported instead.</p>
+     */
     private boolean isUpdateRequired(UpdateContext context, UpdateFetcher fetcher) {
-        if (isDestinationMissing(context)) {
-            return true;
-        }
-
         String key = context.getSource().getName();
         int storedBuild = persistentPluginHandler.getStoredBuild(key);
         String storedVersion = persistentPluginHandler.getStoredVersion(key);
         String latestVersion = fetcher.getLatestVersion();
+        int latestBuild = fetcher.getLatestBuild();
 
-        if (storedBuild < fetcher.getLatestBuild()) {
+        boolean neverInstalled = storedVersion == null && storedBuild < 0;
+        if (neverInstalled && isDestinationMissing(context)) {
+            // Nothing recorded and nothing on disk: this is the first install of
+            // a source the operator just added, so there is no older version to
+            // protect. Anything else falls through to the comparison below - a
+            // destination that merely cannot be found under its configured name
+            // must not license reinstalling an arbitrary version next to the
+            // copy that is actually there.
             return true;
         }
 
@@ -81,18 +96,36 @@ public class FetchUpdateStep implements UpdateStep {
             return false;
         }
 
-        String installedVersion = fetcher.getInstalledVersion();
-        if (installedVersion != null && latestVersion != null) {
-            return versionComparator.compare(installedVersion, latestVersion) < 0;
+        // The version the plugin itself reports beats the one we recorded: a
+        // manual swap of the jar is visible in the former and invisible in the
+        // latter.
+        String localVersion = firstNonBlank(fetcher.getInstalledVersion(), storedVersion);
+        if (localVersion != null && latestVersion != null) {
+            return versionComparator.compare(localVersion, latestVersion) < 0;
         }
 
-        // Fallback: compare the stored version string when the fetcher does not report an installed version itself.
-        if (storedVersion != null && latestVersion != null) {
-            return !storedVersion.equalsIgnoreCase(latestVersion);
+        // No usable version on one of the sides. A build counter can still
+        // decide it, but only a real one - see UpdateFetcher.UNKNOWN_BUILD.
+        if (storedBuild >= 0 && latestBuild >= 0) {
+            return storedBuild < latestBuild;
         }
 
-        // If neither build nor version indicates a change, no update is required.
-        return storedBuild < 0; // Allow initial installation
+        if (neverInstalled) {
+            return true;
+        }
+
+        context.log(Level.FINE,
+                "Cannot tell whether {0} offers something newer (local version {1}, remote version {2}); "
+                        + "leaving the installed file alone.",
+                new Object[]{key, localVersion, latestVersion});
+        return false;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second != null && !second.isBlank() ? second : null;
     }
 
     private boolean isDestinationMissing(UpdateContext context) {

@@ -241,11 +241,9 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
             throw new IOException("Unable to determine build number from version " + version.versionNumber());
         }
 
-        int hash = Objects.hash(version.id(), version.versionNumber());
-        if (hash == Integer.MIN_VALUE) {
-            return Integer.MAX_VALUE;
-        }
-        return Math.abs(hash);
+        // Modrinth version ids are opaque strings, so there is nothing here that
+        // orders. The version number decides instead.
+        return UNKNOWN_BUILD;
     }
 
     private String resolveDownloadUrl(VersionResponse version) throws IOException {
