@@ -33,6 +33,7 @@ public class UpdateContext {
     private boolean retainUpstreamFilename;
     private String remoteFilename;
     private Path downloadDestination;
+    private Path replacedFileBackup;
     private Runnable completionDispatcher;
 
     public UpdateContext(UpdateSource source, Path destination, Logger logger) {
@@ -141,6 +142,21 @@ public class UpdateContext {
 
     public void setRemoteFilename(String remoteFilename) {
         this.remoteFilename = remoteFilename;
+    }
+
+    /**
+     * Where the file that was replaced by this update has been kept.
+     *
+     * <p>A backup nobody is told about is not a recovery path. The updater
+     * reports this alongside the finished installation so an operator who ends
+     * up with a plugin they did not want knows where the previous jar is.</p>
+     */
+    public Optional<Path> getReplacedFileBackup() {
+        return Optional.ofNullable(replacedFileBackup);
+    }
+
+    public void setReplacedFileBackup(Path replacedFileBackup) {
+        this.replacedFileBackup = replacedFileBackup;
     }
 
     public Path getDownloadDestination() {

@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.logging.Level;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
@@ -89,11 +90,25 @@ public class DownloadUpdateStep implements UpdateStep {
 
             validateArchiveIfExpected(targetPath, result);
 
+            // The last point at which both jars can be read. Everything that led
+            // here worked from names in a config file; this compares the
+            // plugin.yml of what was downloaded against the plugin.yml of what
+            // is already on disk.
+            Optional<String> conflict = InstallationGuard.findConflict(result, targetPath);
+            if (conflict.isPresent()) {
+                context.cancel("Installation refused: " + conflict.get());
+                context.log(Level.WARNING,
+                        "Refusing to install {0}: {1}. The downloaded file was discarded and nothing on disk changed.",
+                        new Object[]{context.getSource().getName(), conflict.get()});
+                return;
+            }
+
             try {
                 artifactDownloader.backupExistingFileCopy(
                         targetPath,
                         context.getSource().getInstalledPluginName(),
-                        context.getSource().getName());
+                        context.getSource().getName())
+                        .ifPresent(backup -> context.setReplacedFileBackup(backup.getPath()));
             } catch (IOException ex) {
                 context.log(Level.WARNING,
                         "Download prepared but backup of previous artifact failed: {0}",
