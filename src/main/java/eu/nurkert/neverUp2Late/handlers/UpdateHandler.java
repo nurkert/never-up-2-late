@@ -11,6 +11,7 @@ import eu.nurkert.neverUp2Late.persistence.SetupStateRepository.SetupPhase;
 import eu.nurkert.neverUp2Late.update.DownloadUpdateStep;
 import eu.nurkert.neverUp2Late.update.FetchUpdateStep;
 import eu.nurkert.neverUp2Late.update.InstallUpdateStep;
+import eu.nurkert.neverUp2Late.update.InstallationGuard;
 import eu.nurkert.neverUp2Late.update.UpdateContext;
 import eu.nurkert.neverUp2Late.update.UpdateJob;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
@@ -262,6 +263,17 @@ public class UpdateHandler {
     }
 
     private Path resolveDestination(UpdateSource source, File pluginsFolder, File serverFolder) {
+        return resolveDestination(source, pluginsFolder, serverFolder, true);
+    }
+
+    /**
+     * @param persistChanges whether a recovered filename may be written back to
+     *                       the configuration. A dry run passes {@code false}:
+     *                       it reports what an update would do and must leave
+     *                       every file, including config.yml, untouched.
+     */
+    private Path resolveDestination(UpdateSource source, File pluginsFolder, File serverFolder,
+                                    boolean persistChanges) {
         if (source == null) {
             return null;
         }
@@ -301,14 +313,15 @@ public class UpdateHandler {
 
             if (actualPath != null && Files.exists(actualPath)) {
                 // Ensure the found plugin is actually in the expected directory to avoid path traversal confusion
-                if (actualPath.getParent() != null && actualPath.getParent().equals(destinationDirectory.toPath())) {
+                if (actualPath.getParent() != null && actualPath.getParent().equals(destinationDirectory.toPath())
+                        && declares(actualPath, installedPluginName)) {
                     String actualFilename = actualPath.getFileName().toString();
                     if (!actualFilename.equalsIgnoreCase(source.getFilename())) {
-                        logger.log(Level.INFO, "Detected filename mismatch for {0}; recovering from {1} to {2}.",
-                                new Object[]{source.getName(), source.getFilename(), actualFilename});
-
-                        persistFilename(source.getName(), actualFilename);
-
+                        if (persistChanges) {
+                            logger.log(Level.INFO, "Detected filename mismatch for {0}; recovering from {1} to {2}.",
+                                    new Object[]{source.getName(), source.getFilename(), actualFilename});
+                            persistFilename(source.getName(), actualFilename);
+                        }
                         return actualPath;
                     }
                 }
@@ -449,6 +462,101 @@ public class UpdateHandler {
         });
     }
 
+    /**
+     * Reports what an update run would do, without writing anything.
+     *
+     * <p>The only way to find out used to be to let the updater loose on the
+     * server and read the result off the next start. That is a poor deal for
+     * anyone adding more than a handful of sources at once, and it is how a
+     * single run could rewrite a whole plugins folder before its operator saw
+     * one line about it. This runs the fetch step - which only reads - and
+     * prints the decision per source.</p>
+     */
+    public void planNow(List<UpdateSource> sources, CommandSender sender) {
+        if (sources == null || sources.isEmpty()) {
+            notify(sender, ChatColor.YELLOW + "No update sources are configured yet.");
+            return;
+        }
+        if (shuttingDown || !plugin.isEnabled()) {
+            notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
+            return;
+        }
+        List<UpdateSource> queue = List.copyOf(sources);
+        scheduler.runTaskAsynchronously(plugin, () -> {
+            notify(sender, ChatColor.GRAY + "Checking " + queue.size()
+                    + " source(s). Nothing will be downloaded or changed.");
+            File pluginsFolder = plugin.getDataFolder().getParentFile();
+            File serverFolder = server.getWorldContainer().getAbsoluteFile();
+            int wouldInstall = 0;
+            int blocked = 0;
+            for (UpdateSource source : queue) {
+                if (shuttingDown || !plugin.isEnabled()) {
+                    break;
+                }
+                Plan plan = planFor(source, pluginsFolder, serverFolder);
+                notify(sender, plan.message());
+                if (plan.wouldInstall()) {
+                    wouldInstall++;
+                }
+                if (plan.blocked()) {
+                    blocked++;
+                }
+            }
+            notify(sender, ChatColor.GRAY + "Done: " + ChatColor.WHITE + wouldInstall
+                    + ChatColor.GRAY + " would be installed, " + ChatColor.WHITE + blocked
+                    + ChatColor.GRAY + " would be refused. Run " + ChatColor.AQUA + "/nu2l check"
+                    + ChatColor.GRAY + " to apply.");
+        });
+    }
+
+    private Plan planFor(UpdateSource source, File pluginsFolder, File serverFolder) {
+        String name = displayName(source);
+        Path destination = resolveDestination(source, pluginsFolder, serverFolder, false);
+        if (destination == null) {
+            return new Plan(false, true,
+                    ChatColor.RED + "✘ " + name + ChatColor.GRAY + " - no usable filename configured.");
+        }
+
+        UpdateContext context = new UpdateContext(source, destination, logger);
+        try {
+            new FetchUpdateStep(persistentPluginHandler, versionComparator,
+                    configuration.getBoolean("updates.respectManualRollback", true))
+                    .execute(context);
+        } catch (Exception ex) {
+            return new Plan(false, true, ChatColor.RED + "✘ " + name + ChatColor.GRAY + " - "
+                    + (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()));
+        }
+
+        String fileName = destination.getFileName() != null
+                ? destination.getFileName().toString() : destination.toString();
+        if (context.isCancelled()) {
+            return new Plan(false, false, ChatColor.DARK_GRAY + "= " + ChatColor.GRAY + name + " - "
+                    + context.getCancelReason().orElse("nothing to do") + ".");
+        }
+
+        String remote = context.getLatestVersion() != null
+                ? context.getLatestVersion() : "build " + context.getLatestBuild();
+
+        // The identity checks the installation itself will make, as far as they
+        // can be answered before anything is downloaded.
+        String pluginName = resolvePluginName(source, destination);
+        if (pluginName != null) {
+            Optional<Path> elsewhere = InstallationGuard.findExistingCopy(destination, pluginName);
+            if (elsewhere.isPresent()) {
+                return new Plan(false, true, ChatColor.RED + "✘ " + name + ChatColor.GRAY
+                        + " - would be refused: " + pluginName + " is already installed as "
+                        + elsewhere.get().getFileName() + ", writing " + fileName
+                        + " would leave two copies.");
+            }
+        }
+
+        return new Plan(true, false, ChatColor.GREEN + "↑ " + ChatColor.WHITE + name + ChatColor.GRAY
+                + " - would install " + ChatColor.WHITE + remote + ChatColor.GRAY + " to " + fileName + ".");
+    }
+
+    private record Plan(boolean wouldInstall, boolean blocked, String message) {
+    }
+
     /** Runs one manual job. The caller already holds {@link #updateRunLock}. */
     private void executeManualRun(UpdateSource source, CommandSender sender) {
         try {
@@ -478,6 +586,7 @@ public class UpdateHandler {
             String destinationFile = destination.getFileName() != null ? destination.getFileName().toString() : destination.toString();
             notify(sender, ChatColor.GREEN + "Installation complete: " + displayName(source) + " "
                     + buildInfo + " → " + destinationFile + ". Please restart the server.");
+            reportBackup(sender, context);
         } catch (UnknownHostException e) {
             notify(sender, ChatColor.RED + "Download failed: " + e.getMessage());
             handleUnknownHost(source, e);
@@ -493,6 +602,27 @@ public class UpdateHandler {
             notify(sender, ChatColor.RED + "Unexpected error: " + e.getMessage());
             logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
         }
+    }
+
+    /**
+     * Names the file the update replaced and where it was kept.
+     *
+     * <p>NeverUp2Late has always written these backups; nothing ever mentioned
+     * them, so an operator whose plugin came back as the wrong version had no
+     * way to know a copy of the previous jar was sitting on disk the whole
+     * time.</p>
+     */
+    private void reportBackup(CommandSender sender, UpdateContext context) {
+        Path backup = context.getReplacedFileBackup().orElse(null);
+        if (backup == null) {
+            return;
+        }
+        Path dataFolder = plugin.getDataFolder().toPath().toAbsolutePath().normalize();
+        Path shown = backup.startsWith(dataFolder) ? dataFolder.getParent().relativize(backup) : backup;
+        notify(sender, ChatColor.GRAY + "The previous file was kept at " + ChatColor.AQUA + shown
+                + ChatColor.GRAY + " in case you need it back.");
+        logger.log(Level.INFO, "Replaced artifact for {0} was backed up to {1}.",
+                new Object[]{context.getSource().getName(), backup});
     }
 
     private void handleHttpError(CommandSender sender, UpdateSource source, HttpException exception) {
@@ -779,6 +909,29 @@ public class UpdateHandler {
             logger.log(Level.FINE, "Skipped a main thread task because the server is shutting down", ex);
             return false;
         }
+    }
+
+    /**
+     * Whether the jar at {@code path} really is the plugin we are looking for.
+     *
+     * <p>The registry answers {@code findByName} from what Bukkit reported at
+     * load time, which is a good index but not proof about the file that sits
+     * there now. Redirecting a download onto a path on that basis alone is how
+     * one plugin's update ends up written over another plugin's jar.</p>
+     */
+    private boolean declares(Path path, String expectedPluginName) {
+        if (path == null || expectedPluginName == null || expectedPluginName.isBlank()) {
+            return false;
+        }
+        boolean matches = ArchiveUtils.getPluginInfo(path)
+                .map(info -> info.name().equalsIgnoreCase(expectedPluginName))
+                .orElse(false);
+        if (!matches) {
+            logThrottle.log("stale-plugin-path:" + expectedPluginName, Level.WARNING,
+                    "The jar recorded for {0} is {1}, which does not identify as {0}; keeping the configured filename.",
+                    expectedPluginName, path.getFileName());
+        }
+        return matches;
     }
 
     private boolean isSafeToReplace(Path existingPath, String expectedPluginName, Path downloadedPath) {

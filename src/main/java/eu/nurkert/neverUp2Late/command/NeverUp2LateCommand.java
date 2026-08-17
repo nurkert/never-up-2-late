@@ -60,7 +60,8 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        if ("check".equalsIgnoreCase(args[0])) {
+        if ("check".equalsIgnoreCase(args[0]) || "plan".equalsIgnoreCase(args[0])) {
+            boolean dryRun = "plan".equalsIgnoreCase(args[0]);
             if (!sender.hasPermission(Permissions.INSTALL)) {
                 sender.sendMessage(ChatColor.RED + "You do not have permission to trigger update checks.");
                 return true;
@@ -80,7 +81,11 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.YELLOW + "No update sources are configured yet.");
                 return true;
             }
-            context.getUpdateHandler().runJobsNow(sources, sender);
+            if (dryRun) {
+                context.getUpdateHandler().planNow(sources, sender);
+            } else {
+                context.getUpdateHandler().runJobsNow(sources, sender);
+            }
             return true;
         }
 
@@ -239,9 +244,9 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("help", "status", "check", "gui", "install", "rollback", "setup", "select", "ignore", "cancel", "remove");
+            return List.of("help", "status", "plan", "check", "gui", "install", "rollback", "setup", "select", "ignore", "cancel", "remove");
         }
-        if (args.length == 2 && "check".equalsIgnoreCase(args[0])) {
+        if (args.length == 2 && ("check".equalsIgnoreCase(args[0]) || "plan".equalsIgnoreCase(args[0]))) {
             return context.getUpdateSourceRegistry().getSources().stream()
                     .map(UpdateSource::getName).toList();
         }
@@ -333,7 +338,8 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     private void sendHelp(CommandSender sender, String label) {
         sender.sendMessage(ChatColor.GOLD + "NeverUp2Late " + ChatColor.GRAY + "- keeps your server and plugins current.");
         sender.sendMessage(ChatColor.AQUA + "/" + label + " status" + ChatColor.GRAY + " - what is tracked, what is due, what failed");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " check [source]" + ChatColor.GRAY + " - look for updates right now");
+        sender.sendMessage(ChatColor.AQUA + "/" + label + " plan [source]" + ChatColor.GRAY + " - show what an update would do, without changing anything");
+        sender.sendMessage(ChatColor.AQUA + "/" + label + " check [source]" + ChatColor.GRAY + " - look for updates right now and install them");
         sender.sendMessage(ChatColor.AQUA + "/" + label + " gui" + ChatColor.GRAY + " - the plugin overview (players only)");
         sender.sendMessage(ChatColor.AQUA + "/" + label + " <url>" + ChatColor.GRAY + " - install a plugin from a link");
         sender.sendMessage(ChatColor.AQUA + "/" + label + " rollback <source>" + ChatColor.GRAY + " - restore the previous version");

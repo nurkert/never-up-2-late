@@ -65,6 +65,8 @@ persist the default sources and start update checks.
 | `/nu2l` | Opens the plugin overview GUI. | `neverup2late.gui.open` | Requires a player; shows managed plugins and install actions. |
 | `/nu2l gui` | Explicitly opens the GUI. | `neverup2late.gui.open` | Alias for `/nu2l`. |
 | `/nu2l status` | Lists configured update sources with their target path, stored build/version, and auto-update flag. | `neverup2late.install` | Works for players and console; read-only overview. |
+| `/nu2l plan [source]` | Reports what an update run would install, and what it would refuse, without downloading or changing anything. | `neverup2late.install` | Reads only — no file, and not even `config.yml`, is written. Run this first when adding several sources at once. |
+| `/nu2l check [source]` | Looks for updates right now and installs what is newer. | `neverup2late.install` | Writes to disk; use `/nu2l plan` to see the outcome first. |
 | `/nu2l <url>` | Runs quick installation for the provided URL. | `neverup2late.install` | Works from console or in-game; URLs must use HTTP(S) and can target Hangar, Modrinth, GitHub Releases, Jenkins, or SpigotMC/Spiget resources. |
 | `/nu2l select <number>` | Chooses an asset when multiple files are available. | `neverup2late.install` | Responds to prompts generated during quick install. |
 | `/nu2l remove <name>` | Unregisters an update source and stops managing its file. | `neverup2late.gui.manage.remove` | Available from console and players. |
