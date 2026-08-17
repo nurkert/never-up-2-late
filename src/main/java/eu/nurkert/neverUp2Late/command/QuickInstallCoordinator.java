@@ -1255,18 +1255,34 @@ public class QuickInstallCoordinator {
             }
         }
 
+        // A substring match used to answer here, in both directions, so a short
+        // installed plugin name matched almost any candidate. What was matched
+        // becomes the source's "installedPlugin", and that name decides which
+        // jar the download lands on - so a wrong guess writes one plugin over
+        // another. Only an unambiguous signal is allowed to answer now; a plan
+        // without an installed plugin is treated as a new install, which is the
+        // harmless reading of "we do not know".
         for (String candidate : candidates) {
             String normalizedCandidate = normalize(candidate);
+            if (normalizedCandidate.isBlank()) {
+                continue;
+            }
+            List<Plugin> viaWebsite = new ArrayList<>();
             for (Map.Entry<String, Plugin> entry : plugins.entrySet()) {
-                if (entry.getKey().contains(normalizedCandidate) || normalizedCandidate.contains(entry.getKey())) {
-                    return Optional.of(entry.getValue().getName());
-                }
                 PluginDescriptionFile description = entry.getValue().getDescription();
                 String website = description.getWebsite();
                 if (website != null && plan.getHost().isPresent()
                         && websiteMatchesCandidate(website, plan.getHost().get(), normalizedCandidate)) {
-                    return Optional.of(entry.getValue().getName());
+                    viaWebsite.add(entry.getValue());
                 }
+            }
+            if (viaWebsite.size() == 1) {
+                return Optional.of(viaWebsite.get(0).getName());
+            }
+            if (viaWebsite.size() > 1) {
+                logger.log(Level.INFO,
+                        "Several installed plugins point at {0}; not guessing which one {1} updates.",
+                        new Object[]{plan.getHost().orElse("the same site"), plan.getDisplayName()});
             }
         }
 
