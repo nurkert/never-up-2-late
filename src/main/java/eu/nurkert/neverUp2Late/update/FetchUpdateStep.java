@@ -2,6 +2,7 @@ package eu.nurkert.neverUp2Late.update;
 
 import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
+import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 
 import java.net.URI;
 import java.nio.file.Files;
@@ -74,14 +75,17 @@ public class FetchUpdateStep implements UpdateStep {
         String latestVersion = fetcher.getLatestVersion();
         int latestBuild = fetcher.getLatestBuild();
 
-        boolean neverInstalled = storedVersion == null && storedBuild < 0;
-        if (neverInstalled && isDestinationMissing(context)) {
-            // Nothing recorded and nothing on disk: this is the first install of
-            // a source the operator just added, so there is no older version to
-            // protect. Anything else falls through to the comparison below - a
-            // destination that merely cannot be found under its configured name
-            // must not license reinstalling an arbitrary version next to the
-            // copy that is actually there.
+        if (isDestinationMissing(context) && !isInstalledElsewhere(context)) {
+            // Nothing at the destination and no other jar in the folder holding
+            // this plugin: there is no version to protect and no copy to
+            // duplicate, so put it there. This covers both the first install of
+            // a freshly added source and a jar that went missing.
+            //
+            // The check on the rest of the folder is what makes that safe. A
+            // destination missing under its *configured* name usually means the
+            // file was renamed, not removed - and treating that as "install
+            // anything" is what put a second copy of a plugin next to the first
+            // and let an older build in without a single version comparison.
             return true;
         }
 
@@ -110,7 +114,9 @@ public class FetchUpdateStep implements UpdateStep {
             return storedBuild < latestBuild;
         }
 
-        if (neverInstalled) {
+        // Nothing was ever recorded for this source, so there is no installed
+        // version this could be older than.
+        if (storedVersion == null && storedBuild < 0) {
             return true;
         }
 
@@ -134,6 +140,22 @@ public class FetchUpdateStep implements UpdateStep {
             return false;
         }
         return !Files.isRegularFile(destination);
+    }
+
+    /**
+     * Whether the plugin this source manages sits in the target directory under
+     * some other file name.
+     *
+     * <p>Without a plugin name to look for there is nothing to search, and an
+     * unanswered question has to count as "yes": saying no would hand the
+     * missing destination above a licence it must not have.</p>
+     */
+    private boolean isInstalledElsewhere(UpdateContext context) {
+        String pluginName = context.getSource().getInstalledPluginName();
+        if (pluginName == null || pluginName.isBlank()) {
+            return context.getSource().getTargetDirectory() == TargetDirectory.PLUGINS;
+        }
+        return InstallationGuard.findExistingCopy(context.getDownloadDestination(), pluginName).isPresent();
     }
 
     private String extractFilename(String url) {

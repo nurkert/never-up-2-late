@@ -10,9 +10,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.logging.Logger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -71,12 +74,21 @@ class FetchUpdateStepDecisionTest {
 
     @Test
     void doesNotReinstallWhenOnlyTheConfiguredFileNameIsStale() throws Exception {
-        // config.yml says MyPlugin.jar; the real file was renamed by its author.
-        installed("MyPlugin-9.9.9.jar");
+        // config.yml says MyPlugin.jar; the plugin is there under its real name.
+        pluginJar("MyPlugin-9.9.9.jar", "MyPlugin");
         state.saveLatestBuild("myplugin", 999, "9.9.9");
 
         assertFalse(runsUpdate(new StubFetcher("0.0.1", 1, "9.9.9")),
                 "a missing destination means a stale filename, not a licence to install an older build");
+    }
+
+    @Test
+    void putsBackAJarThatWasActuallyDeleted() throws Exception {
+        // Recorded, but gone from the folder entirely - not renamed. Restoring
+        // it can neither downgrade anything nor create a second copy.
+        state.saveLatestBuild("myplugin", 999, "9.9.9");
+
+        assertTrue(runsUpdate(new StubFetcher("9.9.9", 999, null)));
     }
 
     @Test
@@ -95,7 +107,17 @@ class FetchUpdateStepDecisionTest {
     }
 
     private void installed(String fileName) throws IOException {
-        Files.createFile(plugins.resolve(fileName));
+        pluginJar(fileName, "MyPlugin");
+    }
+
+    /** A jar the guard can actually read a plugin name out of. */
+    private void pluginJar(String fileName, String pluginName) throws IOException {
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(plugins.resolve(fileName)))) {
+            zip.putNextEntry(new ZipEntry("plugin.yml"));
+            zip.write(("name: " + pluginName + "\nversion: 1.0.0\nmain: com.example.Main\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
     }
 
     /** @return whether the step decided to download. */
