@@ -26,8 +26,11 @@ jobs:
         id: version
         run: echo "version=$(mvn -q -DforceStdout -Dexpression=project.version help:evaluate)" >> "$GITHUB_OUTPUT"
 
-      - name: Build (skip tests)
-        run: mvn -B -DskipTests package
+      # Tests run here, not just in CI. Every install updates itself from these
+      # releases, so a tag that fails its own test suite reaches every server
+      # running the plugin - there is no stage between this job and production.
+      - name: Build and test
+        run: mvn -B package
 
       - name: Prepare stable artifact name
         run: |
