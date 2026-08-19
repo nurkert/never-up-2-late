@@ -1,6 +1,8 @@
 package eu.nurkert.neverUp2Late.persistence;
 
 import org.bukkit.configuration.file.YamlConfiguration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,6 +15,7 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -81,8 +84,14 @@ class ConfigurationUpgraderTest {
 
         List<Map<?, ?>> sources = configuration.getMapList("updates.sources");
         assertEquals(2, sources.size(), "the operator's own entry must not be duplicated");
-        assertEquals("spigot", sources.get(1).get("type"), "nor replaced");
         assertEquals(false, sources.get(1).get("enabled"), "nor re-enabled");
+        // The type is the one thing that does move, by the step added in
+        // configVersion 2: SpigotMC delivers the same jar but skips the
+        // pre-release soak, which is the only way a broken build can be
+        // withdrawn. Everything else about the operator's entry stands - note
+        // that it is still disabled above.
+        assertEquals("githubRelease", sources.get(1).get("type"),
+                "the delivery channel moves to GitHub; the decision whether to update does not");
     }
 
     @Test
@@ -242,4 +251,73 @@ class ConfigurationUpgraderTest {
         assertEquals("nurkert", configuration.getString("updates.sources.neverup2late.options.owner"));
         assertEquals("paper", configuration.getString("updates.sources.paper.type"), "untouched");
     }
+
+    @Test
+    void movesASpigotSelfUpdateSourceOntoGithub() {
+        YamlConfiguration config = new YamlConfiguration();
+        List<Map<String, Object>> sources = new ArrayList<>();
+        Map<String, Object> self = new LinkedHashMap<>();
+        self.put("name", "neverup2late");
+        self.put("type", "spigot");
+        self.put("target", "plugins");
+        self.put("filename", "NeverUp2Late.jar");
+        self.put("enabled", true);
+        Map<String, Object> options = new LinkedHashMap<>();
+        options.put("resourceId", 120768);
+        options.put("installedPlugin", "NeverUp2Late");
+        self.put("options", options);
+        sources.add(self);
+        config.set("updates.sources", sources);
+
+        assertTrue(new ConfigurationUpgrader(config, null, null).upgrade());
+
+        Map<?, ?> migrated = config.getMapList("updates.sources").get(0);
+        assertEquals("githubRelease", migrated.get("type"));
+        assertEquals(Boolean.TRUE, migrated.get("enabled"));
+        Map<?, ?> newOptions = (Map<?, ?>) migrated.get("options");
+        assertEquals("nurkert", newOptions.get("owner"));
+        assertEquals("never-up-2-late", newOptions.get("repository"));
+        // Der Spigot-Rest darf nicht liegen bleiben.
+        assertNull(newOptions.get("resourceId"));
+    }
+
+    @Test
+    void keepsADisabledSelfUpdateSourceDisabledWhileMoving() {
+        YamlConfiguration config = new YamlConfiguration();
+        List<Map<String, Object>> sources = new ArrayList<>();
+        Map<String, Object> self = new LinkedHashMap<>();
+        self.put("name", "neverup2late");
+        self.put("type", "spigot");
+        self.put("enabled", false);
+        sources.add(self);
+        config.set("updates.sources", sources);
+
+        new ConfigurationUpgrader(config, null, null).upgrade();
+
+        Map<?, ?> migrated = config.getMapList("updates.sources").get(0);
+        assertEquals("githubRelease", migrated.get("type"));
+        assertEquals(Boolean.FALSE, migrated.get("enabled"), "abgeschaltet muss abgeschaltet bleiben");
+    }
+
+    @Test
+    void leavesAnAlreadyGithubSelfUpdateSourceAlone() {
+        YamlConfiguration config = new YamlConfiguration();
+        List<Map<String, Object>> sources = new ArrayList<>();
+        Map<String, Object> self = new LinkedHashMap<>();
+        self.put("name", "neverup2late");
+        self.put("type", "githubRelease");
+        Map<String, Object> options = new LinkedHashMap<>();
+        options.put("owner", "someoneElse");
+        self.put("options", options);
+        sources.add(self);
+        config.set("updates.sources", sources);
+        config.set("configVersion", 1);
+
+        new ConfigurationUpgrader(config, null, null).upgrade();
+
+        Map<?, ?> untouched = config.getMapList("updates.sources").get(0);
+        assertEquals("someoneElse", ((Map<?, ?>) untouched.get("options")).get("owner"),
+                "ein bereits auf github zeigender eintrag ist die entscheidung des operators");
+    }
+
 }
