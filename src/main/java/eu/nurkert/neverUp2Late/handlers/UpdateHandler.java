@@ -63,6 +63,13 @@ public class UpdateHandler {
     /** Time the shutdown waits for an update run that is still in flight. */
     private static final long SHUTDOWN_GRACE_SECONDS = 5L;
 
+    /**
+     * Drop this file into the plugin's data folder to stop NeverUp2Late from
+     * replacing its own jar. Presence is the whole signal - the contents are
+     * never read - so it works on a server whose config.yml no longer parses.
+     */
+    private static final String SELF_UPDATE_OFF_MARKER = "SELF-UPDATE-OFF";
+
     private final JavaPlugin plugin;
     private final Server server;
     private final BukkitScheduler scheduler;
@@ -230,6 +237,12 @@ public class UpdateHandler {
             if (shouldSkipAutomaticUpdate(source, destination)) {
                 continue;
             }
+            if (isSelfSource(source) && selfUpdateSuspended()) {
+                logThrottle.log("self-update-off", Level.INFO,
+                        "Not updating {0}: {1} exists. Delete that file to allow it again.",
+                        plugin.getName(), SELF_UPDATE_OFF_MARKER);
+                continue;
+            }
             UpdateJob job = createDefaultJob();
             UpdateContext context = new UpdateContext(source, destination, logger);
             configureRetention(context, destination);
@@ -364,7 +377,18 @@ public class UpdateHandler {
             result = CheckResult.FAILED;
             error = failure.getMessage() != null ? failure.getMessage() : failure.getClass().getSimpleName();
         } else if (context.isCancelled()) {
-            result = CheckResult.UP_TO_DATE;
+            // A refusal is not the same as being current. Reporting one as the
+            // other is how a guard that keeps stopping an install stays
+            // invisible in the only command an operator actually runs.
+            String reason = context.getCancelReason().orElse(null);
+            if (reason != null && reason.startsWith("Installation ")) {
+                result = CheckResult.HELD;
+                error = reason;
+                logThrottle.log("held:" + source.getName(), Level.WARNING,
+                        "Held back the update for {0}: {1}", source.getName(), reason);
+            } else {
+                result = CheckResult.UP_TO_DATE;
+            }
         } else {
             result = CheckResult.UPDATED;
             // The one line that was missing: an automatic update left no trace
@@ -373,6 +397,10 @@ public class UpdateHandler {
                     source.getName(),
                     describeVersion(context),
                     context.getDownloadDestination().getFileName()});
+            // reportBackup only ever reached the manual path, so an automatic
+            // update replaced a file and never said where the old one went.
+            context.getReplacedFileBackup().ifPresent(backup -> logger.log(Level.INFO,
+                    "The previous {0} was kept at {1}.", new Object[]{source.getName(), backup}));
         }
         try {
             persistentPluginHandler.saveCheckState(source.getName(), new CheckState(
@@ -706,7 +734,13 @@ public class UpdateHandler {
         if (source.getTargetDirectory() != TargetDirectory.PLUGINS) {
             return false;
         }
-        if (destination != null && !Files.isRegularFile(destination)) {
+        // A destination that is not there yet used to mean "no opinion", so an
+        // operator who turned automatic updates off for a plugin had that
+        // setting bypassed the moment its jar was renamed or removed - exactly
+        // when a surprise install is least welcome. The setting is keyed by
+        // plugin name, and that name does not depend on the file being present.
+        if (destination != null && !Files.isRegularFile(destination)
+                && (source.getInstalledPluginName() == null || source.getInstalledPluginName().isBlank())) {
             return false;
         }
 
@@ -719,6 +753,26 @@ public class UpdateHandler {
         }
 
         return !updateSettingsRepository.getSettings(pluginName).autoUpdateEnabled();
+    }
+
+    /** Whether this source is the one that replaces NeverUp2Late's own jar. */
+    private boolean isSelfSource(UpdateSource source) {
+        String installed = source.getInstalledPluginName();
+        return installed != null && installed.equalsIgnoreCase(plugin.getName());
+    }
+
+    /**
+     * Whether an operator has parked the self-update by dropping a file.
+     *
+     * <p>The other two ways to stop it - a config key and a GUI toggle - both
+     * assume a server that comes up far enough to run commands and a config.yml
+     * that still parses. This one is checked fresh on every cycle and needs
+     * neither: after a self-update that went wrong, {@code touch} is the whole
+     * procedure, and it takes effect without editing anything that could be got
+     * wrong under pressure.</p>
+     */
+    private boolean selfUpdateSuspended() {
+        return new File(plugin.getDataFolder(), SELF_UPDATE_OFF_MARKER).exists();
     }
 
     private String resolvePluginName(UpdateSource source, Path destination) {
@@ -735,6 +789,7 @@ public class UpdateHandler {
     }
 
     private void configureRetention(UpdateContext context, Path destination) {
+        context.setVerifyDeclaredVersion(isSelfSource(context.getSource()));
         if (updateSettingsRepository == null) {
             context.setRetainUpstreamFilename(false);
             return;

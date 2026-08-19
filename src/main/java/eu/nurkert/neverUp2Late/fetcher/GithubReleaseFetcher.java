@@ -90,6 +90,18 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
             return;
         }
 
+        // Only when the project publishes no releases at all. Falling through
+        // here because every release was *filtered out* is a different thing
+        // entirely: loadFromTags downloads the source archive of the newest tag
+        // and digs a jar out of it, so a project that currently ships nothing
+        // but pre-releases would quietly be served a build from source instead
+        // of the release the operator asked to be held to.
+        if (!releases.isEmpty()) {
+            throw new IOException("No usable release for " + owner + "/" + repository
+                    + ": all " + releases.size() + " are drafts or pre-releases."
+                    + (allowPrerelease ? "" : " Set allowPrerelease: true for this source to accept them."));
+        }
+
         loadFromTags();
     }
 
@@ -284,7 +296,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
             Asset zipball = assets.isEmpty() ? buildArchiveAsset(tagName) : null;
             if (zipball != null) {
                 setArchiveSelection(zipball);
-                int build = Math.toIntExact(latest.id());
+                int build = clampToInt(latest.id());
                 setLatestBuildInfo(tagName, build, zipball.browserDownloadUrl());
                 return;
             }
@@ -297,8 +309,19 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
         Asset selected = matchingAssets.get(0);
         setSelection(selected);
 
-        int build = Math.toIntExact(latest.id());
+        int build = clampToInt(latest.id());
         setLatestBuildInfo(tagName, build, selected.browserDownloadUrl());
+    }
+
+    /**
+     * GitHub release ids are 64 bit and already run into the hundreds of
+     * millions. {@code Math.toIntExact} threw once they crossed 2^31, which
+     * would have failed every githubRelease source at the same moment -
+     * including the one delivering the fix. The value only ever has to order
+     * releases against each other, so saturating is harmless.
+     */
+    private static int clampToInt(long value) {
+        return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value));
     }
 
     private void loadFromTags() throws IOException {

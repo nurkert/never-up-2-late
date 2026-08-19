@@ -103,26 +103,93 @@ public class DownloadUpdateStep implements UpdateStep {
                 return;
             }
 
+            // The self-update has no second chance: every other plugin can be
+            // repaired on the next cycle, but a NeverUp2Late that does not load
+            // is a plugin folder nobody manages any more.
+            Optional<String> identityProblem = InstallationGuard.findIdentityProblem(
+                    result,
+                    context.getSource().getInstalledPluginName(),
+                    context.shouldVerifyDeclaredVersion() ? context.getLatestVersion() : null);
+            if (identityProblem.isPresent()) {
+                context.cancel("Installation refused: " + identityProblem.get());
+                context.log(Level.SEVERE,
+                        "Refusing to install {0}: {1}. The downloaded file was discarded and nothing on disk changed.",
+                        new Object[]{context.getSource().getName(), identityProblem.get()});
+                return;
+            }
+
+            Path backup = null;
+            boolean hadPrevious = Files.exists(targetPath);
             try {
-                artifactDownloader.backupExistingFileCopy(
+                backup = artifactDownloader.backupExistingFileCopy(
                         targetPath,
                         context.getSource().getInstalledPluginName(),
                         context.getSource().getName())
-                        .ifPresent(backup -> context.setReplacedFileBackup(backup.getPath()));
+                        .map(ArtifactDownloader.BackupRecord::getPath)
+                        .orElse(null);
             } catch (IOException ex) {
+                // Overwriting anyway would destroy the only copy of a working
+                // jar precisely when the place it should have been kept is
+                // unavailable. The update can wait for the next cycle.
+                context.cancel("Installation postponed: the previous file could not be backed up");
                 context.log(Level.WARNING,
-                        "Download prepared but backup of previous artifact failed: {0}",
-                        ex.getMessage());
+                        "Not installing {0}: the current file could not be backed up ({1}). Nothing on disk changed.",
+                        new Object[]{context.getSource().getName(), ex.getMessage()});
+                return;
             }
 
-            moveReplacing(result, targetPath);
+            try {
+                moveReplacing(result, targetPath);
+            } catch (IOException ex) {
+                // The move is the only step that can fail with the old jar still
+                // in place - typically a file lock on Windows. Leaving the fresh
+                // backup behind would fill the backup folder with copies of the
+                // version that is still installed and push the genuinely older
+                // ones out, so the recovery path would hold nothing to recover.
+                discardBackup(context, backup, hadPrevious);
+                context.cancel("Installation postponed: " + describeMoveFailure(ex));
+                context.log(Level.WARNING,
+                        "Could not put the new {0} in place ({1}). The installed file is untouched; retrying next cycle.",
+                        new Object[]{context.getSource().getName(), ex.getMessage()});
+                return;
+            }
+
+            if (backup != null) {
+                context.setReplacedFileBackup(backup);
+            }
             context.setDownloadedArtifact(targetPath);
             context.setDownloadDestination(targetPath);
-        } catch (Exception ex) {
-            throw ex;
         } finally {
             deleteIfTemporary(staging, parent);
         }
+    }
+
+    /**
+     * Removes a backup that was taken for an installation that then did not
+     * happen.
+     *
+     * @param hadPrevious whether anything was actually replaced; when the
+     *                    destination was empty the backup is not ours to judge
+     */
+    private void discardBackup(UpdateContext context, Path backup, boolean hadPrevious) {
+        if (backup == null || !hadPrevious) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(backup);
+        } catch (IOException ex) {
+            context.log(Level.FINE,
+                    "Left a backup of the unchanged file behind at {0}: {1}",
+                    new Object[]{backup, ex.getMessage()});
+        }
+    }
+
+    private String describeMoveFailure(IOException ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return "the new file could not be moved into place";
+        }
+        return "the new file could not be moved into place (" + message + ")";
     }
 
     private String safeFileName(Path targetPath) {

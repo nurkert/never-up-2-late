@@ -26,6 +26,19 @@ jobs:
         id: version
         run: echo "version=$(mvn -q -DforceStdout -Dexpression=project.version help:evaluate)" >> "$GITHUB_OUTPUT"
 
+      # A release whose tag and pom disagree ships a jar that reports a version
+      # nobody asked for, and the updater then compares the wrong numbers
+      # forever. Cheaper to fail here than to explain it later.
+      - name: Tag must match the project version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pom="${{ steps.version.outputs.version }}"
+          if [ "$tag" != "$pom" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pom version $pom"
+            exit 1
+          fi
+
       # Tests run here, not just in CI. Every install updates itself from these
       # releases, so a tag that fails its own test suite reaches every server
       # running the plugin - there is no stage between this job and production.
@@ -37,7 +50,21 @@ jobs:
           mkdir -p target
           cp "target/never-up-2-late-${{ steps.version.outputs.version }}.jar" "target/NeverUp2Late.jar"
 
-      - name: Upload release assets
+      # Published as a pre-release, on purpose.
+      #
+      # Every install of this plugin updates itself from these releases, so
+      # publishing straight to "latest" hands a broken build to the whole fleet
+      # with nothing in between - and once it is out there is no way to take it
+      # back, because the servers that need the fix are the ones that no longer
+      # run anything able to fetch it.
+      #
+      # GithubReleaseFetcher ignores pre-releases unless a source opts in, and
+      # has done since 2.2.0. So a pre-release reaches nobody, and promote.yml
+      # turns it into a real release once it has sat untouched for the soak
+      # period. Pulling a bad build back is one click: mark it pre-release again
+      # and every install stops taking it, including installs far too old to
+      # know any of this was added.
+      - name: Publish as a pre-release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
@@ -46,5 +73,20 @@ jobs:
             target/NeverUp2Late.jar
           tag_name: ${{ github.ref_name }}
           name: NeverUp2Late ${{ steps.version.outputs.version }}
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Explain what happens next
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          {
+            echo "### ${GITHUB_REF_NAME} is staged, not live"
+            echo
+            echo "It is published as a **pre-release**, which no NeverUp2Late install will download."
+            echo
+            echo "- It is promoted to a full release automatically once it is 24h old."
+            echo "- To ship it now: \`gh release edit ${GITHUB_REF_NAME} --prerelease=false\`"
+            echo "- To stop it: delete the release, or leave it as a pre-release."
+            echo "- To pull it back after promotion: \`gh release edit ${GITHUB_REF_NAME} --prerelease=true\`"
+          } >> "$GITHUB_STEP_SUMMARY"

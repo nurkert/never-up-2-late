@@ -274,6 +274,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         int waiting = 0;
         int failing = 0;
+        int held = 0;
         long newestCheck = 0L;
         List<String> lines = new ArrayList<>();
 
@@ -298,6 +299,11 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
                         state = ChatColor.GREEN + "updated to " + value.latestVersion()
                                 + ChatColor.GRAY + " (restart pending)";
                     }
+                    case HELD -> {
+                        held++;
+                        state = ChatColor.GOLD + "held back: "
+                                + (value.error() == null ? "installation refused" : value.error());
+                    }
                     default -> state = ChatColor.GRAY + "up to date";
                 }
             }
@@ -313,7 +319,9 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.GOLD + "NeverUp2Late: " + ChatColor.WHITE + statuses.size()
                 + ChatColor.GRAY + " source(s), " + ChatColor.WHITE + waiting
                 + ChatColor.GRAY + " waiting for a restart, " + ChatColor.WHITE + failing
-                + ChatColor.GRAY + " failing.");
+                + ChatColor.GRAY + " failing"
+                + (held > 0 ? ChatColor.GRAY + ", " + ChatColor.GOLD + held + ChatColor.GRAY + " held back" : "")
+                + ChatColor.GRAY + ".");
         sender.sendMessage(ChatColor.GRAY + "Last check: " + ChatColor.WHITE + describeAge(newestCheck)
                 + ChatColor.DARK_GRAY + "  (/" + "nu2l check to look now)");
         lines.forEach(sender::sendMessage);

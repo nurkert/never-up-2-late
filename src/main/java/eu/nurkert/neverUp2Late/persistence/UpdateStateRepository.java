@@ -365,7 +365,19 @@ public class UpdateStateRepository {
         /** The source answered, and what it offers is already on disk. */
         UP_TO_DATE,
         /** The check itself failed - network, HTTP status, bad response. */
-        FAILED;
+        FAILED,
+        /**
+         * Something newer exists, and the installation was refused: the file at
+         * the destination belongs to another plugin, the plugin is already
+         * installed under a different name, the download was not the artifact
+         * it claimed to be, or the previous file could not be secured first.
+         *
+         * <p>Reported as {@link #UP_TO_DATE} before, which is how a guard that
+         * kept stopping an install stayed invisible in {@code /nu2l status}.
+         * {@link #parse(String)} answers {@code UP_TO_DATE} for names it does
+         * not know, so an older jar reading this back degrades quietly.</p>
+         */
+        HELD;
 
         static CheckResult parse(String value) {
             if (value == null) {

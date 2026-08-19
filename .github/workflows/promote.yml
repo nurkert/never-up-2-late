@@ -1,0 +1,86 @@
+# The second half of the release. release.yml publishes every tag as a
+# pre-release, which no NeverUp2Late install downloads; this one turns a
+# pre-release into the real thing once it has sat untouched long enough to be
+# noticed if it is broken.
+#
+# That soak is the only thing standing between a bad build and every server
+# running this plugin. It costs a day of latency on good releases and buys the
+# ability to take a bad one back, which nothing else here can do: a server whose
+# NeverUp2Late no longer loads cannot fetch the fix.
+
+name: Promote release
+
+on:
+  schedule:
+    # Hourly, so a release goes live close to its soak deadline rather than
+    # waiting for the next daily run.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Promote this tag now, ignoring the soak period"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SOAK_HOURS: "24"
+    steps:
+      - name: Promote a single tag on request
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.tag }}'
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+          echo "Promoted $tag on request." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Promote pre-releases that have finished soaking
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+
+          now=$(date -u +%s)
+          promoted=0
+          held=0
+
+          # --jq keeps this to one API call. Drafts are excluded: a draft is not
+          # published and has no meaningful publication time.
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 30 \
+            --json tagName,isPrerelease,isDraft,publishedAt \
+            --jq '.[] | select(.isPrerelease and (.isDraft | not)) | "\(.tagName)\t\(.publishedAt)"' \
+            > candidates.tsv || true
+
+          while IFS=$'\t' read -r tag published; do
+            [ -n "${tag:-}" ] || continue
+
+            # A pre-release with no publication time has never been published;
+            # promoting it would start its soak at zero.
+            if [ -z "${published:-}" ] || [ "$published" = "null" ]; then
+              echo "Skipping $tag: no publication time."
+              held=$((held + 1))
+              continue
+            fi
+
+            published_at=$(date -u -d "$published" +%s)
+            age_hours=$(( (now - published_at) / 3600 ))
+
+            if [ "$age_hours" -lt "$SOAK_HOURS" ]; then
+              echo "Holding $tag: ${age_hours}h old, needs ${SOAK_HOURS}h."
+              held=$((held + 1))
+              continue
+            fi
+
+            echo "Promoting $tag (${age_hours}h old)."
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+            promoted=$((promoted + 1))
+          done < candidates.tsv
+
+          {
+            echo "Promoted: $promoted"
+            echo "Still soaking: $held"
+          } >> "$GITHUB_STEP_SUMMARY"

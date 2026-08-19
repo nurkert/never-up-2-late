@@ -34,6 +34,7 @@ public class UpdateContext {
     private String remoteFilename;
     private Path downloadDestination;
     private Path replacedFileBackup;
+    private boolean verifyDeclaredVersion;
     private Runnable completionDispatcher;
 
     public UpdateContext(UpdateSource source, Path destination, Logger logger) {
@@ -157,6 +158,22 @@ public class UpdateContext {
 
     public void setReplacedFileBackup(Path replacedFileBackup) {
         this.replacedFileBackup = replacedFileBackup;
+    }
+
+    /**
+     * Whether the jar has to declare the exact version the source announced.
+     *
+     * <p>Set for NeverUp2Late updating itself. A release whose tag and jar
+     * disagree is a mis-built release, and for every other plugin that is a
+     * nuisance the next cycle can correct - for this one it is a server that
+     * comes back up without the thing that manages its plugins.</p>
+     */
+    public boolean shouldVerifyDeclaredVersion() {
+        return verifyDeclaredVersion;
+    }
+
+    public void setVerifyDeclaredVersion(boolean verifyDeclaredVersion) {
+        this.verifyDeclaredVersion = verifyDeclaredVersion;
     }
 
     public Path getDownloadDestination() {
