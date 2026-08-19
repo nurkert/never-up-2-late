@@ -14,52 +14,153 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PaperFetcherTest {
 
+    private static final String PROJECT_URL = "https://fill.papermc.io/v3/projects/paper";
+
+    private static String buildsUrl(String version) {
+        return PROJECT_URL + "/versions/" + version + "/builds";
+    }
+
+    /** URL exactly as Fill hands it out: content addressed, not derivable from version and build. */
+    private static String downloadUrl(String version, int build) {
+        return "https://fill-data.papermc.io/v1/objects/"
+                + "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/"
+                + "paper-" + version + "-" + build + ".jar";
+    }
+
+    /** One entry of the build list Fill returns, with the server jar attached. */
+    private static String build(String version, int id, String channel) {
+        return """
+                {
+                  "id": %d,
+                  "time": "2026-05-11T11:43:09Z",
+                  "channel": "%s",
+                  "downloads": {
+                    "server:default": {
+                      "name": "paper-%s-%d.jar",
+                      "checksums": { "sha256": "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba" },
+                      "size": 54846016,
+                      "url": "%s"
+                    }
+                  }
+                }
+                """.formatted(id, channel, version, id, downloadUrl(version, id));
+    }
+
+    private static String builds(String version, Object... idChannelPairs) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < idChannelPairs.length; i += 2) {
+            if (i > 0) {
+                json.append(',');
+            }
+            json.append(build(version, (Integer) idChannelPairs[i], (String) idChannelPairs[i + 1]));
+        }
+        return json.append(']').toString();
+    }
+
     @Test
     void loadsLatestStableBuildFromApiResponses() throws Exception {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.19.4", "1.20", "1.20.1", "1.20.2-rc1"]
+                          "project": { "id": "paper", "name": "Paper" },
+                          "versions": {
+                            "1.20": ["1.20.2-rc1", "1.20.1", "1.20"],
+                            "1.19": ["1.19.4"]
+                          }
                         }
                         """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1",
-                """
-                        {
-                          "builds": [14, 15, 16]
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/16",
-                """
-                        {
-                          "channel": "default"
-                        }
-                        """);
+        responses.put(buildsUrl("1.20.1"), builds("1.20.1", 16, "STABLE", 15, "STABLE", 14, "STABLE"));
 
         PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses));
         fetcher.loadLatestBuildInfo();
 
         assertEquals("1.20.1", fetcher.getLatestVersion());
         assertEquals(16, fetcher.getLatestBuild());
-        assertEquals("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/16/downloads/paper-1.20.1-16.jar",
+        assertEquals(downloadUrl("1.20.1", 16), fetcher.getLatestDownloadUrl());
+    }
+
+    @Test
+    void skipsBuildsOnUnstableChannelsWhenStableRequested() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put(PROJECT_URL,
+                """
+                        {
+                          "versions": { "1.20": ["1.20.1"] }
+                        }
+                        """);
+        // Newest build is BETA, so the newest STABLE one below it must win.
+        responses.put(buildsUrl("1.20.1"), builds("1.20.1", 18, "BETA", 17, "ALPHA", 16, "STABLE"));
+
+        PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals(16, fetcher.getLatestBuild());
+        assertEquals(downloadUrl("1.20.1", 16), fetcher.getLatestDownloadUrl());
+    }
+
+    @Test
+    void takesDownloadUrlFromPayloadRatherThanAssemblingIt() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put(PROJECT_URL,
+                """
+                        {
+                          "versions": { "1.20": ["1.20.1"] }
+                        }
+                        """);
+        responses.put(buildsUrl("1.20.1"),
+                """
+                        [
+                          {
+                            "id": 16,
+                            "channel": "STABLE",
+                            "downloads": {
+                              "server:default": {
+                                "name": "paper-1.20.1-16.jar",
+                                "url": "https://fill-data.papermc.io/v1/objects/deadbeef/paper-1.20.1-16.jar"
+                              }
+                            }
+                          }
+                        ]
+                        """);
+
+        PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("https://fill-data.papermc.io/v1/objects/deadbeef/paper-1.20.1-16.jar",
                 fetcher.getLatestDownloadUrl());
+    }
+
+    @Test
+    void throwsWhenBuildOffersNoServerDownload() {
+        Map<String, String> responses = new HashMap<>();
+        responses.put(PROJECT_URL,
+                """
+                        {
+                          "versions": { "1.20": ["1.20.1"] }
+                        }
+                        """);
+        responses.put(buildsUrl("1.20.1"),
+                """
+                        [
+                          { "id": 16, "channel": "STABLE", "downloads": { "server:mojmap": { "url": "https://example.invalid/x.jar" } } }
+                        ]
+                        """);
+
+        PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses));
+        assertThrows(IOException.class, fetcher::loadLatestBuildInfo);
     }
 
     @Test
     void includesUnstableVersionsWhenRequested() throws Exception {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.20.1", "1.20.2-rc1"]
+                          "versions": { "1.20": ["1.20.2-rc1", "1.20.1"] }
                         }
                         """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.2-rc1",
-                """
-                        {
-                          "builds": [1, 2]
-                        }
-                        """);
+        responses.put(buildsUrl("1.20.2-rc1"), builds("1.20.2-rc1", 2, "ALPHA", 1, "ALPHA"));
 
         PaperFetcher fetcher = new PaperFetcher(false, new StubHttpClient(responses));
         fetcher.loadLatestBuildInfo();
@@ -71,10 +172,10 @@ class PaperFetcherTest {
     @Test
     void throwsWhenBuildInformationMissing() {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.20.1"]
+                          "versions": { "1.20": ["1.20.1"] }
                         }
                         """);
         // Missing build information
@@ -86,24 +187,13 @@ class PaperFetcherTest {
     @Test
     void prefersStableWhenOptionOverridesDefault() throws Exception {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.20.1", "1.20.2-rc1"]
+                          "versions": { "1.20": ["1.20.2-rc1", "1.20.1"] }
                         }
                         """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1",
-                """
-                        {
-                          "builds": [15, 16]
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/16",
-                """
-                        {
-                          "channel": "stable"
-                        }
-                        """);
+        responses.put(buildsUrl("1.20.1"), builds("1.20.1", 16, "STABLE", 15, "STABLE"));
 
         MemoryConfiguration options = new MemoryConfiguration();
         options.set("_ignoreUnstableDefault", false);
@@ -119,30 +209,14 @@ class PaperFetcherTest {
     @Test
     void fallsBackToStableUntilMinimumUnstableBuildReached() throws Exception {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.20.1", "1.20.2-rc1"]
+                          "versions": { "1.20": ["1.20.2-rc1", "1.20.1"] }
                         }
                         """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.2-rc1",
-                """
-                        {
-                          "builds": [1, 2]
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1",
-                """
-                        {
-                          "builds": [15, 16]
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/16",
-                """
-                        {
-                          "channel": "stable"
-                        }
-                        """);
+        responses.put(buildsUrl("1.20.2-rc1"), builds("1.20.2-rc1", 2, "ALPHA", 1, "ALPHA"));
+        responses.put(buildsUrl("1.20.1"), builds("1.20.1", 16, "STABLE", 15, "STABLE"));
 
         MemoryConfiguration options = new MemoryConfiguration();
         options.set("_ignoreUnstableDefault", true);
@@ -158,18 +232,14 @@ class PaperFetcherTest {
     @Test
     void allowsUnstableOnceMinimumBuildReached() throws Exception {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.20.1", "1.20.2-rc1"]
+                          "versions": { "1.20": ["1.20.2-rc1", "1.20.1"] }
                         }
                         """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.2-rc1",
-                """
-                        {
-                          "builds": [48, 49, 50, 51]
-                        }
-                        """);
+        responses.put(buildsUrl("1.20.2-rc1"),
+                builds("1.20.2-rc1", 51, "ALPHA", 50, "ALPHA", 49, "ALPHA", 48, "ALPHA"));
 
         MemoryConfiguration options = new MemoryConfiguration();
         options.set("_ignoreUnstableDefault", true);
@@ -185,18 +255,13 @@ class PaperFetcherTest {
     @Test
     void allowsCustomMinimumForUnstableBuilds() throws Exception {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.20.1", "1.20.2-rc1"]
+                          "versions": { "1.20": ["1.20.2-rc1", "1.20.1"] }
                         }
                         """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.2-rc1",
-                """
-                        {
-                          "builds": [4, 5]
-                        }
-                        """);
+        responses.put(buildsUrl("1.20.2-rc1"), builds("1.20.2-rc1", 5, "ALPHA", 4, "ALPHA"));
 
         MemoryConfiguration options = new MemoryConfiguration();
         options.set("_ignoreUnstableDefault", true);
@@ -211,44 +276,19 @@ class PaperFetcherTest {
     }
 
     @Test
-    void fallsBackToInstalledVersionWhenNewestFails() throws Exception {
+    void staysOnInstalledGameVersion() throws Exception {
         Map<String, String> responses = new HashMap<>();
-        responses.put("https://api.papermc.io/v2/projects/paper",
+        responses.put(PROJECT_URL,
                 """
                         {
-                          "versions": ["1.21.9", "1.20.2", "1.20.1"]
+                          "versions": {
+                            "1.21": ["1.21.9"],
+                            "1.20": ["1.20.2", "1.20.1"]
+                          }
                         }
                         """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.21.9",
-                """
-                        {
-                          "builds": [7, 6]
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.21.9/builds/7",
-                """
-                        {
-                          "channel": "beta"
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.21.9/builds/6",
-                """
-                        {
-                          "channel": "experimental"
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1",
-                """
-                        {
-                          "builds": [14, 15]
-                        }
-                        """);
-        responses.put("https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/15",
-                """
-                        {
-                          "channel": "stable"
-                        }
-                        """);
+        responses.put(buildsUrl("1.21.9"), builds("1.21.9", 7, "BETA", 6, "ALPHA"));
+        responses.put(buildsUrl("1.20.1"), builds("1.20.1", 15, "STABLE", 14, "STABLE"));
 
         PaperFetcher fetcher = new PaperFetcher(true, new StubHttpClient(responses)) {
             @Override

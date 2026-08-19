@@ -1,25 +1,51 @@
 package eu.nurkert.neverUp2Late.fetcher;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Fetcher for Paper builds using the PaperMC public API.
+ * Fetcher for Paper builds using the PaperMC Fill API (v3).
+ *
+ * <p>The former v2 API at {@code api.papermc.io} was retired and now answers
+ * every request with HTTP 410, which silently turned Paper updates into a
+ * no-op. Fill is the replacement and differs in three ways that matter here:
+ * versions arrive grouped by their major release instead of as one flat list,
+ * the build list is returned in full (channel included) by a single request
+ * instead of one request per build, and the download URL is handed to us
+ * rather than assembled from version and build number.</p>
  */
 public class PaperFetcher extends JsonUpdateFetcher {
 
-    private static final String API_URL = "https://api.papermc.io/v2/projects/paper";
+    private static final String API_URL = "https://fill.papermc.io/v3/projects/paper";
+
+    /**
+     * Fill reports channels in upper case ({@code STABLE}, {@code BETA},
+     * {@code ALPHA}); v2 used {@code default}. Both spellings are accepted so
+     * the comparison keeps working no matter which wording the API settles on.
+     */
     private static final Set<String> STABLE_CHANNELS = Set.of("default", "stable");
+
+    /**
+     * Key of the plain server jar inside a build's {@code downloads} map. Fill
+     * can expose several artifacts per build; this is the one that replaces
+     * paper.jar.
+     */
+    private static final String SERVER_DOWNLOAD_KEY = "server:default";
+
     private static final Logger LOGGER = Logger.getLogger(PaperFetcher.class.getName());
     private static final int DEFAULT_MINIMUM_UNSTABLE_BUILD_NUMBER = 50;
 
@@ -67,7 +93,7 @@ public class PaperFetcher extends JsonUpdateFetcher {
     @Override
     public void loadLatestBuildInfo() throws Exception {
         ProjectResponse project = getJson(API_URL, ProjectResponse.class);
-        List<String> versions = new ArrayList<>(project.versions());
+        List<String> versions = new ArrayList<>(project.allVersions());
         if (fetchStableVersions) {
             versions = filterStableVersions(versions);
         }
@@ -118,16 +144,16 @@ public class PaperFetcher extends JsonUpdateFetcher {
                 }
             }
             try {
-                VersionResponse versionResponse = getJson(API_URL + "/versions/" + version, VersionResponse.class);
-                LOGGER.fine("Builds reported for version " + version + ": " + versionResponse.builds());
+                List<BuildResponse> builds = getJson(API_URL + "/versions/" + version + "/builds",
+                        new TypeReference<List<BuildResponse>>() {
+                        });
+                LOGGER.fine("Builds reported for version " + version + ": " + buildNumbersOf(builds));
                 boolean versionIsStable = isStableVersion(version);
-                int latestBuild = (fetchStableVersions || versionIsStable)
-                        ? selectLatestStableBuild(version, versionResponse.builds())
-                        : selectLatestUnstableBuild(version, versionResponse.builds());
-                String downloadUrl = API_URL + "/versions/" + version + "/builds/" + latestBuild
-                        + "/downloads/paper-" + version + "-" + latestBuild + ".jar";
+                BuildResponse build = (fetchStableVersions || versionIsStable)
+                        ? selectLatestStableBuild(version, builds)
+                        : selectLatestUnstableBuild(version, builds);
 
-                setLatestBuildInfo(version, latestBuild, downloadUrl);
+                setLatestBuildInfo(version, build.id(), downloadUrlOf(version, build));
                 return;
             } catch (Exception exception) {
                 lastError = exception;
@@ -166,39 +192,90 @@ public class PaperFetcher extends JsonUpdateFetcher {
         return fullVersion.substring(start + 4, fullVersion.length() - 1);
     }
 
-    private record ProjectResponse(@JsonProperty("versions") List<String> versions) {
+    /**
+     * Fill groups versions by major release, e.g.
+     * {@code {"1.21": ["1.21.11", "1.21.10"], "1.20": [...]}}. The selection
+     * below sorts anyway, so the grouping is simply flattened away.
+     */
+    private record ProjectResponse(@JsonProperty("versions") Map<String, List<String>> versions) {
         private ProjectResponse {
-            versions = versions == null ? List.of() : List.copyOf(versions);
+            versions = versions == null ? Map.of() : new LinkedHashMap<>(versions);
+        }
+
+        List<String> allVersions() {
+            List<String> flattened = new ArrayList<>();
+            for (List<String> group : versions.values()) {
+                if (group != null) {
+                    group.stream().filter(entry -> entry != null && !entry.isBlank()).forEach(flattened::add);
+                }
+            }
+            return flattened;
         }
     }
 
-    private record VersionResponse(@JsonProperty("builds") List<Integer> builds) {
-        private VersionResponse {
-            builds = builds == null ? List.of() : List.copyOf(builds);
+    private record BuildResponse(@JsonProperty("id") int id,
+                                 @JsonProperty("channel") String channel,
+                                 @JsonProperty("downloads") Map<String, DownloadResponse> downloads) {
+        private BuildResponse {
+            downloads = downloads == null ? Map.of() : new LinkedHashMap<>(downloads);
         }
     }
 
-    private record BuildResponse(@JsonProperty("channel") String channel) {
+    private record DownloadResponse(@JsonProperty("name") String name, @JsonProperty("url") String url) {
     }
 
-    private int selectLatestStableBuild(String version, List<Integer> builds) throws IOException {
+    private static List<Integer> buildNumbersOf(Collection<BuildResponse> builds) {
+        return builds.stream().map(BuildResponse::id).toList();
+    }
+
+    /**
+     * Fill hands out a content addressed URL per build. Assembling one by hand
+     * (as the v2 code did) would point at a path that no longer exists, so a
+     * build without a usable server download is treated as unusable and the
+     * search moves on to the next candidate.
+     */
+    private String downloadUrlOf(String version, BuildResponse build) throws IOException {
+        DownloadResponse download = build.downloads().get(SERVER_DOWNLOAD_KEY);
+        if (download == null || download.url() == null || download.url().isBlank()) {
+            throw new IOException("Build " + build.id() + " for version " + version
+                    + " does not offer a '" + SERVER_DOWNLOAD_KEY + "' download");
+        }
+        return download.url();
+    }
+
+    private List<BuildResponse> sortedByBuildDescending(List<BuildResponse> builds) {
+        List<BuildResponse> sorted = new ArrayList<>(builds);
+        sorted.sort(Comparator.comparingInt(BuildResponse::id).reversed());
+        return sorted;
+    }
+
+    private BuildResponse selectLatestStableBuild(String version, List<BuildResponse> builds) throws IOException {
         if (builds.isEmpty()) {
             throw new IOException("No builds available for version " + version);
         }
 
-        List<Integer> sortedBuilds = new ArrayList<>(builds);
-        sortedBuilds.sort(Comparator.reverseOrder());
-
-        for (Integer build : sortedBuilds) {
-            BuildResponse buildResponse = getJson(API_URL + "/versions/" + version + "/builds/" + build, BuildResponse.class);
-            String channel = buildResponse.channel();
-            LOGGER.fine("Version " + version + " build " + build + " reported channel " + channel);
-            if (isStableChannel(channel)) {
+        for (BuildResponse build : sortedByBuildDescending(builds)) {
+            LOGGER.fine("Version " + version + " build " + build.id() + " reported channel " + build.channel());
+            if (isStableChannel(build.channel())) {
                 return build;
             }
         }
 
         throw new IOException("No stable builds available for version " + version);
+    }
+
+    private BuildResponse selectLatestUnstableBuild(String version, List<BuildResponse> builds) throws IOException {
+        if (builds.isEmpty()) {
+            throw new IOException("No builds available for version " + version);
+        }
+
+        BuildResponse latest = sortedByBuildDescending(builds).get(0);
+        if (minimumUnstableBuildNumber > 0 && latest.id() < minimumUnstableBuildNumber) {
+            LOGGER.fine("Latest unstable build " + latest.id() + " for version " + version
+                    + " is below minimum required build " + minimumUnstableBuildNumber);
+            throw new IOException("No unstable builds meeting the minimum build number for version " + version);
+        }
+        return latest;
     }
 
     private boolean isStableChannel(String channel) {
@@ -234,16 +311,6 @@ public class PaperFetcher extends JsonUpdateFetcher {
             minimum = options.getInt("minimumUnstableBuild", minimum);
         }
         return Math.max(0, minimum);
-    }
-
-    private int selectLatestUnstableBuild(String version, List<Integer> builds) throws IOException {
-        int latestBuild = selectLatestBuild(builds);
-        if (minimumUnstableBuildNumber > 0 && latestBuild < minimumUnstableBuildNumber) {
-            LOGGER.fine("Latest unstable build " + latestBuild + " for version " + version
-                    + " is below minimum required build " + minimumUnstableBuildNumber);
-            throw new IOException("No unstable builds meeting the minimum build number for version " + version);
-        }
-        return latestBuild;
     }
 
     private boolean isStableVersion(String version) {
