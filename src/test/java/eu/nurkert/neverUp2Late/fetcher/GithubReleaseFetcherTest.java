@@ -239,6 +239,58 @@ class GithubReleaseFetcherTest {
         assertTrue(fetcher.isSelectedAssetArchive());
     }
 
+    @Test
+    void picksUpTheSha256DigestGithubPublishesForAnAsset() throws Exception {
+        String sha256 = "a".repeat(64);
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.github.com/repos/example/demo/releases",
+                """
+                        [
+                          {
+                            "id": 1,
+                            "tag_name": "v1.0.0",
+                            "draft": false,
+                            "prerelease": false,
+                            "published_at": "2023-09-10T10:00:00Z",
+                            "assets": [
+                              { "name": "demo.jar", "browser_download_url": "https://example.com/demo.jar",
+                                "digest": "sha256:%s" }
+                            ]
+                          }
+                        ]
+                        """.formatted(sha256));
+
+        GithubReleaseFetcher fetcher = new GithubReleaseFetcher(options(false, null), new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals(new JsonUpdateFetcher.Checksum("SHA-256", sha256), fetcher.getLatestChecksum().orElseThrow());
+    }
+
+    @Test
+    void releasesWithoutDigestStillInstallWithoutAChecksum() throws Exception {
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.github.com/repos/example/demo/releases",
+                """
+                        [
+                          {
+                            "id": 1,
+                            "tag_name": "v1.0.0",
+                            "draft": false,
+                            "prerelease": false,
+                            "published_at": "2023-09-10T10:00:00Z",
+                            "assets": [
+                              { "name": "demo.jar", "browser_download_url": "https://example.com/demo.jar" }
+                            ]
+                          }
+                        ]
+                        """);
+
+        GithubReleaseFetcher fetcher = new GithubReleaseFetcher(options(false, null), new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertTrue(fetcher.getLatestChecksum().isEmpty());
+    }
+
     private MemoryConfiguration options(boolean allowPrerelease, String assetPattern) {
         MemoryConfiguration configuration = new MemoryConfiguration();
         configuration.set("owner", "example");

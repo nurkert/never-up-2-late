@@ -154,6 +154,8 @@ public class PaperFetcher extends JsonUpdateFetcher {
                         : selectLatestUnstableBuild(version, builds);
 
                 setLatestBuildInfo(version, build.id(), downloadUrlOf(version, build));
+                DownloadResponse download = build.downloads().get(SERVER_DOWNLOAD_KEY);
+                setLatestChecksum("SHA-256", download.checksums().get("sha256"));
                 return;
             } catch (Exception exception) {
                 lastError = exception;
@@ -221,7 +223,12 @@ public class PaperFetcher extends JsonUpdateFetcher {
         }
     }
 
-    private record DownloadResponse(@JsonProperty("name") String name, @JsonProperty("url") String url) {
+    private record DownloadResponse(@JsonProperty("name") String name,
+                                    @JsonProperty("url") String url,
+                                    @JsonProperty("checksums") Map<String, String> checksums) {
+        private DownloadResponse {
+            checksums = checksums == null ? Map.of() : Map.copyOf(checksums);
+        }
     }
 
     private static List<Integer> buildNumbersOf(Collection<BuildResponse> builds) {

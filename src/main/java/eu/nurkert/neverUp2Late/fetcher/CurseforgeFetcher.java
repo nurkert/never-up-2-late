@@ -27,6 +27,7 @@ public class CurseforgeFetcher extends JsonUpdateFetcher {
 
     private static final String API_TEMPLATE = "https://api.curseforge.com/v1/mods/%d/files?pageSize=%d&index=%d";
     private static final int FILE_STATUS_APPROVED = 4;
+    private static final int SHA1_ALGORITHM_ID = 1;
 
     private final Config config;
 
@@ -106,6 +107,12 @@ public class CurseforgeFetcher extends JsonUpdateFetcher {
         int buildNumber = resolveBuildNumber(best);
 
         setLatestBuildInfo(version, buildNumber, downloadUrl);
+        for (FileHash hash : best.hashes()) {
+            if (hash.algo() == SHA1_ALGORITHM_ID) {
+                setLatestChecksum("SHA-1", hash.value());
+                break;
+            }
+        }
     }
 
     @Override
@@ -479,7 +486,14 @@ public class CurseforgeFetcher extends JsonUpdateFetcher {
                                   @JsonProperty("downloadUrl") String downloadUrl,
                                   @JsonProperty("fileDate") Instant fileDate,
                                   @JsonProperty("gameVersions") List<String> gameVersions,
-                                  @JsonProperty("sortableGameVersions") List<SortableGameVersion> sortableGameVersions) {
+                                  @JsonProperty("sortableGameVersions") List<SortableGameVersion> sortableGameVersions,
+                                  @JsonProperty("hashes") List<FileHash> hashes) {
+        private CurseforgeFile {
+            hashes = hashes == null ? List.of() : List.copyOf(hashes);
+        }
+    }
+
+    private record FileHash(@JsonProperty("value") String value, @JsonProperty("algo") int algo) {
     }
 
     private record SortableGameVersion(@JsonProperty("gameVersionTypeId") Integer gameVersionTypeId) {

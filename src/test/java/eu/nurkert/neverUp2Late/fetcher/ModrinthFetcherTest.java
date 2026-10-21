@@ -236,6 +236,39 @@ class ModrinthFetcherTest {
         assertEquals("https://example.com/2.0.0.jar", fetcher.getLatestDownloadUrl());
     }
 
+    @Test
+    void prefersTheSha512HashOfTheChosenFile() throws Exception {
+        String sha512 = "b".repeat(128);
+        Map<String, String> responses = new HashMap<>();
+        responses.put("https://api.modrinth.com/v2/project/example/version",
+                """
+                        [
+                          {
+                            "id": "1",
+                            "version_number": "1.0.0",
+                            "status": "listed",
+                            "date_published": "2023-09-10T10:15:30Z",
+                            "game_versions": ["1.20"],
+                            "loaders": ["paper"],
+                            "files": [
+                              { "url": "https://example.com/sources.jar", "primary": false,
+                                "hashes": { "sha512": "%s", "sha1": "%s" } },
+                              { "url": "https://example.com/1.0.0.jar", "primary": true,
+                                "hashes": { "sha512": "%s", "sha1": "%s" } }
+                            ]
+                          }
+                        ]
+                        """.formatted("c".repeat(128), "c".repeat(40), sha512, "d".repeat(40)));
+
+        ModrinthFetcher fetcher = new ModrinthFetcher(ModrinthFetcher.builder("example")
+                .loaders(List.of("paper"))
+                .build(), new StubHttpClient(responses));
+        fetcher.loadLatestBuildInfo();
+
+        assertEquals("https://example.com/1.0.0.jar", fetcher.getLatestDownloadUrl());
+        assertEquals(new JsonUpdateFetcher.Checksum("SHA-512", sha512), fetcher.getLatestChecksum().orElseThrow());
+    }
+
     private static class StubHttpClient extends HttpClient {
         private final Map<String, String> responses;
 

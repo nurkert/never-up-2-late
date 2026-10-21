@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -95,9 +96,15 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
                         (targetGameVersion != null ? " for game version " + targetGameVersion : "")));
 
         int buildNumber = resolveBuildNumber(latestBuild);
-        String downloadUrl = resolveDownloadUrl(latestBuild);
+        ModrinthFile file = resolveDownloadFile(latestBuild);
 
-        setLatestBuildInfo(latestBuild.versionNumber(), buildNumber, downloadUrl);
+        setLatestBuildInfo(latestBuild.versionNumber(), buildNumber, trimToNull(file.url()));
+        Map<String, String> hashes = file.hashes();
+        if (hashes.containsKey("sha512")) {
+            setLatestChecksum("SHA-512", hashes.get("sha512"));
+        } else if (hashes.containsKey("sha1")) {
+            setLatestChecksum("SHA-1", hashes.get("sha1"));
+        }
     }
 
     @Override
@@ -246,7 +253,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         return UNKNOWN_BUILD;
     }
 
-    private String resolveDownloadUrl(VersionResponse version) throws IOException {
+    private ModrinthFile resolveDownloadFile(VersionResponse version) throws IOException {
         Comparator<ModrinthFile> comparator = Comparator
                 .comparing(ModrinthFile::primary)
                 .reversed();
@@ -257,9 +264,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         return (preferPrimaryFile
                 ? version.files().stream().sorted(comparator)
                 : version.files().stream())
-                .map(ModrinthFile::url)
-                .map(ModrinthFetcher::trimToNull)
-                .filter(Objects::nonNull)
+                .filter(file -> trimToNull(file.url()) != null)
                 .findFirst()
                 .orElseThrow(exceptionSupplier);
     }
@@ -322,8 +327,13 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
 
     private record ModrinthFile(
             @JsonProperty("url") String url,
-            @JsonProperty("primary") boolean primary
+            @JsonProperty("primary") boolean primary,
+            @JsonProperty("hashes") Map<String, String> hashes
     ) implements Comparable<ModrinthFile> {
+        private ModrinthFile {
+            hashes = hashes == null ? Map.of() : Map.copyOf(hashes);
+        }
+
         @Override
         public int compareTo(ModrinthFile other) {
             return Boolean.compare(this.primary, other.primary);

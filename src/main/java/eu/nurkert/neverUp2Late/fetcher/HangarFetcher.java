@@ -99,6 +99,11 @@ public class HangarFetcher extends JsonUpdateFetcher {
         int buildNumber = resolveBuildNumber(best);
 
         setLatestBuildInfo(best.name(), buildNumber, downloadUrl);
+        // The hash describes the file Hangar hosts; an external link may point
+        // anywhere, so it is only checked when the download comes from Hangar.
+        if (download.fileInfo() != null && downloadUrl.equals(trimToNull(download.downloadUrl()))) {
+            setLatestChecksum("SHA-256", download.fileInfo().sha256Hash());
+        }
     }
 
     @Override

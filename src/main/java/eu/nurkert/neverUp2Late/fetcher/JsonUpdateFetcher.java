@@ -5,7 +5,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.net.HttpClient;
+import eu.nurkert.neverUp2Late.update.UpdateContext;
 
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
@@ -15,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -29,6 +32,7 @@ public abstract class JsonUpdateFetcher implements UpdateFetcher {
 
     private static final Pattern NUMERIC_PATTERN = Pattern.compile("\\d+");
     private static final Pattern BUILD_NUMBER_PATTERN = Pattern.compile("-b(\\d+)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HEX_PATTERN = Pattern.compile("[0-9a-fA-F]+");
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -36,6 +40,7 @@ public abstract class JsonUpdateFetcher implements UpdateFetcher {
     private String latestVersion;
     private int latestBuild;
     private String latestDownloadUrl;
+    private Checksum latestChecksum;
 
     protected JsonUpdateFetcher() {
         this(new HttpClient(), defaultMapper());
@@ -159,6 +164,63 @@ public abstract class JsonUpdateFetcher implements UpdateFetcher {
         this.latestVersion = version;
         this.latestBuild = build;
         this.latestDownloadUrl = downloadUrl;
+        // A checksum belongs to exactly one download; never let it outlive it.
+        this.latestChecksum = null;
+    }
+
+    /**
+     * Records the checksum the provider publishes for the download set by the
+     * last {@link #setLatestBuildInfo} call, so the downloaded file is verified
+     * before it replaces anything on disk.
+     *
+     * <p>A value that is not plausible hex of the expected length is dropped
+     * rather than enforced: a provider changing its format must not turn into
+     * every update failing, it only costs the extra check.</p>
+     *
+     * @param algorithm a {@link java.security.MessageDigest} name, e.g. {@code SHA-256}
+     */
+    protected void setLatestChecksum(String algorithm, String hex) {
+        this.latestChecksum = Checksum.of(algorithm, hex).orElse(null);
+    }
+
+    /**
+     * @return the checksum published for the latest download, if the provider offers one
+     */
+    public Optional<Checksum> getLatestChecksum() {
+        return Optional.ofNullable(latestChecksum);
+    }
+
+    @Override
+    public void configureContext(UpdateContext context) {
+        context.setChecksumValidator(latestChecksum == null
+                ? null
+                : ArtifactDownloader.ChecksumValidator.fromHexChecksum(latestChecksum.algorithm(), latestChecksum.hex()));
+    }
+
+    /**
+     * A checksum as published by a provider.
+     *
+     * @param algorithm a {@link java.security.MessageDigest} name
+     * @param hex       the expected digest, lower case hex
+     */
+    public record Checksum(String algorithm, String hex) {
+
+        static Optional<Checksum> of(String algorithm, String hex) {
+            if (algorithm == null || hex == null) {
+                return Optional.empty();
+            }
+            String normalized = hex.trim().toLowerCase(Locale.ROOT);
+            int expectedLength = switch (algorithm) {
+                case "SHA-1" -> 40;
+                case "SHA-256" -> 64;
+                case "SHA-512" -> 128;
+                default -> -1;
+            };
+            if (normalized.length() != expectedLength || !HEX_PATTERN.matcher(normalized).matches()) {
+                return Optional.empty();
+            }
+            return Optional.of(new Checksum(algorithm, normalized));
+        }
     }
 
     @Override

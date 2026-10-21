@@ -107,6 +107,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
     @Override
     public void configureContext(UpdateContext context) {
+        super.configureContext(context);
         if (selectedAsset == null) {
             context.setDownloadProcessor(null);
             return;
@@ -311,6 +312,10 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
         int build = clampToInt(latest.id());
         setLatestBuildInfo(tagName, build, selected.browserDownloadUrl());
+        String digest = selected.digest();
+        if (digest != null && digest.regionMatches(true, 0, "sha256:", 0, 7)) {
+            setLatestChecksum("SHA-256", digest.substring(7));
+        }
     }
 
     /**
@@ -363,7 +368,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
         if (archiveUrl == null) {
             return null;
         }
-        return new Asset(tagName + ".zip", archiveUrl);
+        return new Asset(tagName + ".zip", archiveUrl, null);
     }
 
     private int buildNumberFromSha(TagCommit commit) {
@@ -412,11 +417,13 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
     private record Asset(
             @JsonProperty("name") String name,
-            @JsonProperty("browser_download_url") String browserDownloadUrl
+            @JsonProperty("browser_download_url") String browserDownloadUrl,
+            @JsonProperty("digest") String digest
     ) {
         private Asset {
             name = trimToNull(name);
             browserDownloadUrl = trimToNull(browserDownloadUrl);
+            digest = trimToNull(digest);
         }
     }
 
