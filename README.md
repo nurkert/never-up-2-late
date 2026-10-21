@@ -73,13 +73,22 @@ it would refuse, without downloading or writing a single file.
 ![Quick install linking an update source from a URL](images/update-source-configured-by-link.png)
 
 When a release ships several jars or a ZIP, NeverUp2Late lists them in chat. Click the one you want; the choice is
-remembered for every future update.
+remembered for every future update. While it works, progress and the download bar run in your action bar instead of
+filling the chat.
+
+### Status at a glance
+
+`/nu2l status` opens with one line that answers the question - *12 sources · 2 waiting for a restart · 0 failing* - and
+then lists every source with an icon. Hover for the details, click **[Check]** to look right now, or **[Rollback]** when
+something failed. `/nu2l help` works the same way: click a command to run it.
 
 ### A GUI for everything else
 
-`/nu2l` opens a chest interface with every plugin on the server. Link plugins to update sources (with suggestions from
-Modrinth and Hangar), turn updates on or off per plugin, choose between restart and hot-reload, rename files, or start a
-search.
+`/nu2l` opens a chest interface with every plugin on the server. The frame turns green, yellow or red with the state of
+the whole server, plugins with an update waiting shimmer, and a right-click checks one right away. Page through any number
+of plugins, filter by *updates ready*, *failing* or *not linked*, or search by name. Link plugins to update sources (with
+suggestions from Modrinth and Hangar), turn updates on or off, choose between restart and hot-reload, or rename files.
+Anything that removes or rolls back asks first on its own confirmation screen.
 
 ![Plugin overview GUI listing managed plugins](images/plugins-lists.png)
 
