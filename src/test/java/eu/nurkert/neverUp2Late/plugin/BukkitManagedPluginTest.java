@@ -209,6 +209,27 @@ class BukkitManagedPluginTest {
     private static final Logger LOGGER = Logger.getLogger("BukkitManagedPluginTest");
 
     private static final class CountingPluginManager implements PluginManager {
+        @Override
+        public void overridePermissionManager(Plugin plugin, io.papermc.paper.plugin.PermissionManager permissionManager) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addPermissions(List<org.bukkit.permissions.Permission> permissions) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void clearPermissions() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean isTransitiveDependency(io.papermc.paper.plugin.configuration.PluginMeta pluginMeta,
+                                              io.papermc.paper.plugin.configuration.PluginMeta dependencyMeta) {
+            throw new UnsupportedOperationException();
+        }
+
 
         private final Plugin plugin;
         private final Path expectedPath;
@@ -258,6 +279,11 @@ class BukkitManagedPluginTest {
 
         @Override
         public Plugin[] loadPlugins(File directory) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Plugin[] loadPlugins(File[] files) {
             throw new UnsupportedOperationException();
         }
 
@@ -375,6 +401,27 @@ class BukkitManagedPluginTest {
     }
 
     private static final class SuperclassBackedPluginManager implements PluginManager {
+        @Override
+        public void overridePermissionManager(Plugin plugin, io.papermc.paper.plugin.PermissionManager permissionManager) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addPermissions(List<org.bukkit.permissions.Permission> permissions) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void clearPermissions() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean isTransitiveDependency(io.papermc.paper.plugin.configuration.PluginMeta pluginMeta,
+                                              io.papermc.paper.plugin.configuration.PluginMeta dependencyMeta) {
+            throw new UnsupportedOperationException();
+        }
+
 
         private final StatefulPlugin plugin;
         private final Path expectedPath;
@@ -456,6 +503,11 @@ class BukkitManagedPluginTest {
 
         @Override
         public Plugin[] loadPlugins(File directory) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Plugin[] loadPlugins(File[] files) {
             throw new UnsupportedOperationException();
         }
 
@@ -562,6 +614,16 @@ class BukkitManagedPluginTest {
     }
 
     private static final class CountingPlugin implements Plugin {
+        @Override
+        public io.papermc.paper.plugin.lifecycle.event.LifecycleEventManager<Plugin> getLifecycleManager() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public io.papermc.paper.plugin.configuration.PluginMeta getPluginMeta() {
+            return getDescription();
+        }
+
 
         private final String name;
         private int onLoadCalls = 0;
@@ -682,6 +744,16 @@ class BukkitManagedPluginTest {
     }
 
     private static final class StatefulPlugin implements Plugin {
+        @Override
+        public io.papermc.paper.plugin.lifecycle.event.LifecycleEventManager<Plugin> getLifecycleManager() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public io.papermc.paper.plugin.configuration.PluginMeta getPluginMeta() {
+            return getDescription();
+        }
+
 
         private final String name;
         private boolean enabled;

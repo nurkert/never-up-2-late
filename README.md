@@ -33,12 +33,12 @@ and SpigotMC via the Spiget API.
 4. Adjust `plugins/NeverUp2Late/config.yml` to fit your environment.
 5. Operators can complete the interactive setup wizard or open the GUI via `/nu2l` to review detected sources.
 
-NeverUp2Late automatically adds itself as an update source on new installations, so the plugin will kkeep itself up to date via GitHub in the future.
+NeverUp2Late automatically adds itself as an update source on new installations, so the plugin will keep itself up to date via GitHub in the future.
 
 ### Requirements
 
 - Minecraft server implementing the Bukkit API (Paper recommended) for Minecraft 1.21 or newer.
-- Java 17 or higher (matching the Paper 1.21 baseline).
+- Java 21 or higher (the Paper 1.21 baseline).
 
 ## First-Time Setup
 
