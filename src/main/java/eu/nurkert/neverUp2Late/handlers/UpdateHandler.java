@@ -433,8 +433,17 @@ public class UpdateHandler {
         return new UpdateJob()
                 .addStep(new FetchUpdateStep(persistentPluginHandler, versionComparator,
                         configuration.getBoolean("updates.respectManualRollback", true)))
-                .addStep(new DownloadUpdateStep(artifactDownloader))
+                .addStep(new DownloadUpdateStep(artifactDownloader, updateFolder()))
                 .addStep(new InstallUpdateStep(plugin, persistentPluginHandler, installationHandler));
+    }
+
+    private Path updateFolder() {
+        try {
+            File folder = server.getUpdateFolderFile();
+            return folder != null ? folder.toPath() : null;
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private void handleUnknownHost(UpdateSource source, UnknownHostException e) {

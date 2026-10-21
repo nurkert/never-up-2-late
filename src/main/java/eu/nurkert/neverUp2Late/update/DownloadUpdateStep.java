@@ -20,9 +20,19 @@ import java.util.zip.ZipFile;
 public class DownloadUpdateStep implements UpdateStep {
 
     private final ArtifactDownloader artifactDownloader;
+    private final Path updateFolder;
 
     public DownloadUpdateStep(ArtifactDownloader artifactDownloader) {
+        this(artifactDownloader, null);
+    }
+
+    /**
+     * @param updateFolder Bukkit's update folder (usually {@code plugins/update}),
+     *                     or {@code null} to never stage updates there
+     */
+    public DownloadUpdateStep(ArtifactDownloader artifactDownloader, Path updateFolder) {
         this.artifactDownloader = artifactDownloader;
+        this.updateFolder = updateFolder;
     }
 
     @Override
@@ -141,6 +151,18 @@ public class DownloadUpdateStep implements UpdateStep {
             try {
                 moveReplacing(result, targetPath);
             } catch (IOException ex) {
+                Optional<Path> staged = stageForNextStart(context, result, targetPath);
+                if (staged.isPresent()) {
+                    if (backup != null) {
+                        context.setReplacedFileBackup(backup);
+                    }
+                    context.setDownloadedArtifact(staged.get());
+                    context.setDownloadDestination(targetPath);
+                    context.log(Level.INFO,
+                            "{0} is in use and cannot be replaced while the server runs ({1}). The new version waits in {2} and the server swaps it in on the next start.",
+                            new Object[]{context.getSource().getName(), ex.getMessage(), staged.get()});
+                    return;
+                }
                 // The move is the only step that can fail with the old jar still
                 // in place - typically a file lock on Windows. Leaving the fresh
                 // backup behind would fill the backup folder with copies of the
@@ -221,7 +243,34 @@ public class DownloadUpdateStep implements UpdateStep {
         }
     }
 
-    private void moveReplacing(Path source, Path target) throws IOException {
+    /**
+     * Hands a plugin jar that cannot be replaced in place - a running jar is
+     * locked on Windows - to Bukkit's update folder. The server moves a file
+     * from there over the jar of the same name before it loads plugins, which
+     * is exactly the moment nothing holds the lock.
+     *
+     * @return where the file was staged, or empty when staging is not possible
+     */
+    private Optional<Path> stageForNextStart(UpdateContext context, Path downloaded, Path targetPath) {
+        if (updateFolder == null
+                || context.getSource().getTargetDirectory() != UpdateSourceRegistry.TargetDirectory.PLUGINS
+                || targetPath.getFileName() == null) {
+            return Optional.empty();
+        }
+        try {
+            Files.createDirectories(updateFolder);
+            Path staged = updateFolder.resolve(targetPath.getFileName());
+            moveReplacing(downloaded, staged);
+            return Optional.of(staged);
+        } catch (IOException stagingFailure) {
+            context.log(Level.FINE, "Could not stage {0} in the update folder: {1}",
+                    new Object[]{context.getSource().getName(), stagingFailure.getMessage()});
+            return Optional.empty();
+        }
+    }
+
+    // Package-private so a test can stand in for a file lock.
+    void moveReplacing(Path source, Path target) throws IOException {
         try {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException ex) {

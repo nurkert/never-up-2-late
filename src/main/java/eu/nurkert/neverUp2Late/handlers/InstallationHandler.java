@@ -517,6 +517,11 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
             if (destination == null) {
                 return true;
             }
+            if (event.getDownloadedArtifact().map(artifact -> !artifact.equals(destination)).orElse(false)) {
+                // Staged in the update folder: the jar at the destination is
+                // still the old one, and only a restart swaps the new one in.
+                return true;
+            }
 
             ManagedPlugin managed = lifecycleManager.findByPath(destination).orElse(null);
 
