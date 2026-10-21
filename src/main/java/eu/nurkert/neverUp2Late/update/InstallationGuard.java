@@ -10,6 +10,9 @@ import java.io.InputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -162,6 +165,74 @@ public final class InstallationGuard {
             return findUnloadableMainClass(zip, description.getMain());
         } catch (IOException ex) {
             return Optional.of("the downloaded file could not be read as a jar: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Checks that the server will load the downloaded plugin at all.
+     *
+     * <p>Two things make Bukkit refuse a well formed plugin on the next start: an
+     * {@code api-version} newer than the server implements, and a hard
+     * dependency that is not installed. Both look like a successful update until
+     * the restart, and then the plugin is simply gone. A dependency the current
+     * jar already declared is not held against the update - whatever is missing
+     * there is missing today as well.</p>
+     *
+     * @param destination the jar the download would replace, if any
+     * @return the reason the server would not load it, or empty if it would
+     */
+    public static Optional<String> findIncompatibility(Path downloaded, Path destination, ServerProfile server) {
+        if (downloaded == null || server == null) {
+            return Optional.empty();
+        }
+        Optional<PluginDescriptionFile> incoming = readDescription(downloaded);
+        if (incoming.isEmpty()) {
+            return Optional.empty();
+        }
+        PluginDescriptionFile description = incoming.get();
+
+        String required = description.getAPIVersion();
+        if (required != null && !required.isBlank() && server.apiVersion() != null
+                && VERSION_COMPARATOR.compare(required, server.apiVersion()) > 0) {
+            return Optional.of(description.getName() + " " + description.getVersion()
+                    + " requires Minecraft " + required + " but this server runs " + server.apiVersion());
+        }
+
+        List<String> alreadyDeclared = readDescription(destination)
+                .map(current -> current.getDepend().stream()
+                        .map(name -> name.toLowerCase(Locale.ROOT))
+                        .toList())
+                .orElse(List.of());
+        List<String> missing = new ArrayList<>();
+        for (String dependency : description.getDepend()) {
+            if (!server.provides(dependency)
+                    && !alreadyDeclared.contains(dependency.toLowerCase(Locale.ROOT))) {
+                missing.add(dependency);
+            }
+        }
+        if (!missing.isEmpty()) {
+            return Optional.of(description.getName() + " " + description.getVersion()
+                    + " now depends on " + String.join(", ", missing) + ", which "
+                    + (missing.size() == 1 ? "is" : "are") + " not installed");
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<PluginDescriptionFile> readDescription(Path jar) {
+        if (jar == null || !Files.isRegularFile(jar)) {
+            return Optional.empty();
+        }
+        try (ZipFile zip = new ZipFile(jar.toFile())) {
+            ZipEntry descriptor = zip.getEntry("plugin.yml");
+            if (descriptor == null) {
+                return Optional.empty();
+            }
+            try (InputStream in = zip.getInputStream(descriptor)) {
+                return Optional.of(new PluginDescriptionFile(in));
+            }
+        } catch (IOException | InvalidDescriptionException ex) {
+            // Not ours to judge: the identity check speaks for broken descriptors.
+            return Optional.empty();
         }
     }
 

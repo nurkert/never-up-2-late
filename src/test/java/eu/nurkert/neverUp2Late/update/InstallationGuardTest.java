@@ -9,9 +9,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -78,12 +80,69 @@ class InstallationGuardTest {
         assertFalse(InstallationGuard.findConflict(incoming, plugins.resolve("paper.jar")).isPresent());
     }
 
+    @Test
+    void refusesAPluginThatNeedsANewerMinecraftThanTheServerRuns() throws IOException {
+        Path incoming = jar("staging.part", "Demo", "2.0", "api-version: '1.21.5'\n");
+        ServerProfile server = new ServerProfile("1.21.4", Set.of());
+
+        Optional<String> problem = InstallationGuard.findIncompatibility(incoming, null, server);
+
+        assertTrue(problem.isPresent());
+        assertTrue(problem.get().contains("1.21.5") && problem.get().contains("1.21.4"), problem.get());
+    }
+
+    @Test
+    void acceptsAnApiVersionTheServerImplements() throws IOException {
+        Path incoming = jar("staging.part", "Demo", "2.0", "api-version: '1.21'\n");
+
+        assertFalse(InstallationGuard.findIncompatibility(incoming, null,
+                new ServerProfile("1.21.4", Set.of())).isPresent());
+    }
+
+    @Test
+    void refusesAnUpdateThatIntroducesAMissingHardDependency() throws IOException {
+        Path installed = jar("Demo.jar", "Demo", "1.0", "depend: [Vault]\n");
+        Path incoming = jar("staging.part", "Demo", "2.0", "depend: [Vault, ProtocolLib]\n");
+
+        Optional<String> problem = InstallationGuard.findIncompatibility(incoming, installed,
+                new ServerProfile("1.21.4", Set.of()));
+
+        // Vault is missing today as well, which is not this update's doing.
+        assertEquals(Optional.of("Demo 2.0 now depends on ProtocolLib, which is not installed"), problem);
+    }
+
+    @Test
+    void acceptsDependenciesThatAreInstalledUnderTheirNameOrAnAlias() throws IOException {
+        Path incoming = jar("staging.part", "Demo", "2.0", "depend: [ProtocolLib, Vault]\n");
+        ServerProfile server = new ServerProfile("1.21.4", Set.of("protocollib", "vault"));
+
+        assertTrue(server.provides("Vault"));
+        assertFalse(InstallationGuard.findIncompatibility(incoming, null, server).isPresent());
+    }
+
+    @Test
+    void staysOutOfTheWayWhenTheServerCannotBeAsked() throws IOException {
+        Path incoming = jar("staging.part", "Demo", "2.0", "api-version: '99.0'\n");
+
+        assertFalse(InstallationGuard.findIncompatibility(incoming, null, ServerProfile.UNKNOWN).isPresent());
+    }
+
+    @Test
+    void readsTheApiVersionFromBukkitsVersionString() {
+        assertEquals("1.21.4", ServerProfile.apiVersionOf("1.21.4-R0.1-SNAPSHOT"));
+        assertEquals("26.3", ServerProfile.apiVersionOf("26.3"));
+    }
+
     private Path jar(String fileName, String pluginName, String version) throws IOException {
+        return jar(fileName, pluginName, version, "");
+    }
+
+    private Path jar(String fileName, String pluginName, String version, String extraYaml) throws IOException {
         Path path = plugins.resolve(fileName);
         try (OutputStream out = Files.newOutputStream(path);
              ZipOutputStream zip = new ZipOutputStream(out)) {
             zip.putNextEntry(new ZipEntry("plugin.yml"));
-            zip.write(("name: " + pluginName + "\nversion: " + version + "\nmain: com.example.Main\n")
+            zip.write(("name: " + pluginName + "\nversion: " + version + "\nmain: com.example.Main\n" + extraYaml)
                     .getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();
         }

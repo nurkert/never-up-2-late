@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
@@ -21,6 +22,7 @@ public class DownloadUpdateStep implements UpdateStep {
 
     private final ArtifactDownloader artifactDownloader;
     private final Path updateFolder;
+    private final Supplier<ServerProfile> serverProfile;
 
     public DownloadUpdateStep(ArtifactDownloader artifactDownloader) {
         this(artifactDownloader, null);
@@ -31,8 +33,15 @@ public class DownloadUpdateStep implements UpdateStep {
      *                     or {@code null} to never stage updates there
      */
     public DownloadUpdateStep(ArtifactDownloader artifactDownloader, Path updateFolder) {
+        this(artifactDownloader, updateFolder, ServerProfile::current);
+    }
+
+    DownloadUpdateStep(ArtifactDownloader artifactDownloader,
+                       Path updateFolder,
+                       Supplier<ServerProfile> serverProfile) {
         this.artifactDownloader = artifactDownloader;
         this.updateFolder = updateFolder;
+        this.serverProfile = serverProfile;
     }
 
     @Override
@@ -125,6 +134,16 @@ public class DownloadUpdateStep implements UpdateStep {
                 context.log(Level.SEVERE,
                         "Refusing to install {0}: {1}. The downloaded file was discarded and nothing on disk changed.",
                         new Object[]{context.getSource().getName(), identityProblem.get()});
+                return;
+            }
+
+            Optional<String> incompatibility = InstallationGuard.findIncompatibility(
+                    result, targetPath, serverProfile.get());
+            if (incompatibility.isPresent()) {
+                context.cancel("Installation refused: " + incompatibility.get());
+                context.log(Level.WARNING,
+                        "Not installing {0}: {1}. The server would not load it, so the installed version stays in place.",
+                        new Object[]{context.getSource().getName(), incompatibility.get()});
                 return;
             }
 
