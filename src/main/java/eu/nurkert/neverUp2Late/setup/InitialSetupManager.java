@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.setup;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
@@ -124,13 +125,13 @@ public class InitialSetupManager implements Listener {
     public void openWizard(Player player) {
         Objects.requireNonNull(player, "player");
         if (!player.hasPermission(Permissions.SETUP)) {
-            player.sendMessage(ChatColor.RED + "You do not have permission to open the setup wizard.");
+            player.sendMessage(Theme.ERROR + "You do not have permission to open the setup wizard.");
             return;
         }
 
         SetupPhase phase = setupStateRepository.getPhase();
         if (phase == SetupPhase.COMPLETED) {
-            player.sendMessage(ChatColor.GREEN + "NeverUp2Late is already initialized. You can open the GUI via /nu2l gui.");
+            player.sendMessage(Theme.SUCCESS + "NeverUp2Late is already initialized. You can open the GUI via /nu2l gui.");
             return;
         }
 
@@ -149,25 +150,25 @@ public class InitialSetupManager implements Listener {
         // permanently broke every fetcher - including the self-update.
         List<SourceConfiguration> sources = loadSourceConfigurations();
         if (sources.isEmpty()) {
-            sendMessage(sender, ChatColor.RED + "No update sources were found. The setup cannot be completed.");
+            sendMessage(sender, Theme.ERROR + "No update sources were found. The setup cannot be completed.");
             return;
         }
         SetupPhase phase = setupStateRepository.getPhase();
         if (phase == SetupPhase.COMPLETED) {
-            sendMessage(sender, ChatColor.YELLOW + "NeverUp2Late is already configured – default sources will be saved again.");
+            sendMessage(sender, Theme.WARNING + "NeverUp2Late is already configured – default sources will be saved again.");
         }
-        finaliseSetup(sender, sources, ChatColor.GREEN + "Initial setup complete. Default sources have been saved.");
+        finaliseSetup(sender, sources, Theme.SUCCESS + "Initial setup complete. Default sources have been saved.");
     }
 
     public void applyConfiguration(CommandSender sender, String identifier) {
         if (identifier == null || identifier.isBlank()) {
-            sendMessage(sender, ChatColor.RED + "Please provide a configuration name or path.");
+            sendMessage(sender, Theme.ERROR + "Please provide a configuration name or path.");
             return;
         }
 
         Optional<File> resolved = resolveConfigurationFile(identifier.trim());
         if (resolved.isEmpty() || !resolved.get().isFile()) {
-            sendMessage(sender, ChatColor.RED + "Configuration " + ChatColor.AQUA + identifier + ChatColor.RED + " could not be found.");
+            sendMessage(sender, Theme.ERROR + "Configuration " + Theme.ACCENT + identifier + Theme.ERROR + " could not be found.");
             return;
         }
 
@@ -175,7 +176,7 @@ public class InitialSetupManager implements Listener {
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         List<Map<?, ?>> configuredSources = yaml.getMapList("updates.sources");
         if (configuredSources == null || configuredSources.isEmpty()) {
-            sendMessage(sender, ChatColor.RED + "The file " + ChatColor.AQUA + file.getName() + ChatColor.RED + " does not contain any update sources.");
+            sendMessage(sender, Theme.ERROR + "The file " + Theme.ACCENT + file.getName() + Theme.ERROR + " does not contain any update sources.");
             return;
         }
 
@@ -194,12 +195,12 @@ public class InitialSetupManager implements Listener {
         }
 
         if (sources.isEmpty()) {
-            sendMessage(sender, ChatColor.RED + "No valid sources found in " + ChatColor.AQUA + file.getName() + ChatColor.RED + ".");
+            sendMessage(sender, Theme.ERROR + "No valid sources found in " + Theme.ACCENT + file.getName() + Theme.ERROR + ".");
             return;
         }
 
-        finaliseSetup(sender, sources, ChatColor.GREEN + "Configuration from " + ChatColor.AQUA + file.getName()
-                + ChatColor.GREEN + " applied. Setup complete.");
+        finaliseSetup(sender, sources, Theme.SUCCESS + "Configuration from " + Theme.ACCENT + file.getName()
+                + Theme.SUCCESS + " applied. Setup complete.");
     }
 
     public void finishSetup(Player player, boolean restartImmediately) {
@@ -209,12 +210,12 @@ public class InitialSetupManager implements Listener {
 
         plugin.getServer().getScheduler().runTask(plugin, () -> updateHandler.startNow());
 
-        player.sendMessage(ChatColor.GREEN + "Initial setup complete! Updates are now managed automatically.");
+        player.sendMessage(Theme.SUCCESS + "Initial setup complete! Updates are now managed automatically.");
         if (restartImmediately) {
-            player.sendMessage(ChatColor.YELLOW + "Server is restarting…");
+            player.sendMessage(Theme.WARNING + "Server is restarting…");
             plugin.getServer().getScheduler().runTask(plugin, server::shutdown);
         } else {
-            player.sendMessage(ChatColor.GRAY + "You can restart the server at any time when it suits you.");
+            player.sendMessage(Theme.MUTED + "You can restart the server at any time when it suits you.");
         }
     }
 
@@ -240,9 +241,9 @@ public class InitialSetupManager implements Listener {
             // face on every single join interrupts whatever they were doing and
             // offers no way to say "not now" - and it did so again on the next
             // join, and the one after that.
-            player.sendMessage(ChatColor.AQUA + "NeverUp2Late is installed but not set up yet.");
-            player.sendMessage(ChatColor.GRAY + "Run " + ChatColor.WHITE + "/nu2l setup"
-                    + ChatColor.GRAY + " when it suits you - nothing is updated until you do.");
+            player.sendMessage(Theme.ACCENT + "NeverUp2Late is installed but not set up yet.");
+            player.sendMessage(Theme.MUTED + "Run " + Theme.TEXT + "/nu2l setup"
+                    + Theme.MUTED + " when it suits you - nothing is updated until you do.");
         }, 40L);
     }
 
@@ -254,17 +255,17 @@ public class InitialSetupManager implements Listener {
                 // Everything is decided by now; leaving here means "later",
                 // not "never" - otherwise the setup would stay unfinished and
                 // updates would stay paused for good.
-                meta.setDisplayName(ChatColor.GRAY + "Finish, restart later");
+                meta.setDisplayName(Theme.MUTED + "Finish, restart later");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Completes the setup without restarting.",
-                        ChatColor.GRAY + "Downloaded updates apply on your next restart."));
+                        Theme.MUTED + "Completes the setup without restarting.",
+                        Theme.MUTED + "Downloaded updates apply on your next restart."));
             } else {
-                meta.setDisplayName(ChatColor.GRAY + "Not now");
+                meta.setDisplayName(Theme.MUTED + "Not now");
                 meta.setLore(List.of(
-                        ChatColor.GRAY + "Closes the wizard and discards the",
-                        ChatColor.GRAY + "choices on this screen.",
-                        ChatColor.GRAY + "Nothing is updated until the setup is done.",
-                        ChatColor.DARK_GRAY + "Reopen it any time with /nu2l setup."));
+                        Theme.MUTED + "Closes the wizard and discards the",
+                        Theme.MUTED + "choices on this screen.",
+                        Theme.MUTED + "Nothing is updated until the setup is done.",
+                        Theme.SUBTLE + "Reopen it any time with /nu2l setup."));
             }
             item.setItemMeta(meta);
         }
@@ -300,8 +301,8 @@ public class InitialSetupManager implements Listener {
             }
             sessions.remove(player.getUniqueId());
             player.closeInventory();
-            player.sendMessage(ChatColor.GRAY + "Setup closed. Run "
-                    + ChatColor.WHITE + "/nu2l setup" + ChatColor.GRAY + " whenever it suits you.");
+            player.sendMessage(Theme.MUTED + "Setup closed. Run "
+                    + Theme.TEXT + "/nu2l setup" + Theme.MUTED + " whenever it suits you.");
             return;
         }
 
@@ -368,18 +369,18 @@ public class InitialSetupManager implements Listener {
 
     private void buildConfigureInventory(Player player, SetupSession session) {
         session.awaitingInput = false;
-        Inventory inventory = createStageInventory(Stage.CONFIGURE, ChatColor.DARK_PURPLE + "NU2L Setup – Sources");
+        Inventory inventory = createStageInventory(Stage.CONFIGURE, Theme.TITLE + "NU2L Setup – Sources");
 
         ItemStack info = new ItemStack(Material.WRITABLE_BOOK);
         ItemMeta meta = info.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "What will be managed");
+            meta.setDisplayName(Theme.HEADING + "What will be managed");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "• Left-click: enable/disable source",
-                    ChatColor.GRAY + "• Right-click: toggle automatic updates",
-                    ChatColor.GRAY + "• Shift + Left-click: adjust filename",
-                    ChatColor.GRAY + "",
-                    ChatColor.AQUA + "Adjust each source and confirm below."
+                    Theme.MUTED + "• Left-click: enable/disable source",
+                    Theme.MUTED + "• Right-click: toggle automatic updates",
+                    Theme.MUTED + "• Shift + Left-click: adjust filename",
+                    Theme.MUTED + "",
+                    Theme.ACCENT + "Adjust each source and confirm below."
             ));
             info.setItemMeta(meta);
         }
@@ -404,10 +405,10 @@ public class InitialSetupManager implements Listener {
         ItemStack continueItem = new ItemStack(Material.LIME_CONCRETE);
         ItemMeta continueMeta = continueItem.getItemMeta();
         if (continueMeta != null) {
-            continueMeta.setDisplayName(ChatColor.GREEN + "Save and prepare downloads");
+            continueMeta.setDisplayName(Theme.SUCCESS + "Save and prepare downloads");
             continueMeta.setLore(List.of(
-                    ChatColor.GRAY + "Current settings will be saved",
-                    ChatColor.GRAY + "and the update sources reloaded."
+                    Theme.MUTED + "Current settings will be saved",
+                    Theme.MUTED + "and the update sources reloaded."
             ));
             continueItem.setItemMeta(continueMeta);
         }
@@ -419,18 +420,18 @@ public class InitialSetupManager implements Listener {
 
     private void buildDownloadInventory(Player player, SetupSession session) {
         session.awaitingInput = false;
-        Inventory inventory = createStageInventory(Stage.DOWNLOAD, ChatColor.DARK_PURPLE + "NU2L Setup – Downloads");
+        Inventory inventory = createStageInventory(Stage.DOWNLOAD, Theme.TITLE + "NU2L Setup – Downloads");
 
         ItemStack info = new ItemStack(Material.MAP);
         ItemMeta meta = info.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "Download updates");
+            meta.setDisplayName(Theme.HEADING + "Download updates");
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Click to check all enabled sources");
-            lore.add(ChatColor.GRAY + "for updates once.");
+            lore.add(Theme.MUTED + "Click to check all enabled sources");
+            lore.add(Theme.MUTED + "for updates once.");
             if (session.downloadsTriggered) {
                 lore.add(" ");
-                lore.add(ChatColor.GREEN + "Downloads have already been started.");
+                lore.add(Theme.SUCCESS + "Downloads have already been started.");
             }
             meta.setLore(lore);
             info.setItemMeta(meta);
@@ -440,10 +441,10 @@ public class InitialSetupManager implements Listener {
         ItemStack downloadButton = new ItemStack(Material.EMERALD_BLOCK);
         ItemMeta downloadMeta = downloadButton.getItemMeta();
         if (downloadMeta != null) {
-            downloadMeta.setDisplayName(ChatColor.GREEN + "Download updates now");
+            downloadMeta.setDisplayName(Theme.SUCCESS + "Download updates now");
             downloadMeta.setLore(List.of(
-                    ChatColor.GRAY + "Starts a one-time update check",
-                    ChatColor.GRAY + "for all enabled sources."
+                    Theme.MUTED + "Starts a one-time update check",
+                    Theme.MUTED + "for all enabled sources."
             ));
             downloadButton.setItemMeta(downloadMeta);
         }
@@ -452,10 +453,10 @@ public class InitialSetupManager implements Listener {
         ItemStack continueButton = new ItemStack(Material.GOLD_BLOCK);
         ItemMeta continueMeta = continueButton.getItemMeta();
         if (continueMeta != null) {
-            continueMeta.setDisplayName(ChatColor.YELLOW + "Continue");
+            continueMeta.setDisplayName(Theme.WARNING + "Continue");
             continueMeta.setLore(List.of(
-                    ChatColor.GRAY + "Confirm that the downloads",
-                    ChatColor.GRAY + "have finished."
+                    Theme.MUTED + "Confirm that the downloads",
+                    Theme.MUTED + "have finished."
             ));
             continueButton.setItemMeta(continueMeta);
         }
@@ -467,15 +468,15 @@ public class InitialSetupManager implements Listener {
 
     private void buildRestartInventory(Player player, SetupSession session) {
         session.awaitingInput = false;
-        Inventory inventory = createStageInventory(Stage.RESTART, ChatColor.DARK_PURPLE + "NU2L Setup – Restart");
+        Inventory inventory = createStageInventory(Stage.RESTART, Theme.TITLE + "NU2L Setup – Restart");
 
         ItemStack info = new ItemStack(Material.CLOCK);
         ItemMeta meta = info.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "All done!");
+            meta.setDisplayName(Theme.HEADING + "All done!");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "All required files have been prepared.",
-                    ChatColor.GRAY + "Would you like to restart the server now?"
+                    Theme.MUTED + "All required files have been prepared.",
+                    Theme.MUTED + "Would you like to restart the server now?"
             ));
             info.setItemMeta(meta);
         }
@@ -484,10 +485,10 @@ public class InitialSetupManager implements Listener {
         ItemStack restartNow = new ItemStack(Material.EMERALD_BLOCK);
         ItemMeta restartMeta = restartNow.getItemMeta();
         if (restartMeta != null) {
-            restartMeta.setDisplayName(ChatColor.GREEN + "Restart server now");
+            restartMeta.setDisplayName(Theme.SUCCESS + "Restart server now");
             restartMeta.setLore(List.of(
-                    ChatColor.GRAY + "Recommended so all updates",
-                    ChatColor.GRAY + "become active immediately."
+                    Theme.MUTED + "Recommended so all updates",
+                    Theme.MUTED + "become active immediately."
             ));
             restartNow.setItemMeta(restartMeta);
         }
@@ -496,10 +497,10 @@ public class InitialSetupManager implements Listener {
         ItemStack restartLater = new ItemStack(Material.IRON_BLOCK);
         ItemMeta laterMeta = restartLater.getItemMeta();
         if (laterMeta != null) {
-            laterMeta.setDisplayName(ChatColor.YELLOW + "Restart later");
+            laterMeta.setDisplayName(Theme.WARNING + "Restart later");
             laterMeta.setLore(List.of(
-                    ChatColor.GRAY + "You can restart the server manually later",
-                    ChatColor.GRAY + "and updates will continue running."
+                    Theme.MUTED + "You can restart the server manually later",
+                    Theme.MUTED + "and updates will continue running."
             ));
             restartLater.setItemMeta(laterMeta);
         }
@@ -514,32 +515,32 @@ public class InitialSetupManager implements Listener {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            ChatColor statusColor = source.enabled ? ChatColor.GREEN : ChatColor.RED;
+            String statusColor = source.enabled ? Theme.SUCCESS : Theme.ERROR;
             meta.setDisplayName(statusColor + source.displayName());
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Type: " + ChatColor.AQUA + source.type);
-            lore.add(ChatColor.GRAY + "Target: " + ChatColor.AQUA + source.target.name().toLowerCase(Locale.ROOT));
-            lore.add(ChatColor.GRAY + "File: " + ChatColor.WHITE + source.filename);
+            lore.add(Theme.MUTED + "Type: " + Theme.ACCENT + source.type);
+            lore.add(Theme.MUTED + "Target: " + Theme.ACCENT + source.target.name().toLowerCase(Locale.ROOT));
+            lore.add(Theme.MUTED + "File: " + Theme.TEXT + source.filename);
             if (source.fileExists) {
-                lore.add(ChatColor.GREEN + "✔ File found");
+                lore.add(Theme.SUCCESS + "✔ File found");
             } else {
-                lore.add(ChatColor.RED + "✘ File not found");
+                lore.add(Theme.ERROR + "✘ File not found");
                 if (source.suggestedFilename != null) {
-                    lore.add(ChatColor.GRAY + "Found: " + ChatColor.AQUA + source.suggestedFilename);
+                    lore.add(Theme.MUTED + "Found: " + Theme.ACCENT + source.suggestedFilename);
                 }
             }
             if (source.target == TargetDirectory.PLUGINS) {
-                lore.add(ChatColor.GRAY + "Automatic updates: " + (source.autoUpdate ? ChatColor.GREEN + "Enabled" : ChatColor.RED + "Disabled"));
+                lore.add(Theme.MUTED + "Automatic updates: " + (source.autoUpdate ? Theme.SUCCESS + "Enabled" : Theme.ERROR + "Disabled"));
                 if (source.pluginName == null) {
-                    lore.add(ChatColor.YELLOW + "Plugin will be detected after installation.");
+                    lore.add(Theme.WARNING + "Plugin will be detected after installation.");
                 }
             }
-            lore.add(ChatColor.DARK_GRAY + "");
-            lore.add(ChatColor.GRAY + "Left-click: enable/disable source");
+            lore.add(Theme.SUBTLE + "");
+            lore.add(Theme.MUTED + "Left-click: enable/disable source");
             if (source.target == TargetDirectory.PLUGINS) {
-                lore.add(ChatColor.GRAY + "Right-click: toggle auto-update");
+                lore.add(Theme.MUTED + "Right-click: toggle auto-update");
             }
-            lore.add(ChatColor.GRAY + "Shift + Left-click: change filename");
+            lore.add(Theme.MUTED + "Shift + Left-click: change filename");
             meta.setLore(lore);
             item.setItemMeta(meta);
         }
@@ -568,16 +569,16 @@ public class InitialSetupManager implements Listener {
 
     private ItemStack createStageIndicator(Stage stage, Stage activeStage, int step, int totalSteps) {
         Material material;
-        ChatColor color;
+        String color;
         if (stage == activeStage) {
             material = Material.LIGHT_BLUE_STAINED_GLASS_PANE;
-            color = ChatColor.AQUA;
+            color = Theme.ACCENT;
         } else if (stage.ordinal() < activeStage.ordinal()) {
             material = Material.LIME_STAINED_GLASS_PANE;
-            color = ChatColor.GREEN;
+            color = Theme.SUCCESS;
         } else {
             material = Material.GRAY_STAINED_GLASS_PANE;
-            color = ChatColor.GRAY;
+            color = Theme.MUTED;
         }
 
         ItemStack indicator = new ItemStack(material);
@@ -586,7 +587,7 @@ public class InitialSetupManager implements Listener {
             meta.setDisplayName(color + "Step " + step + "/" + totalSteps + ": " + stage.title());
             List<String> lore = new ArrayList<>();
             for (String line : stage.description()) {
-                lore.add(ChatColor.GRAY + line);
+                lore.add(Theme.MUTED + line);
             }
             meta.setLore(lore);
             indicator.setItemMeta(meta);
@@ -618,16 +619,16 @@ public class InitialSetupManager implements Listener {
             }
             if (leftClick) {
                 source.enabled = !source.enabled;
-                player.sendMessage(ChatColor.GRAY + "Source " + ChatColor.AQUA + source.displayName() + ChatColor.GRAY
-                        + " is now " + (source.enabled ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled"));
+                player.sendMessage(Theme.MUTED + "Source " + Theme.ACCENT + source.displayName() + Theme.MUTED
+                        + " is now " + (source.enabled ? Theme.SUCCESS + "enabled" : Theme.ERROR + "disabled"));
                 session.inventory.setItem(rawSlot, createSourceItem(source));
                 return;
             }
             if (rightClick && source.target == TargetDirectory.PLUGINS) {
                 source.autoUpdate = !source.autoUpdate;
-                player.sendMessage(ChatColor.GRAY + "Automatic updates for " + ChatColor.AQUA
-                        + source.displayName() + ChatColor.GRAY + ": "
-                        + (source.autoUpdate ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled"));
+                player.sendMessage(Theme.MUTED + "Automatic updates for " + Theme.ACCENT
+                        + source.displayName() + Theme.MUTED + ": "
+                        + (source.autoUpdate ? Theme.SUCCESS + "enabled" : Theme.ERROR + "disabled"));
                 session.inventory.setItem(rawSlot, createSourceItem(source));
                 return;
             }
@@ -675,19 +676,19 @@ public class InitialSetupManager implements Listener {
             }
             Optional<UpdateSource> updateSource = context.getUpdateSourceRegistry().findSource(source.name);
             if (updateSource.isEmpty()) {
-                player.sendMessage(ChatColor.RED + "Source " + source.displayName()
+                player.sendMessage(Theme.ERROR + "Source " + source.displayName()
                         + " could not be found. Please check the configuration.");
                 continue;
             }
             queue.add(updateSource.get());
         }
         if (queue.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No enabled sources to download.");
+            player.sendMessage(Theme.WARNING + "No enabled sources to download.");
             buildDownloadInventory(player, session);
             return;
         }
         updateHandler.runJobsNow(queue, player);
-        player.sendMessage(ChatColor.GREEN + "Downloads have been started ("
+        player.sendMessage(Theme.SUCCESS + "Downloads have been started ("
                 + queue.size() + " source(s), one after another). You will receive updates in chat.");
         buildDownloadInventory(player, session);
     }
@@ -739,21 +740,21 @@ public class InitialSetupManager implements Listener {
             logger.log(Level.WARNING, "Could not reload update sources after setup", ex);
         }
 
-        sendMessage(sender, ChatColor.GREEN + "Settings saved. The sources have been refreshed.");
+        sendMessage(sender, Theme.SUCCESS + "Settings saved. The sources have been refreshed.");
     }
 
     private void promptFilename(Player player, SetupSession session, SourceConfiguration source, int slot) {
         session.awaitingInput = true;
 
         Prompt prompt = AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "Adjust filename")
+                .title(Theme.TITLE + "Adjust filename")
                 .initialText(source.filename)
                 .validation(value -> {
                     if (value == null || value.isBlank()) {
-                        return Optional.of(ChatColor.RED + "Please enter a filename.");
+                        return Optional.of(Theme.ERROR + "Please enter a filename.");
                     }
                     if (!value.toLowerCase(Locale.ROOT).endsWith(".jar")) {
-                        return Optional.of(ChatColor.RED + "The filename must end with .jar.");
+                        return Optional.of(Theme.ERROR + "The filename must end with .jar.");
                     }
                     return Optional.empty();
                 })
@@ -762,8 +763,8 @@ public class InitialSetupManager implements Listener {
                     updateSourceDetection(source);
                     session.awaitingInput = false;
                     session.inventory.setItem(slot, createSourceItem(source));
-                    player1.sendMessage(ChatColor.GREEN + "Filename for " + ChatColor.AQUA
-                            + source.displayName() + ChatColor.GREEN + " updated.");
+                    player1.sendMessage(Theme.SUCCESS + "Filename for " + Theme.ACCENT
+                            + source.displayName() + Theme.SUCCESS + " updated.");
                     reopenStageInventory(player1, session);
                 })
                 .onCancel(player1 -> {

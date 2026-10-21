@@ -1,6 +1,5 @@
 package eu.nurkert.neverUp2Late.util;
 
-import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 
 import java.util.List;
@@ -17,8 +16,7 @@ import java.util.List;
  */
 public final class ChatMessages {
 
-    public static final String PREFIX = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] "
-            + ChatColor.RESET;
+    public static final String PREFIX = Theme.PREFIX;
 
     private static final boolean ADVENTURE = isPresent("net.kyori.adventure.audience.Audience");
 
@@ -28,28 +26,49 @@ public final class ChatMessages {
     /**
      * A clickable part appended to a message.
      *
-     * @param command run when clicked, or {@code null}
-     * @param url     opened when clicked, or {@code null}
+     * @param hover  shown on mouse-over, may carry colour codes
+     * @param action the command to run or suggest, or the URL to open
      */
-    public record Button(String label, String hover, String command, String url) {
+    public record Button(String label, String hover, String action, Kind kind) {
+
+        public enum Kind {
+            /** Runs the command right away. */
+            RUN,
+            /** Puts the command into the chat box for the player to complete. */
+            SUGGEST,
+            /** Opens a web page. */
+            URL
+        }
 
         public static Button command(String label, String command, String hover) {
-            return new Button(label, hover, command, null);
+            return new Button(label, hover, command, Kind.RUN);
+        }
+
+        public static Button suggest(String label, String command, String hover) {
+            return new Button(label, hover, command, Kind.SUGGEST);
         }
 
         public static Button link(String label, String url, String hover) {
-            return new Button(label, hover, null, url);
+            return new Button(label, hover, url, Kind.URL);
         }
 
         String asPlainText() {
-            return ChatColor.AQUA + label + ChatColor.GRAY + " (" + (command != null ? command : url) + ")";
+            return Theme.ACCENT + label + Theme.MUTED + " (" + action + ")";
         }
     }
 
     /** Sends {@code legacyText}, formatted with {@code ChatColor}, followed by the buttons. */
     public static void send(CommandSender to, String legacyText, Button... buttons) {
+        sendWithHover(to, legacyText, null, buttons);
+    }
+
+    /**
+     * Like {@link #send}, with {@code legacyHover} shown when the player points
+     * at the text itself - the place for details that would crowd the line.
+     */
+    public static void sendWithHover(CommandSender to, String legacyText, String legacyHover, Button... buttons) {
         if (clickable(to)) {
-            AdventureChat.send(to, legacyText, List.of(buttons));
+            AdventureChat.send(to, legacyText, legacyHover, List.of(buttons));
             return;
         }
         StringBuilder text = new StringBuilder(legacyText);
@@ -66,6 +85,10 @@ public final class ChatMessages {
             return;
         }
         to.sendMessage(legacyText);
+    }
+
+    static boolean adventureAvailable() {
+        return ADVENTURE;
     }
 
     private static boolean clickable(CommandSender to) {

@@ -1,7 +1,7 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
 import java.util.Map;
@@ -59,8 +59,8 @@ final class ChatPrompts {
         pendingRemovalRequests.remove(id);
         pendingSuggestionRequests.remove(id);
         promptDeadlines.put(player.getUniqueId(), System.currentTimeMillis() + PROMPT_TIMEOUT_MILLIS);
-        player.sendMessage(ChatColor.DARK_GRAY + "You have 60 seconds; type "
-                + ChatColor.GRAY + "cancel" + ChatColor.DARK_GRAY + " to abort.");
+        player.sendMessage(Theme.SUBTLE + "You have 60 seconds; type "
+                + Theme.MUTED + "cancel" + Theme.SUBTLE + " to abort.");
     }
 
     void clearPrompts(UUID playerId) {

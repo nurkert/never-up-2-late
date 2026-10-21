@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.command;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
@@ -11,7 +12,6 @@ import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
-import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -109,18 +109,18 @@ final class ManagedPluginActions {
 
     void removeManagedPlugin(CommandSender sender, ManagedPlugin target) {
         if (target == null) {
-            messenger.accept(sender, ChatColor.RED + "Unknown plugin – action cancelled.");
+            messenger.accept(sender, Theme.ERROR + "Unknown plugin – action cancelled.");
             return;
         }
         if (!permissionCheck.test(sender, Permissions.GUI_MANAGE_REMOVE)) {
             return;
         }
         if (isSelfPlugin(target)) {
-            messenger.accept(sender, ChatColor.RED + "NeverUp2Late cannot remove itself while it is running.");
+            messenger.accept(sender, Theme.ERROR + "NeverUp2Late cannot remove itself while it is running.");
             return;
         }
         if (pluginLifecycleManager == null) {
-            messenger.accept(sender, ChatColor.RED + "Plugin management is disabled; removal not possible.");
+            messenger.accept(sender, Theme.ERROR + "Plugin management is disabled; removal not possible.");
             return;
         }
 
@@ -137,7 +137,7 @@ final class ManagedPluginActions {
                     pluginLifecycleManager.unloadPlugin(pluginName);
                 }
             } catch (PluginLifecycleException ex) {
-                messenger.accept(sender, ChatColor.RED + "Failed to unload " + pluginName + ": " + ex.getMessage());
+                messenger.accept(sender, Theme.ERROR + "Failed to unload " + pluginName + ": " + ex.getMessage());
                 logger.log(Level.WARNING, "Failed to unload plugin " + pluginName, ex);
                 return;
             }
@@ -152,13 +152,13 @@ final class ManagedPluginActions {
                     if (backupRecord != null) {
                         try {
                             Files.move(backupRecord.getPath(), jarPath, StandardCopyOption.REPLACE_EXISTING);
-                            messenger.accept(sender, ChatColor.YELLOW + "Removal aborted; restored original file from backup.");
+                            messenger.accept(sender, Theme.WARNING + "Removal aborted; restored original file from backup.");
                         } catch (IOException restoreEx) {
-                            messenger.accept(sender, ChatColor.RED + "Could not delete or restore file: " + jarPath.getFileName());
+                            messenger.accept(sender, Theme.ERROR + "Could not delete or restore file: " + jarPath.getFileName());
                             logger.log(Level.SEVERE, "Failed to restore backup for " + jarPath, restoreEx);
                         }
                     } else {
-                        messenger.accept(sender, ChatColor.RED + "Could not delete file: " + jarPath.getFileName());
+                        messenger.accept(sender, Theme.ERROR + "Could not delete file: " + jarPath.getFileName());
                     }
                     logger.log(Level.WARNING, "Failed to delete plugin jar " + jarPath, ex);
                     return;
@@ -184,7 +184,7 @@ final class ManagedPluginActions {
                 pluginUpdateSettingsRepository.removeSettings(pluginName);
             }
 
-            messenger.accept(sender, ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " has been removed.");
+            messenger.accept(sender, Theme.SUCCESS + "Plugin " + Theme.ACCENT + pluginName + Theme.SUCCESS + " has been removed.");
         });
     }
 
@@ -204,12 +204,12 @@ final class ManagedPluginActions {
 
     void removePlugin(CommandSender sender, String pluginName) {
         if (pluginLifecycleManager == null) {
-            messenger.accept(sender, ChatColor.RED + "Plugin management is disabled; removal not possible.");
+            messenger.accept(sender, Theme.ERROR + "Plugin management is disabled; removal not possible.");
             return;
         }
         ManagedPlugin target = pluginLifecycleManager.findByName(pluginName).orElse(null);
         if (target == null) {
-            messenger.accept(sender, ChatColor.RED + "Plugin " + pluginName + " was not found.");
+            messenger.accept(sender, Theme.ERROR + "Plugin " + pluginName + " was not found.");
             return;
         }
         removeManagedPlugin(sender, target);
@@ -217,7 +217,7 @@ final class ManagedPluginActions {
 
     void disableAutomaticUpdates(CommandSender sender, ManagedPlugin target) {
         if (target == null) {
-            messenger.accept(sender, ChatColor.RED + "Unknown plugin – action cancelled.");
+            messenger.accept(sender, Theme.ERROR + "Unknown plugin – action cancelled.");
             return;
         }
         if (!permissionCheck.test(sender, Permissions.GUI_MANAGE_LINK)) {
@@ -235,8 +235,8 @@ final class ManagedPluginActions {
         String displayName = pluginName.isBlank() ? "Plugin" : pluginName;
 
         if (matchingSources.isEmpty()) {
-            messenger.accept(sender, ChatColor.YELLOW + "No update source is configured for "
-                    + ChatColor.AQUA + displayName + ChatColor.YELLOW + ".");
+            messenger.accept(sender, Theme.WARNING + "No update source is configured for "
+                    + Theme.ACCENT + displayName + Theme.WARNING + ".");
             return;
         }
 
@@ -273,56 +273,56 @@ final class ManagedPluginActions {
         }
 
         if (removed > 0) {
-            messenger.accept(sender, ChatColor.YELLOW + "Automatic updates for " + ChatColor.AQUA + displayName
-                    + ChatColor.YELLOW + " have been disabled.");
-            messenger.accept(sender, ChatColor.GRAY + "The plugin remains installed; only the update source was removed.");
+            messenger.accept(sender, Theme.WARNING + "Automatic updates for " + Theme.ACCENT + displayName
+                    + Theme.WARNING + " have been disabled.");
+            messenger.accept(sender, Theme.MUTED + "The plugin remains installed; only the update source was removed.");
         } else {
-            messenger.accept(sender, ChatColor.RED + "Could not disable automatic updates.");
+            messenger.accept(sender, Theme.ERROR + "Could not disable automatic updates.");
         }
     }
 
     void renameManagedPlugin(CommandSender sender, ManagedPlugin target, String requestedName) {
         if (target == null) {
-            messenger.accept(sender, ChatColor.RED + "Unknown plugin – action cancelled.");
+            messenger.accept(sender, Theme.ERROR + "Unknown plugin – action cancelled.");
             return;
         }
         if (!permissionCheck.test(sender, Permissions.GUI_MANAGE_RENAME)) {
             return;
         }
         if (isSelfPlugin(target)) {
-            messenger.accept(sender, ChatColor.RED + "NeverUp2Late manages its own file name and cannot be renamed here.");
+            messenger.accept(sender, Theme.ERROR + "NeverUp2Late manages its own file name and cannot be renamed here.");
             return;
         }
         if (pluginLifecycleManager == null) {
-            messenger.accept(sender, ChatColor.RED + "Plugin management is disabled; rename not possible.");
+            messenger.accept(sender, Theme.ERROR + "Plugin management is disabled; rename not possible.");
             return;
         }
 
         scheduler.runTask(plugin, () -> {
             Path currentPath = target.getPath();
             if (currentPath == null) {
-                messenger.accept(sender, ChatColor.RED + "Could not determine a file path.");
+                messenger.accept(sender, Theme.ERROR + "Could not determine a file path.");
                 return;
             }
 
             String sanitized = FileNameSanitizer.sanitizeJarFilename(requestedName);
             if (sanitized == null) {
-                messenger.accept(sender, ChatColor.RED + "Please provide a valid file name.");
+                messenger.accept(sender, Theme.ERROR + "Please provide a valid file name.");
                 return;
             }
 
             Path parent = currentPath.getParent();
             if (parent == null) {
-                messenger.accept(sender, ChatColor.RED + "Could not determine target directory.");
+                messenger.accept(sender, Theme.ERROR + "Could not determine target directory.");
                 return;
             }
             Path targetPath = parent.resolve(sanitized).toAbsolutePath().normalize();
             if (targetPath.equals(currentPath)) {
-                messenger.accept(sender, ChatColor.GRAY + "The file name remains unchanged.");
+                messenger.accept(sender, Theme.MUTED + "The file name remains unchanged.");
                 return;
             }
             if (Files.exists(targetPath)) {
-                messenger.accept(sender, ChatColor.RED + "A file with that name already exists: " + targetPath.getFileName());
+                messenger.accept(sender, Theme.ERROR + "A file with that name already exists: " + targetPath.getFileName());
                 return;
             }
 
@@ -337,7 +337,7 @@ final class ManagedPluginActions {
                     pluginLifecycleManager.unloadPlugin(pluginName);
                 }
             } catch (PluginLifecycleException ex) {
-                messenger.accept(sender, ChatColor.RED + "Failed to unload " + pluginName + ": " + ex.getMessage());
+                messenger.accept(sender, Theme.ERROR + "Failed to unload " + pluginName + ": " + ex.getMessage());
                 logger.log(Level.WARNING, "Failed to unload plugin for rename " + pluginName, ex);
                 return;
             }
@@ -350,12 +350,12 @@ final class ManagedPluginActions {
                 try {
                     Files.move(currentPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException inner) {
-                    messenger.accept(sender, ChatColor.RED + "Rename failed: " + inner.getMessage());
+                    messenger.accept(sender, Theme.ERROR + "Rename failed: " + inner.getMessage());
                     logger.log(Level.WARNING, "Failed to rename plugin jar", inner);
                     return;
                 }
             } catch (IOException ex) {
-                messenger.accept(sender, ChatColor.RED + "Rename failed: " + ex.getMessage());
+                messenger.accept(sender, Theme.ERROR + "Rename failed: " + ex.getMessage());
                 logger.log(Level.WARNING, "Failed to rename plugin jar", ex);
                 return;
             }
@@ -375,9 +375,9 @@ final class ManagedPluginActions {
 
             pluginLifecycleManager.updateManagedPluginPath(currentPath, targetPath);
 
-            messenger.accept(sender, ChatColor.GREEN + "Renamed plugin file to " + ChatColor.AQUA + sanitized + ChatColor.GREEN + ".");
+            messenger.accept(sender, Theme.SUCCESS + "Renamed plugin file to " + Theme.ACCENT + sanitized + Theme.SUCCESS + ".");
             if (wasLoaded) {
-                messenger.accept(sender, ChatColor.YELLOW + "Please reload or restart the server to activate the plugin again.");
+                messenger.accept(sender, Theme.WARNING + "Please reload or restart the server to activate the plugin again.");
             }
         });
     }

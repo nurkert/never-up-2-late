@@ -1,12 +1,12 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -59,7 +59,7 @@ final class OverviewScreen {
         int size = Math.max(18, ((requiredSlots + 8) / 9) * 9);
         size = Math.min(size, GuiState.MAX_SIZE);
 
-        Inventory inventory = Bukkit.createInventory(null, size, ChatColor.DARK_PURPLE + "NU2L Plugins");
+        Inventory inventory = Bukkit.createInventory(null, size, Theme.TITLE + "NU2L Plugins");
 
         ItemStack filler = items.createFiller();
         for (int i = 0; i < size; i++) {
@@ -88,7 +88,7 @@ final class OverviewScreen {
         player.openInventory(inventory);
 
         if (truncated) {
-            player.sendMessage(ChatColor.YELLOW + "Only the first " + availableSlots
+            player.sendMessage(Theme.WARNING + "Only the first " + availableSlots
                     + " plugins are shown (" + plugins.size() + " total).");
         }
     }
@@ -129,11 +129,11 @@ final class OverviewScreen {
         ItemStack item = new ItemStack(Material.SPYGLASS);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Check for updates now");
+            meta.setDisplayName(Theme.ACCENT + "Check for updates now");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Asks every source what it has,",
-                    ChatColor.GRAY + "instead of waiting for the next round.",
-                    ChatColor.DARK_GRAY + "Nothing is installed without your settings allowing it."));
+                    Theme.MUTED + "Asks every source what it has,",
+                    Theme.MUTED + "instead of waiting for the next round.",
+                    Theme.SUBTLE + "Nothing is installed without your settings allowing it."));
             item.setItemMeta(meta);
         }
         return item;
@@ -143,10 +143,10 @@ final class OverviewScreen {
         ItemStack item = new ItemStack(Material.NETHER_STAR);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Install new plugin…");
+            meta.setDisplayName(Theme.ACCENT + "Install new plugin…");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Click to enter a download URL.",
-                    ChatColor.GRAY + "Installation runs directly through NU2L."
+                    Theme.MUTED + "Click to enter a download URL.",
+                    Theme.MUTED + "Installation runs directly through NU2L."
             ));
             item.setItemMeta(meta);
         }
@@ -157,11 +157,11 @@ final class OverviewScreen {
         ItemStack item = new ItemStack(Material.RECOVERY_COMPASS);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "Tidy up jar names");
+            meta.setDisplayName(Theme.HEADING + "Tidy up jar names");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Renames all plugin files to match",
-                    ChatColor.GRAY + "their data folder names.",
-                    ChatColor.YELLOW + "Ensures consistent and clean naming."
+                    Theme.MUTED + "Renames all plugin files to match",
+                    Theme.MUTED + "their data folder names.",
+                    Theme.WARNING + "Ensures consistent and clean naming."
             ));
             item.setItemMeta(meta);
         }
@@ -174,7 +174,7 @@ final class OverviewScreen {
         }
         List<UpdateSource> sources = List.copyOf(context.getUpdateSourceRegistry().getSources());
         if (sources.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No update sources are configured yet.");
+            player.sendMessage(Theme.WARNING + "No update sources are configured yet.");
             return;
         }
         player.closeInventory();
@@ -186,7 +186,7 @@ final class OverviewScreen {
             return;
         }
         gui.install().openStandaloneInstall(player, List.of(), null);
-        player.sendMessage(ChatColor.GRAY + "Search for new plugins on Modrinth or Hangar, or provide a direct link (including SpigotMC resources).");
+        player.sendMessage(Theme.MUTED + "Search for new plugins on Modrinth or Hangar, or provide a direct link (including SpigotMC resources).");
     }
 
     /**
@@ -206,24 +206,24 @@ final class OverviewScreen {
         if (affected.isEmpty()) {
             // No renames - but the action still deletes duplicate jars, and
             // deleting files is exactly what needs asking about.
-            player.sendMessage(ChatColor.GOLD + "All filenames are already tidy.");
-            player.sendMessage(ChatColor.GRAY + "Continuing removes duplicate jars of the same plugin.");
-            player.sendMessage(ChatColor.YELLOW + "Type " + ChatColor.WHITE + "yes"
-                    + ChatColor.YELLOW + " to go ahead.");
+            player.sendMessage(Theme.HEADING + "All filenames are already tidy.");
+            player.sendMessage(Theme.MUTED + "Continuing removes duplicate jars of the same plugin.");
+            player.sendMessage(Theme.WARNING + "Type " + Theme.TEXT + "yes"
+                    + Theme.WARNING + " to go ahead.");
             prompts.pendingCleanupConfirmations.add(player.getUniqueId());
             prompts.armPrompt(player);
             return;
         }
-        player.sendMessage(ChatColor.GOLD + "This renames " + affected.size() + " jar file(s):");
-        affected.stream().limit(8).forEach(p -> player.sendMessage(ChatColor.GRAY + "  "
-                + p.getPath().getFileName() + ChatColor.DARK_GRAY + " → " + ChatColor.WHITE
+        player.sendMessage(Theme.HEADING + "This renames " + affected.size() + " jar file(s):");
+        affected.stream().limit(8).forEach(p -> player.sendMessage(Theme.MUTED + "  "
+                + p.getPath().getFileName() + Theme.SUBTLE + " → " + Theme.TEXT
                 + desiredFileName(p)));
         if (affected.size() > 8) {
-            player.sendMessage(ChatColor.DARK_GRAY + "  … and " + (affected.size() - 8) + " more");
+            player.sendMessage(Theme.SUBTLE + "  … and " + (affected.size() - 8) + " more");
         }
-        player.sendMessage(ChatColor.GRAY + "Duplicate jars of the same plugin are deleted.");
-        player.sendMessage(ChatColor.YELLOW + "Type " + ChatColor.WHITE + "yes"
-                + ChatColor.YELLOW + " to go ahead.");
+        player.sendMessage(Theme.MUTED + "Duplicate jars of the same plugin are deleted.");
+        player.sendMessage(Theme.WARNING + "Type " + Theme.TEXT + "yes"
+                + Theme.WARNING + " to go ahead.");
         prompts.pendingCleanupConfirmations.add(player.getUniqueId());
         prompts.armPrompt(player);
     }
@@ -256,15 +256,15 @@ final class OverviewScreen {
         }
 
         if (renamed > 0) {
-            player.sendMessage(ChatColor.GREEN + "Renamed " + renamed
+            player.sendMessage(Theme.SUCCESS + "Renamed " + renamed
                     + " plugin file(s) and removed duplicates.");
-            player.sendMessage(ChatColor.GRAY
+            player.sendMessage(Theme.MUTED
                     + "The plugins keep running; the new names take effect on the next restart.");
         } else {
-            player.sendMessage(ChatColor.GREEN + "All filenames are already correct; duplicates cleaned up.");
+            player.sendMessage(Theme.SUCCESS + "All filenames are already correct; duplicates cleaned up.");
         }
         if (blocked > 0) {
-            player.sendMessage(ChatColor.YELLOW + String.valueOf(blocked)
+            player.sendMessage(Theme.WARNING + String.valueOf(blocked)
                     + " file(s) could not be renamed while the server is running.");
         }
         openOverview(player);

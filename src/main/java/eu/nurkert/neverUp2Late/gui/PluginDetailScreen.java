@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
@@ -13,7 +14,6 @@ import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -73,7 +73,7 @@ final class PluginDetailScreen {
 
     void openPluginDetails(Player player, ManagedPlugin plugin) {
         Inventory inventory = Bukkit.createInventory(null, DETAIL_INVENTORY_SIZE,
-                ChatColor.DARK_PURPLE + Objects.requireNonNullElse(plugin.getName(), "Plugin"));
+                Theme.TITLE + Objects.requireNonNullElse(plugin.getName(), "Plugin"));
 
         ItemStack filler = items.createFiller();
         for (int i = 0; i < DETAIL_INVENTORY_SIZE; i++) {
@@ -158,7 +158,7 @@ final class PluginDetailScreen {
         }
         Optional<UpdateSource> source = items.findMatchingSource(plugin);
         if (source.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "This plugin has no update source linked yet.");
+            player.sendMessage(Theme.ERROR + "This plugin has no update source linked yet.");
             return;
         }
         player.closeInventory();
@@ -171,7 +171,7 @@ final class PluginDetailScreen {
         }
         Optional<UpdateSource> source = items.findMatchingSource(plugin);
         if (source.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "This plugin has no update source, so there is no backup to restore.");
+            player.sendMessage(Theme.ERROR + "This plugin has no update source, so there is no backup to restore.");
             return;
         }
         player.closeInventory();
@@ -183,43 +183,43 @@ final class PluginDetailScreen {
             return;
         }
         if (items.isSelfPlugin(plugin)) {
-            player.sendMessage(ChatColor.RED + "NeverUp2Late cannot toggle its own state while running.");
+            player.sendMessage(Theme.ERROR + "NeverUp2Late cannot toggle its own state while running.");
             return;
         }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
         if (manager == null) {
-            player.sendMessage(ChatColor.RED + "Plugin management is disabled.");
+            player.sendMessage(Theme.ERROR + "Plugin management is disabled.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null) {
-            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
+            player.sendMessage(Theme.ERROR + "Could not determine plugin name.");
             return;
         }
 
         try {
             if (!plugin.isLoaded()) {
-                player.sendMessage(ChatColor.RED + "Please load the plugin before enabling it.");
+                player.sendMessage(Theme.ERROR + "Please load the plugin before enabling it.");
             } else if (plugin.isEnabled()) {
                 if (manager.disablePlugin(pluginName)) {
-                    player.sendMessage(ChatColor.YELLOW + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.YELLOW + " has been disabled.");
+                    player.sendMessage(Theme.WARNING + "Plugin " + Theme.ACCENT + pluginName
+                            + Theme.WARNING + " has been disabled.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Could not disable plugin.");
+                    player.sendMessage(Theme.ERROR + "Could not disable plugin.");
                 }
             } else {
                 if (manager.enablePlugin(pluginName)) {
-                    player.sendMessage(ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.GREEN + " has been enabled.");
+                    player.sendMessage(Theme.SUCCESS + "Plugin " + Theme.ACCENT + pluginName
+                            + Theme.SUCCESS + " has been enabled.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Could not enable plugin.");
+                    player.sendMessage(Theme.ERROR + "Could not enable plugin.");
                 }
             }
         } catch (PluginLifecycleException ex) {
             context.getPlugin().getLogger().log(Level.WARNING,
                     "Failed to toggle plugin " + pluginName, ex);
-            player.sendMessage(ChatColor.RED + "Action failed: " + ex.getMessage());
+            player.sendMessage(Theme.ERROR + "Action failed: " + ex.getMessage());
         }
 
         openPluginDetails(player, plugin);
@@ -230,46 +230,46 @@ final class PluginDetailScreen {
             return;
         }
         if (items.isSelfPlugin(plugin)) {
-            player.sendMessage(ChatColor.RED + "NeverUp2Late must remain loaded to manage updates.");
+            player.sendMessage(Theme.ERROR + "NeverUp2Late must remain loaded to manage updates.");
             return;
         }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
         if (manager == null) {
-            player.sendMessage(ChatColor.RED + "Plugin management is disabled.");
+            player.sendMessage(Theme.ERROR + "Plugin management is disabled.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null) {
-            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
+            player.sendMessage(Theme.ERROR + "Could not determine plugin name.");
             return;
         }
 
         try {
             if (plugin.isLoaded()) {
                 if (manager.unloadPlugin(pluginName)) {
-                    player.sendMessage(ChatColor.YELLOW + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.YELLOW + " has been unloaded.");
+                    player.sendMessage(Theme.WARNING + "Plugin " + Theme.ACCENT + pluginName
+                            + Theme.WARNING + " has been unloaded.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Could not unload plugin.");
+                    player.sendMessage(Theme.ERROR + "Could not unload plugin.");
                 }
             } else {
                 Path path = plugin.getPath();
                 if (path == null) {
-                    player.sendMessage(ChatColor.RED + "No jar path is known for this plugin.");
+                    player.sendMessage(Theme.ERROR + "No jar path is known for this plugin.");
                     return;
                 }
                 if (manager.loadPlugin(path)) {
-                    player.sendMessage(ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName
-                            + ChatColor.GREEN + " has been loaded and enabled.");
+                    player.sendMessage(Theme.SUCCESS + "Plugin " + Theme.ACCENT + pluginName
+                            + Theme.SUCCESS + " has been loaded and enabled.");
                 } else {
-                    player.sendMessage(ChatColor.RED + "Could not load plugin.");
+                    player.sendMessage(Theme.ERROR + "Could not load plugin.");
                 }
             }
         } catch (PluginLifecycleException ex) {
             context.getPlugin().getLogger().log(Level.WARNING,
                     "Failed to toggle plugin load state for " + pluginName, ex);
-            player.sendMessage(ChatColor.RED + "Action failed: " + ex.getMessage());
+            player.sendMessage(Theme.ERROR + "Action failed: " + ex.getMessage());
         }
 
         openPluginDetails(player, plugin);
@@ -284,32 +284,32 @@ final class PluginDetailScreen {
             return;
         }
         if (updateSettingsRepository == null) {
-            player.sendMessage(ChatColor.RED + "Update settings cannot be saved right now.");
+            player.sendMessage(Theme.ERROR + "Update settings cannot be saved right now.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null || pluginName.isBlank()) {
-            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
+            player.sendMessage(Theme.ERROR + "Could not determine plugin name.");
             return;
         }
 
         PluginUpdateSettings current = items.readSettings(plugin);
         PluginUpdateSettings next;
-        ChatColor color;
+        String color;
         String message;
 
         if (!current.autoUpdateEnabled()) {
             next = new PluginUpdateSettings(true, UpdateBehaviour.AUTO_RELOAD, current.retainUpstreamFilename());
-            color = ChatColor.GREEN;
+            color = Theme.SUCCESS;
             message = "Automatic updates enabled. The plugin will reload after updates.";
         } else if (current.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
             next = new PluginUpdateSettings(true, UpdateBehaviour.REQUIRE_RESTART, current.retainUpstreamFilename());
-            color = ChatColor.GOLD;
+            color = Theme.HEADING;
             message = "Automatic updates now require a server restart.";
         } else {
             next = new PluginUpdateSettings(false, UpdateBehaviour.REQUIRE_RESTART, current.retainUpstreamFilename());
-            color = ChatColor.RED;
+            color = Theme.ERROR;
             message = "Automatic updates for this plugin have been disabled.";
         }
 
@@ -324,13 +324,13 @@ final class PluginDetailScreen {
         }
 
         if (updateSettingsRepository == null) {
-            player.sendMessage(ChatColor.RED + "Update settings cannot be saved right now.");
+            player.sendMessage(Theme.ERROR + "Update settings cannot be saved right now.");
             return;
         }
 
         String pluginName = plugin.getName();
         if (pluginName == null || pluginName.isBlank()) {
-            player.sendMessage(ChatColor.RED + "Could not determine plugin name.");
+            player.sendMessage(Theme.ERROR + "Could not determine plugin name.");
             return;
         }
 
@@ -340,9 +340,9 @@ final class PluginDetailScreen {
                 new PluginUpdateSettings(current.autoUpdateEnabled(), current.behaviour(), retain));
 
         if (retain) {
-            player.sendMessage(ChatColor.GREEN + "Upstream file names will now be kept (old files will be deleted).");
+            player.sendMessage(Theme.SUCCESS + "Upstream file names will now be kept (old files will be deleted).");
         } else {
-            player.sendMessage(ChatColor.YELLOW + "NU2L will once again use configured file names.");
+            player.sendMessage(Theme.WARNING + "NU2L will once again use configured file names.");
         }
 
         openPluginDetails(player, plugin);
@@ -353,15 +353,15 @@ final class PluginDetailScreen {
             return;
         }
         if (items.isSelfPlugin(plugin)) {
-            player.sendMessage(ChatColor.RED + "NeverUp2Late cannot remove itself while running.");
+            player.sendMessage(Theme.ERROR + "NeverUp2Late cannot remove itself while running.");
             return;
         }
         prompts.pendingRemovalRequests.put(player.getUniqueId(), plugin);
         prompts.armPrompt(player);
         player.closeInventory();
-        player.sendMessage(ChatColor.RED + "Are you sure you want to remove "
-                + ChatColor.AQUA + plugin.getName() + ChatColor.RED + "?");
-        player.sendMessage(ChatColor.YELLOW + "Type \"yes\" to confirm or \"cancel\" to abort.");
+        player.sendMessage(Theme.ERROR + "Are you sure you want to remove "
+                + Theme.ACCENT + plugin.getName() + Theme.ERROR + "?");
+        player.sendMessage(Theme.WARNING + "Type \"yes\" to confirm or \"cancel\" to abort.");
     }
 
     void handleRemovalInput(Player player, ManagedPlugin plugin, String message) {
@@ -371,7 +371,7 @@ final class PluginDetailScreen {
         if (trimmed.equalsIgnoreCase("yes")) {
             coordinator.removeManagedPlugin(player, plugin);
         } else {
-            player.sendMessage(ChatColor.YELLOW + "Removal cancelled.");
+            player.sendMessage(Theme.WARNING + "Removal cancelled.");
         }
     }
 
@@ -388,12 +388,12 @@ final class PluginDetailScreen {
             return;
         }
         if (items.isSelfPlugin(plugin)) {
-            player.sendMessage(ChatColor.RED + "NeverUp2Late manages its own filename automatically.");
+            player.sendMessage(Theme.ERROR + "NeverUp2Late manages its own filename automatically.");
             return;
         }
         Path path = plugin.getPath();
         if (path == null) {
-            player.sendMessage(ChatColor.RED + "Could not determine a file path for this plugin.");
+            player.sendMessage(Theme.ERROR + "Could not determine a file path for this plugin.");
             return;
         }
 
@@ -406,28 +406,28 @@ final class PluginDetailScreen {
         }
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "NU2L Rename")
+                .title(Theme.TITLE + "NU2L Rename")
                 .initialText(currentName)
                 .inputItem(paper)
                 .previewFactory(this::createRenamePreview)
                 .validation(value -> {
                     if (value == null || value.trim().isEmpty()) {
-                        return Optional.of(ChatColor.RED + "Please enter a valid name.");
+                        return Optional.of(Theme.ERROR + "Please enter a valid name.");
                     }
                     return Optional.empty();
                 })
                 .onConfirm((p, value) -> {
                     requestRename(p, plugin, value);
                 })
-                .onCancel(p -> p.sendMessage(ChatColor.YELLOW + "Rename cancelled."))
+                .onCancel(p -> p.sendMessage(Theme.WARNING + "Rename cancelled."))
                 .build());
 
-        player.sendMessage(ChatColor.GRAY + "Enter a new file name (\".jar\" will be added automatically).");
+        player.sendMessage(Theme.MUTED + "Enter a new file name (\".jar\" will be added automatically).");
     }
 
     private void requestRename(Player player, ManagedPlugin plugin, String requestedName) {
         if (items.isSelfPlugin(plugin)) {
-            player.sendMessage(ChatColor.RED + "NeverUp2Late cannot be renamed from within the GUI.");
+            player.sendMessage(Theme.ERROR + "NeverUp2Late cannot be renamed from within the GUI.");
             return;
         }
         String pluginName = plugin.getName();
@@ -446,37 +446,37 @@ final class PluginDetailScreen {
         }
 
         if (items.isSelfPlugin(plugin)) {
-            player.sendMessage(ChatColor.RED + "NeverUp2Late manages its own filename.");
+            player.sendMessage(Theme.ERROR + "NeverUp2Late manages its own filename.");
             return;
         }
 
         Path path = plugin.getPath();
         if (path == null) {
-            player.sendMessage(ChatColor.RED + "Could not determine a file path.");
+            player.sendMessage(Theme.ERROR + "Could not determine a file path.");
             return;
         }
 
         Optional<Plugin> loadedPlugin = plugin.getPlugin();
         if (loadedPlugin.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "Plugin must be loaded to determine the data folder name.");
+            player.sendMessage(Theme.ERROR + "Plugin must be loaded to determine the data folder name.");
             return;
         }
 
         File dataFolder = loadedPlugin.get().getDataFolder();
         if (dataFolder == null) {
-            player.sendMessage(ChatColor.RED + "Could not find a data folder.");
+            player.sendMessage(Theme.ERROR + "Could not find a data folder.");
             return;
         }
 
         String sanitized = FileNameSanitizer.sanitizeJarFilename(dataFolder.getName());
         if (sanitized == null) {
-            player.sendMessage(ChatColor.RED + "Data folder name is invalid.");
+            player.sendMessage(Theme.ERROR + "Data folder name is invalid.");
             return;
         }
 
         String current = path.getFileName().toString();
         if (sanitized.equals(current)) {
-            player.sendMessage(ChatColor.YELLOW + "Filename is already correct.");
+            player.sendMessage(Theme.WARNING + "Filename is already correct.");
             return;
         }
 
@@ -491,7 +491,7 @@ final class PluginDetailScreen {
         ItemStack result = new ItemStack(Material.PAPER);
         ItemMeta meta = result.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GREEN + sanitized);
+            meta.setDisplayName(Theme.SUCCESS + sanitized);
             result.setItemMeta(meta);
         }
         return result;

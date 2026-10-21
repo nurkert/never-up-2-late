@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.persistence.RestartCooldownRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
@@ -14,7 +15,6 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ChatMessages;
-import org.bukkit.ChatColor;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -209,8 +209,8 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
         }
         String name = event.getSource() != null ? event.getSource().getName() : "a plugin";
         String version = event.getLatestVersion().map(v -> " " + v).orElse("");
-        String message = ChatMessages.PREFIX + ChatColor.YELLOW + "An update for " + ChatColor.WHITE + name + version
-                + ChatColor.YELLOW + " is ready. The server restarts to apply it once everyone has left.";
+        String message = ChatMessages.PREFIX + Theme.WARNING + "An update for " + Theme.TEXT + name + version
+                + Theme.WARNING + " is ready. The server restarts to apply it once everyone has left.";
         List<ChatMessages.Button> buttons = new java.util.ArrayList<>();
         buttons.add(ChatMessages.Button.command("[Status]", "/nu2l status", "Show every managed plugin and its version"));
         event.getReleasePageUrl().ifPresent(url ->

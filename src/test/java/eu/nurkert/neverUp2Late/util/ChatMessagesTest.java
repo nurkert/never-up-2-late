@@ -22,17 +22,17 @@ class ChatMessagesTest {
 
     @Test
     void buttonsFollowTheTextAndCarryTheirAction() {
-        Component message = AdventureChat.message("Update ready.", List.of(
+        Component message = AdventureChat.message("Update ready.", null, List.of(
                 ChatMessages.Button.command("[Status]", "/nu2l status", "Show status"),
                 ChatMessages.Button.link("[Changelog]", "https://example.com/1.0", "What changed")));
 
         assertEquals("Update ready. [Status] [Changelog]", PlainTextComponentSerializer.plainText().serialize(message));
-        assertEquals(ClickEvent.openUrl("https://example.com/1.0"), message.children().get(3).clickEvent());
+        assertEquals(ClickEvent.openUrl("https://example.com/1.0"), message.children().get(4).clickEvent());
     }
 
     @Test
     void withoutAdventureTheActionIsWrittenOut() {
-        assertEquals(ChatColor.AQUA + "[Status]" + ChatColor.GRAY + " (/nu2l status)",
+        assertEquals(Theme.ACCENT + "[Status]" + Theme.MUTED + " (/nu2l status)",
                 ChatMessages.Button.command("[Status]", "/nu2l status", "Show status").asPlainText());
     }
 }

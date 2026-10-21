@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.command;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.fetcher.AssetPatternBuilder;
@@ -15,7 +16,6 @@ import eu.nurkert.neverUp2Late.util.ChatMessages;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
 import eu.nurkert.neverUp2Late.net.HttpClient;
-import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -89,7 +89,7 @@ public class QuickInstallCoordinator {
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .build();
         this.logger = plugin.getLogger();
-        this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
+        this.messagePrefix = Theme.PREFIX;
         this.ignoreCompatibilityWarnings = configuration.getBoolean("quickInstall.ignoreCompatibilityWarnings", false);
         this.managedPluginActions = new ManagedPluginActions(
                 plugin,
@@ -134,7 +134,7 @@ public class QuickInstallCoordinator {
         }
         String target = sourceName != null ? sourceName.trim() : "";
         if (target.isEmpty()) {
-            send(sender, ChatColor.RED + "Please specify the update source to roll back.");
+            send(sender, Theme.ERROR + "Please specify the update source to roll back.");
             return;
         }
         scheduler.runTaskAsynchronously(plugin, () -> executeRollback(sender, target));
@@ -154,7 +154,7 @@ public class QuickInstallCoordinator {
         }
         String url = rawUrl != null ? rawUrl.trim() : "";
         if (url.isEmpty()) {
-            send(sender, ChatColor.RED + "Please provide a valid URL.");
+            send(sender, Theme.ERROR + "Please provide a valid URL.");
             return;
         }
 
@@ -164,7 +164,7 @@ public class QuickInstallCoordinator {
         try {
             uri = new URI(url);
         } catch (URISyntaxException e) {
-            send(sender, ChatColor.RED + "The URL is invalid: " + e.getMessage());
+            send(sender, Theme.ERROR + "The URL is invalid: " + e.getMessage());
             return;
         }
 
@@ -176,7 +176,7 @@ public class QuickInstallCoordinator {
             try {
                 plan = analyse(uri, url);
             } catch (IllegalArgumentException e) {
-                send(sender, ChatColor.RED + e.getMessage());
+                send(sender, Theme.ERROR + e.getMessage());
                 return;
             }
 
@@ -185,15 +185,15 @@ public class QuickInstallCoordinator {
                 plan.setSourceName(ensureUniqueName(plan.getSuggestedName()));
                 if (forcedPluginName != null && !forcedPluginName.isBlank()) {
                     plan.setInstalledPluginName(forcedPluginName);
-                    send(sender, ChatColor.GRAY + "Linking with selected plugin: " + forcedPluginName);
+                    send(sender, Theme.MUTED + "Linking with selected plugin: " + forcedPluginName);
                 } else {
                     detectInstalledPlugin(plan).ifPresent(installed -> {
                         plan.setInstalledPluginName(installed);
-                        send(sender, ChatColor.GRAY + "Linking with installed plugin: " + installed);
+                        send(sender, Theme.MUTED + "Linking with installed plugin: " + installed);
                     });
                 }
 
-                send(sender, ChatColor.AQUA + "Detected source: " + plan.getDisplayName()
+                send(sender, Theme.ACCENT + "Detected source: " + plan.getDisplayName()
                         + " (" + plan.getProvider() + ")");
 
                 scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, plan));
@@ -204,14 +204,14 @@ public class QuickInstallCoordinator {
     private void executeRollback(CommandSender sender, String sourceName) {
         Optional<UpdateSource> optionalSource = updateSourceRegistry.findSource(sourceName);
         if (optionalSource.isEmpty()) {
-            send(sender, ChatColor.RED + "No update source named " + sourceName + " is registered.");
+            send(sender, Theme.ERROR + "No update source named " + sourceName + " is registered.");
             return;
         }
 
         UpdateSource source = optionalSource.get();
         Path destination = resolveDestination(source);
         if (destination == null) {
-            send(sender, ChatColor.RED + "Cannot determine the destination file for " + source.getName() + ".");
+            send(sender, Theme.ERROR + "Cannot determine the destination file for " + source.getName() + ".");
             return;
         }
 
@@ -223,7 +223,7 @@ public class QuickInstallCoordinator {
             );
 
             if (restoration.isEmpty()) {
-                send(sender, ChatColor.RED + "No backups available for " + source.getName() + ".");
+                send(sender, Theme.ERROR + "No backups available for " + source.getName() + ".");
                 return;
             }
 
@@ -238,16 +238,16 @@ public class QuickInstallCoordinator {
             logger.log(Level.INFO, "Restored backup {0} for {1} to {2}",
                     new Object[]{backupName, source.getName(), destinationName});
 
-            send(sender, ChatColor.GREEN + "Restored backup " + ChatColor.AQUA + backupName
-                    + ChatColor.GREEN + " for " + ChatColor.AQUA + source.getName()
-                    + ChatColor.GREEN + " → " + ChatColor.AQUA + destinationName + ChatColor.GREEN + ".");
+            send(sender, Theme.SUCCESS + "Restored backup " + Theme.ACCENT + backupName
+                    + Theme.SUCCESS + " for " + Theme.ACCENT + source.getName()
+                    + Theme.SUCCESS + " → " + Theme.ACCENT + destinationName + Theme.SUCCESS + ".");
 
             triggerLifecycleAfterRollback(sender, source, destination);
         } catch (IOException ex) {
             logger.log(Level.WARNING,
                     "Failed to restore backup for {0}: {1}",
                     new Object[]{source.getName(), ex.getMessage()});
-            send(sender, ChatColor.RED + "Failed to restore backup: " + ex.getMessage());
+            send(sender, Theme.ERROR + "Failed to restore backup: " + ex.getMessage());
         }
     }
 
@@ -265,16 +265,16 @@ public class QuickInstallCoordinator {
                 if (reloaded) {
                     String name = preferredName != null ? preferredName
                             : Optional.ofNullable(destination.getFileName()).map(Path::toString).orElse(destination.toString());
-                    send(sender, ChatColor.GREEN + "Reloaded plugin " + ChatColor.AQUA + name
-                            + ChatColor.GREEN + " after rollback.");
+                    send(sender, Theme.SUCCESS + "Reloaded plugin " + Theme.ACCENT + name
+                            + Theme.SUCCESS + " after rollback.");
                 } else {
-                    send(sender, ChatColor.YELLOW + "Rollback completed, but the plugin could not be reloaded automatically.");
+                    send(sender, Theme.WARNING + "Rollback completed, but the plugin could not be reloaded automatically.");
                 }
             } catch (PluginLifecycleException ex) {
                 logger.log(Level.WARNING,
                         "Failed to reload plugin after rollback for {0}: {1}",
                         new Object[]{source.getName(), ex.getMessage()});
-                send(sender, ChatColor.RED + "Rollback succeeded, but reloading the plugin failed: " + ex.getMessage());
+                send(sender, Theme.ERROR + "Rollback succeeded, but reloading the plugin failed: " + ex.getMessage());
             }
         });
     }
@@ -321,7 +321,7 @@ public class QuickInstallCoordinator {
     }
 
     private void prepareAndInstall(CommandSender sender, InstallationPlan plan) {
-        send(sender, ChatColor.YELLOW + "Loading version information…");
+        send(sender, Theme.WARNING + "Loading version information…");
         eu.nurkert.neverUp2Late.fetcher.UpdateFetcher fetcher;
         try {
             fetcher = updateSourceRegistry.createFetcher(plan.getFetcherType(), plan.getOptions());
@@ -342,7 +342,7 @@ public class QuickInstallCoordinator {
             return;
         } catch (Exception e) {
             logger.log(Level.WARNING, "Failed to prepare installation for " + plan.getDisplayName(), e);
-            send(sender, ChatColor.RED + "Failed to load version information: " + e.getMessage());
+            send(sender, Theme.ERROR + "Failed to load version information: " + e.getMessage());
             return;
         }
 
@@ -350,7 +350,7 @@ public class QuickInstallCoordinator {
             return;
         }
 
-        send(sender, ChatColor.GREEN + "Latest version: " + plan.getLatestVersionInfo());
+        send(sender, Theme.SUCCESS + "Latest version: " + plan.getLatestVersionInfo());
 
         scheduler.runTask(plugin, () -> finalizeInstallation(sender, plan));
     }
@@ -360,7 +360,7 @@ public class QuickInstallCoordinator {
             return;
         }
         if (selectionInput == null || selectionInput.isBlank()) {
-            send(sender, ChatColor.RED + "Please specify the number of the desired file.");
+            send(sender, Theme.ERROR + "Please specify the number of the desired file.");
             return;
         }
 
@@ -375,12 +375,12 @@ public class QuickInstallCoordinator {
         try {
             index = Integer.parseInt(selectionInput.trim());
         } catch (NumberFormatException ex) {
-            send(sender, ChatColor.RED + "Please enter a valid number.");
+            send(sender, Theme.ERROR + "Please enter a valid number.");
             return;
         }
 
         if (index < 1 || index > pending.assets().size()) {
-            send(sender, ChatColor.RED + "Invalid selection. Please choose a number between 1 and " + pending.assets().size() + ".");
+            send(sender, Theme.ERROR + "Invalid selection. Please choose a number between 1 and " + pending.assets().size() + ".");
             return;
         }
 
@@ -394,9 +394,9 @@ public class QuickInstallCoordinator {
         pending.plan().getOptions().put("assetPattern", pattern);
         pendingSelections.remove(key);
 
-        send(sender, ChatColor.GREEN + "Using asset \"" + assetName + "\". Regex created automatically.");
+        send(sender, Theme.SUCCESS + "Using asset \"" + assetName + "\". Regex created automatically.");
         if (asset.archive()) {
-            send(sender, ChatColor.GOLD + "Note: The selected asset is an archive. NU2L will automatically extract the matching jar file.");
+            send(sender, Theme.HEADING + "Note: The selected asset is an archive. NU2L will automatically extract the matching jar file.");
         }
 
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
@@ -414,24 +414,24 @@ public class QuickInstallCoordinator {
         String key = selectionKey(sender);
         CompatibilityPending pending = pendingCompatibilityConfirmations.remove(key);
         if (pending == null) {
-            send(sender, ChatColor.RED + "There is no pending compatibility warning.");
+            send(sender, Theme.ERROR + "There is no pending compatibility warning.");
             return;
         }
 
         if (!ignoreWarning) {
-            send(sender, ChatColor.YELLOW + "Installation cancelled. Compatibility warning not ignored.");
+            send(sender, Theme.WARNING + "Installation cancelled. Compatibility warning not ignored.");
             return;
         }
 
         pending.plan().getOptions().put("ignoreCompatibilityWarnings", true);
-        send(sender, ChatColor.YELLOW + "Ignoring compatibility warning and retrying with the latest version…");
+        send(sender, Theme.WARNING + "Ignoring compatibility warning and retrying with the latest version…");
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
     }
 
     private void handleArchiveSelection(CommandSender sender, String selectionInput, String key) {
         ArchivePendingSelection pending = pendingArchiveSelections.get(key);
         if (pending == null) {
-            send(sender, ChatColor.RED + "There is no pending selection.");
+            send(sender, Theme.ERROR + "There is no pending selection.");
             return;
         }
 
@@ -439,12 +439,12 @@ public class QuickInstallCoordinator {
         try {
             index = Integer.parseInt(selectionInput.trim());
         } catch (NumberFormatException ex) {
-            send(sender, ChatColor.RED + "Please enter a valid number.");
+            send(sender, Theme.ERROR + "Please enter a valid number.");
             return;
         }
 
         if (index < 1 || index > pending.entries().size()) {
-            send(sender, ChatColor.RED + "Invalid selection. Please choose a number between 1 and " + pending.entries().size() + ".");
+            send(sender, Theme.ERROR + "Invalid selection. Please choose a number between 1 and " + pending.entries().size() + ".");
             return;
         }
 
@@ -456,7 +456,7 @@ public class QuickInstallCoordinator {
         pending.plan().setFilename(extractFileNameForArchive(selected));
         pendingArchiveSelections.remove(key);
 
-        send(sender, ChatColor.GREEN + "Using jar \"" + selected.fullPath() + "\" from the archive.");
+        send(sender, Theme.SUCCESS + "Using jar \"" + selected.fullPath() + "\" from the archive.");
         scheduler.runTaskAsynchronously(plugin, () -> prepareAndInstall(sender, pending.plan()));
     }
 
@@ -470,7 +470,7 @@ public class QuickInstallCoordinator {
 
         String downloadUrl = plan.getDownloadUrl();
         if (downloadUrl == null || downloadUrl.isBlank()) {
-            send(sender, ChatColor.RED + "Error: archive download URL missing.");
+            send(sender, Theme.ERROR + "Error: archive download URL missing.");
             return false;
         }
 
@@ -479,12 +479,12 @@ public class QuickInstallCoordinator {
             entries = inspectArchive(downloadUrl);
         } catch (IOException e) {
             logger.log(Level.WARNING, "Failed to inspect archive for " + plan.getDisplayName(), e);
-            send(sender, ChatColor.RED + "Failed to inspect archive: " + e.getMessage());
+            send(sender, Theme.ERROR + "Failed to inspect archive: " + e.getMessage());
             return false;
         }
 
         if (entries.isEmpty()) {
-            send(sender, ChatColor.RED + "The archive does not contain any jar files.");
+            send(sender, Theme.ERROR + "The archive does not contain any jar files.");
             return false;
         }
 
@@ -506,7 +506,7 @@ public class QuickInstallCoordinator {
 
         if (entries.size() == 1) {
             applyArchiveSelection(plan, entries.get(0), entries);
-            send(sender, ChatColor.GRAY + "Found a jar in the archive: " + entries.get(0).fullPath());
+            send(sender, Theme.MUTED + "Found a jar in the archive: " + entries.get(0).fullPath());
             return true;
         }
 
@@ -543,14 +543,14 @@ public class QuickInstallCoordinator {
         String key = selectionKey(sender);
         pendingArchiveSelections.put(key, new ArchivePendingSelection(plan, List.copyOf(entries)));
 
-        send(sender, ChatColor.GOLD + "The archive contains multiple jar files:");
+        send(sender, Theme.HEADING + "The archive contains multiple jar files:");
         for (int i = 0; i < entries.size(); i++) {
             ArchiveEntry entry = entries.get(i);
             sendChoice(sender, i + 1,
-                    ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
-                            + ChatColor.AQUA + entry.fullPath());
+                    Theme.MUTED + String.valueOf(i + 1) + Theme.SUBTLE + ". "
+                            + Theme.ACCENT + entry.fullPath());
         }
-        send(sender, ChatColor.YELLOW + "Click the file you want, or use /nu2l select <number>.");
+        send(sender, Theme.WARNING + "Click the file you want, or use /nu2l select <number>.");
     }
 
     private String extractFileNameForArchive(ArchiveEntry entry) {
@@ -574,21 +574,21 @@ public class QuickInstallCoordinator {
             default -> "assets";
         };
 
-        send(sender, ChatColor.GOLD + "Found multiple " + typeLabel + " for " + plan.getDisplayName()
+        send(sender, Theme.HEADING + "Found multiple " + typeLabel + " for " + plan.getDisplayName()
                 + " (" + selection.getReleaseTag() + "):");
         List<AssetSelectionRequiredException.ReleaseAsset> assets = selection.getAssets();
         for (int i = 0; i < assets.size(); i++) {
             AssetSelectionRequiredException.ReleaseAsset asset = assets.get(i);
             String label = assetLabel(asset);
-            String suffix = asset.archive() ? ChatColor.YELLOW + " (archive)" : "";
+            String suffix = asset.archive() ? Theme.WARNING + " (archive)" : "";
             sendChoice(sender, i + 1,
-                    ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
-                            + ChatColor.AQUA + label + suffix);
+                    Theme.MUTED + String.valueOf(i + 1) + Theme.SUBTLE + ". "
+                            + Theme.ACCENT + label + suffix);
         }
-        send(sender, ChatColor.YELLOW + "Click the file you want, or use /nu2l select <number>.");
+        send(sender, Theme.WARNING + "Click the file you want, or use /nu2l select <number>.");
         if (selection.getAssetType() == AssetSelectionRequiredException.AssetType.ARCHIVE
                 || assets.stream().anyMatch(AssetSelectionRequiredException.ReleaseAsset::archive)) {
-            send(sender, ChatColor.GOLD + "Note: Archives are extracted automatically; please choose the desired file.");
+            send(sender, Theme.HEADING + "Note: Archives are extracted automatically; please choose the desired file.");
         }
     }
 
@@ -598,23 +598,23 @@ public class QuickInstallCoordinator {
         String key = selectionKey(sender);
         pendingCompatibilityConfirmations.put(key, new CompatibilityPending(plan, compatibility));
 
-        send(sender, ChatColor.GOLD + "No compatible version was advertised for " + ChatColor.AQUA
-                + plan.getDisplayName() + ChatColor.GOLD + ".");
-        send(sender, ChatColor.YELLOW + compatibility.getMessage());
+        send(sender, Theme.HEADING + "No compatible version was advertised for " + Theme.ACCENT
+                + plan.getDisplayName() + Theme.HEADING + ".");
+        send(sender, Theme.WARNING + compatibility.getMessage());
 
         String serverVersion = InstallationPlanner.trimToNull(compatibility.getServerVersion());
         if (serverVersion != null) {
-            send(sender, ChatColor.GRAY + "Your server reports Minecraft version " + ChatColor.AQUA
-                    + serverVersion + ChatColor.GRAY + ".");
+            send(sender, Theme.MUTED + "Your server reports Minecraft version " + Theme.ACCENT
+                    + serverVersion + Theme.MUTED + ".");
         }
 
         List<String> available = compatibility.getAvailableVersions();
         if (!available.isEmpty()) {
-            String joined = String.join(ChatColor.GRAY + ", " + ChatColor.AQUA, available);
-            send(sender, ChatColor.GRAY + "Listed versions: " + ChatColor.AQUA + joined);
+            String joined = String.join(Theme.MUTED + ", " + Theme.ACCENT, available);
+            send(sender, Theme.MUTED + "Listed versions: " + Theme.ACCENT + joined);
         }
 
-        send(sender, ChatColor.YELLOW + "Use /nu2l ignore to install the latest version anyway or /nu2l cancel to abort.");
+        send(sender, Theme.WARNING + "Use /nu2l ignore to install the latest version anyway or /nu2l cancel to abort.");
     }
 
     private void finalizeInstallation(CommandSender sender, InstallationPlan plan) {
@@ -635,8 +635,8 @@ public class QuickInstallCoordinator {
                     cleanupRedundantSources(sender, primary, redundant, computePathUsage());
                 }
                 if (describesSameArtifact(primary, plan)) {
-                    send(sender, ChatColor.YELLOW + "This link is already configured as "
-                            + ChatColor.AQUA + primary.getName() + ChatColor.YELLOW + "; checking for a new version…");
+                    send(sender, Theme.WARNING + "This link is already configured as "
+                            + Theme.ACCENT + primary.getName() + Theme.WARNING + "; checking for a new version…");
                     updateHandler.runJobNow(primary, sender);
                     return;
                 }
@@ -645,8 +645,8 @@ public class QuickInstallCoordinator {
                 // new URL was dropped and the old source re-run - while the
                 // message claimed an update was starting. Re-link instead, by
                 // letting the plan replace that entry.
-                send(sender, ChatColor.YELLOW + "Pointing " + ChatColor.AQUA + primary.getName()
-                        + ChatColor.YELLOW + " at the new link.");
+                send(sender, Theme.WARNING + "Pointing " + Theme.ACCENT + primary.getName()
+                        + Theme.WARNING + " at the new link.");
                 // Reuse the entry: applyPlanToConfiguration replaces a source of
                 // the same name. The old registration is dropped further down,
                 // once the new configuration is safely on disk - unregistering
@@ -661,7 +661,7 @@ public class QuickInstallCoordinator {
         ensurePreferredSourceName(plan);
 
         if (updateSourceRegistry.hasSource(plan.getSourceName())) {
-            send(sender, ChatColor.YELLOW + "Source already exists, starting update…");
+            send(sender, Theme.WARNING + "Source already exists, starting update…");
             UpdateSource existing = updateSourceRegistry.findSource(plan.getSourceName()).orElse(null);
             if (existing != null) {
                 updateHandler.runJobNow(existing, sender);
@@ -698,13 +698,13 @@ public class QuickInstallCoordinator {
             // failed halfway leaves the previous source in place rather than
             // nothing at all.
             updateSourceRegistry.reload();
-            send(sender, ChatColor.RED + "Could not register source: " + e.getMessage());
+            send(sender, Theme.ERROR + "Could not register source: " + e.getMessage());
             return;
         }
 
-        send(sender, ChatColor.GREEN + "Registered update source " + ChatColor.AQUA + source.getName()
-                + ChatColor.GREEN + " → " + ChatColor.AQUA + source.getFilename() + ChatColor.GREEN + ".");
-        send(sender, ChatColor.GREEN + "Starting installation…");
+        send(sender, Theme.SUCCESS + "Registered update source " + Theme.ACCENT + source.getName()
+                + Theme.SUCCESS + " → " + Theme.ACCENT + source.getFilename() + Theme.SUCCESS + ".");
+        send(sender, Theme.SUCCESS + "Starting installation…");
         updateHandler.runJobNow(source, sender);
     }
 
@@ -787,7 +787,7 @@ public class QuickInstallCoordinator {
         synchronized (configurationLock) {
             ConfigurationSnapshot snapshot = createSnapshot();
             if (snapshot == null) {
-                send(sender, ChatColor.RED + "Could not create a configuration backup. Aborting.");
+                send(sender, Theme.ERROR + "Could not create a configuration backup. Aborting.");
                 return null;
             }
             try {
@@ -798,7 +798,7 @@ public class QuickInstallCoordinator {
                 logger.log(Level.SEVERE,
                         "Failed to persist configuration for " + plan.getSourceName() + ':', ex);
                 restoreConfiguration(snapshot);
-                send(sender, ChatColor.RED + "Could not write configuration: " + ex.getMessage());
+                send(sender, Theme.ERROR + "Could not write configuration: " + ex.getMessage());
                 return null;
             }
         }
@@ -993,7 +993,7 @@ public class QuickInstallCoordinator {
         if (sender.hasPermission(permission)) {
             return true;
         }
-        send(sender, ChatColor.RED + "You do not have the required permission (" + permission + ").");
+        send(sender, Theme.ERROR + "You do not have the required permission (" + permission + ").");
         return false;
     }
 

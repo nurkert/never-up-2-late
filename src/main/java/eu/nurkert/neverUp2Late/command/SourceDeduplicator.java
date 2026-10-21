@@ -1,10 +1,10 @@
 package eu.nurkert.neverUp2Late.command;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator.InstallationPlan;
 import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
-import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -151,7 +151,7 @@ final class SourceDeduplicator {
         }
 
         if (!removed.isEmpty() && sender != null) {
-            messenger.accept(sender, ChatColor.YELLOW + "Removed duplicate update sources: " + String.join(", ", removed));
+            messenger.accept(sender, Theme.WARNING + "Removed duplicate update sources: " + String.join(", ", removed));
         }
 
         return removed;
@@ -337,7 +337,7 @@ final class SourceDeduplicator {
         }
 
         if (sender != null) {
-            messenger.accept(sender, ChatColor.YELLOW + "Removed conflicting update sources: " + String.join(", ", removed));
+            messenger.accept(sender, Theme.WARNING + "Removed conflicting update sources: " + String.join(", ", removed));
         }
 
         saveConfigQuietly();

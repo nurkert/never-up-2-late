@@ -1,12 +1,12 @@
 package eu.nurkert.neverUp2Late.command;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository;
 import eu.nurkert.neverUp2Late.gui.PluginOverviewGui;
 import eu.nurkert.neverUp2Late.setup.InitialSetupManager;
-import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -44,13 +44,13 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0 || "gui".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.GUI_OPEN)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to open the GUI.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to open the GUI.");
                 return true;
             }
             if (sender instanceof Player player) {
                 overviewGui.open(player);
             } else {
-                sender.sendMessage(ChatColor.RED + "The graphical interface can only be opened by players.");
+                sender.sendMessage(Theme.ERROR + "The graphical interface can only be opened by players.");
             }
             return true;
         }
@@ -63,14 +63,14 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         if ("check".equalsIgnoreCase(args[0]) || "plan".equalsIgnoreCase(args[0])) {
             boolean dryRun = "plan".equalsIgnoreCase(args[0]);
             if (!sender.hasPermission(Permissions.INSTALL)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to trigger update checks.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to trigger update checks.");
                 return true;
             }
             List<UpdateSource> sources;
             if (args.length >= 2) {
                 Optional<UpdateSource> single = context.getUpdateSourceRegistry().findSource(args[1]);
                 if (single.isEmpty()) {
-                    sender.sendMessage(ChatColor.RED + "No update source named " + args[1] + ".");
+                    sender.sendMessage(Theme.ERROR + "No update source named " + args[1] + ".");
                     return true;
                 }
                 sources = List.of(single.get());
@@ -78,7 +78,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
                 sources = List.copyOf(context.getUpdateSourceRegistry().getSources());
             }
             if (sources.isEmpty()) {
-                sender.sendMessage(ChatColor.YELLOW + "No update sources are configured yet.");
+                sender.sendMessage(Theme.WARNING + "No update sources are configured yet.");
                 return true;
             }
             if (dryRun) {
@@ -91,7 +91,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         if (args.length > 0 && "status".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.INSTALL)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to view source status.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to view source status.");
                 return true;
             }
             displayStatus(sender);
@@ -100,11 +100,11 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         if (args.length > 0 && "select".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.INSTALL)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to manage installations.");
                 return true;
             }
             if (args.length < 2) {
-                sender.sendMessage(ChatColor.RED + "Please specify the number of the desired file.");
+                sender.sendMessage(Theme.ERROR + "Please specify the number of the desired file.");
                 return true;
             }
             coordinator.handleAssetSelection(sender, args[1]);
@@ -113,7 +113,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         if (args.length > 0 && "ignore".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.INSTALL)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to manage installations.");
                 return true;
             }
             coordinator.confirmCompatibilityOverride(sender);
@@ -122,7 +122,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         if (args.length > 0 && "cancel".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.INSTALL)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to manage installations.");
                 return true;
             }
             coordinator.cancelCompatibilityOverride(sender);
@@ -131,11 +131,11 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         if (args.length > 0 && "setup".equalsIgnoreCase(args[0])) {
             if (setupManager == null) {
-                sender.sendMessage(ChatColor.RED + "The setup utilities are not available.");
+                sender.sendMessage(Theme.ERROR + "The setup utilities are not available.");
                 return true;
             }
             if (!sender.hasPermission(Permissions.SETUP)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to manage the setup wizard.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to manage the setup wizard.");
                 return true;
             }
 
@@ -143,7 +143,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
                 if (sender instanceof Player player) {
                     setupManager.openWizard(player);
                 } else {
-                    sender.sendMessage(ChatColor.YELLOW + "Run /" + label + " setup complete to finish the wizard from the console.");
+                    sender.sendMessage(Theme.WARNING + "Run /" + label + " setup complete to finish the wizard from the console.");
                 }
                 return true;
             }
@@ -155,7 +155,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             }
             if ("apply".equalsIgnoreCase(subCommand)) {
                 if (args.length < 3) {
-                    sender.sendMessage(ChatColor.RED + "Please provide the path or identifier of the configuration file to apply.");
+                    sender.sendMessage(Theme.ERROR + "Please provide the path or identifier of the configuration file to apply.");
                     return true;
                 }
                 String configIdentifier = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
@@ -166,18 +166,18 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             if (sender instanceof Player player) {
                 setupManager.openWizard(player);
             } else {
-                sender.sendMessage(ChatColor.RED + "Unknown setup sub-command: " + subCommand);
+                sender.sendMessage(Theme.ERROR + "Unknown setup sub-command: " + subCommand);
             }
             return true;
         }
 
         if (args.length > 0 && "remove".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.GUI_MANAGE_REMOVE)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to remove plugins.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to remove plugins.");
                 return true;
             }
             if (args.length < 2) {
-                sender.sendMessage(ChatColor.RED + "Please provide the plugin name.");
+                sender.sendMessage(Theme.ERROR + "Please provide the plugin name.");
                 return true;
             }
             String pluginName = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
@@ -187,16 +187,16 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
         if (args.length > 0 && "rollback".equalsIgnoreCase(args[0])) {
             if (!sender.hasPermission(Permissions.INSTALL)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+                sender.sendMessage(Theme.ERROR + "You do not have permission to manage installations.");
                 return true;
             }
             if (args.length < 2) {
-                sender.sendMessage(ChatColor.RED + "Please provide the update source name to roll back.");
+                sender.sendMessage(Theme.ERROR + "Please provide the update source name to roll back.");
                 return true;
             }
             String pluginName = String.join(" ", Arrays.copyOfRange(args, 1, args.length)).trim();
             if (pluginName.isEmpty()) {
-                sender.sendMessage(ChatColor.RED + "Please provide the update source name to roll back.");
+                sender.sendMessage(Theme.ERROR + "Please provide the update source name to roll back.");
                 return true;
             }
             coordinator.rollback(sender, pluginName);
@@ -204,13 +204,13 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         }
 
         if (!sender.hasPermission(Permissions.INSTALL)) {
-            sender.sendMessage(ChatColor.RED + "You do not have permission to manage installations.");
+            sender.sendMessage(Theme.ERROR + "You do not have permission to manage installations.");
             return true;
         }
 
         String input = String.join(" ", args).trim();
         if (input.isEmpty()) {
-            sender.sendMessage(ChatColor.RED + "Please provide a valid URL.");
+            sender.sendMessage(Theme.ERROR + "Please provide a valid URL.");
             return true;
         }
 
@@ -220,7 +220,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         }
 
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(ChatColor.RED + "The search shortcut can only be used by players.");
+            sender.sendMessage(Theme.ERROR + "The search shortcut can only be used by players.");
             return true;
         }
 
@@ -268,7 +268,7 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     private void displayStatus(CommandSender sender) {
         List<PluginContext.UpdateSourceStatus> statuses = context.getUpdateSourceStatuses();
         if (statuses.isEmpty()) {
-            sender.sendMessage(ChatColor.YELLOW + "No update sources are currently registered.");
+            sender.sendMessage(Theme.WARNING + "No update sources are currently registered.");
             return;
         }
 
@@ -284,46 +284,46 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
 
             String state;
             if (check.isEmpty()) {
-                state = ChatColor.DARK_GRAY + "not checked yet";
+                state = Theme.SUBTLE + "not checked yet";
             } else {
                 UpdateStateRepository.CheckState value = check.get();
                 newestCheck = Math.max(newestCheck, value.checkedAt());
                 switch (value.result()) {
                     case FAILED -> {
                         failing++;
-                        state = ChatColor.RED + "check failed: "
+                        state = Theme.ERROR + "check failed: "
                                 + (value.error() == null ? "unknown reason" : value.error());
                     }
                     case UPDATED -> {
                         waiting++;
-                        state = ChatColor.GREEN + "updated to " + value.latestVersion()
-                                + ChatColor.GRAY + " (restart pending)";
+                        state = Theme.SUCCESS + "updated to " + value.latestVersion()
+                                + Theme.MUTED + " (restart pending)";
                     }
                     case HELD -> {
                         held++;
-                        state = ChatColor.GOLD + "held back: "
+                        state = Theme.HEADING + "held back: "
                                 + (value.error() == null ? "installation refused" : value.error());
                     }
-                    default -> state = ChatColor.GRAY + "up to date";
+                    default -> state = Theme.MUTED + "up to date";
                 }
             }
 
-            lines.add(ChatColor.AQUA + status.displayName()
-                    + ChatColor.GRAY + " → " + ChatColor.YELLOW + status.versionLabel()
-                    + ChatColor.GRAY + " | " + state
-                    + ChatColor.GRAY + " | auto-update: "
-                    + (status.autoUpdateEnabled() ? ChatColor.GREEN + "on" : ChatColor.RED + "off"));
+            lines.add(Theme.ACCENT + status.displayName()
+                    + Theme.MUTED + " → " + Theme.WARNING + status.versionLabel()
+                    + Theme.MUTED + " | " + state
+                    + Theme.MUTED + " | auto-update: "
+                    + (status.autoUpdateEnabled() ? Theme.SUCCESS + "on" : Theme.ERROR + "off"));
         }
 
         // The headline first: an operator wants the answer, not a table to read.
-        sender.sendMessage(ChatColor.GOLD + "NeverUp2Late: " + ChatColor.WHITE + statuses.size()
-                + ChatColor.GRAY + " source(s), " + ChatColor.WHITE + waiting
-                + ChatColor.GRAY + " waiting for a restart, " + ChatColor.WHITE + failing
-                + ChatColor.GRAY + " failing"
-                + (held > 0 ? ChatColor.GRAY + ", " + ChatColor.GOLD + held + ChatColor.GRAY + " held back" : "")
-                + ChatColor.GRAY + ".");
-        sender.sendMessage(ChatColor.GRAY + "Last check: " + ChatColor.WHITE + describeAge(newestCheck)
-                + ChatColor.DARK_GRAY + "  (/" + "nu2l check to look now)");
+        sender.sendMessage(Theme.HEADING + "NeverUp2Late: " + Theme.TEXT + statuses.size()
+                + Theme.MUTED + " source(s), " + Theme.TEXT + waiting
+                + Theme.MUTED + " waiting for a restart, " + Theme.TEXT + failing
+                + Theme.MUTED + " failing"
+                + (held > 0 ? Theme.MUTED + ", " + Theme.HEADING + held + Theme.MUTED + " held back" : "")
+                + Theme.MUTED + ".");
+        sender.sendMessage(Theme.MUTED + "Last check: " + Theme.TEXT + describeAge(newestCheck)
+                + Theme.SUBTLE + "  (/" + "nu2l check to look now)");
         lines.forEach(sender::sendMessage);
     }
 
@@ -344,13 +344,13 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendHelp(CommandSender sender, String label) {
-        sender.sendMessage(ChatColor.GOLD + "NeverUp2Late " + ChatColor.GRAY + "- keeps your server and plugins current.");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " status" + ChatColor.GRAY + " - what is tracked, what is due, what failed");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " plan [source]" + ChatColor.GRAY + " - show what an update would do, without changing anything");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " check [source]" + ChatColor.GRAY + " - look for updates right now and install them");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " gui" + ChatColor.GRAY + " - the plugin overview (players only)");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " <url>" + ChatColor.GRAY + " - install a plugin from a link");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " rollback <source>" + ChatColor.GRAY + " - restore the previous version");
-        sender.sendMessage(ChatColor.AQUA + "/" + label + " setup" + ChatColor.GRAY + " - run the first-time setup");
+        sender.sendMessage(Theme.HEADING + "NeverUp2Late " + Theme.MUTED + "- keeps your server and plugins current.");
+        sender.sendMessage(Theme.ACCENT + "/" + label + " status" + Theme.MUTED + " - what is tracked, what is due, what failed");
+        sender.sendMessage(Theme.ACCENT + "/" + label + " plan [source]" + Theme.MUTED + " - show what an update would do, without changing anything");
+        sender.sendMessage(Theme.ACCENT + "/" + label + " check [source]" + Theme.MUTED + " - look for updates right now and install them");
+        sender.sendMessage(Theme.ACCENT + "/" + label + " gui" + Theme.MUTED + " - the plugin overview (players only)");
+        sender.sendMessage(Theme.ACCENT + "/" + label + " <url>" + Theme.MUTED + " - install a plugin from a link");
+        sender.sendMessage(Theme.ACCENT + "/" + label + " rollback <source>" + Theme.MUTED + " - restore the previous version");
+        sender.sendMessage(Theme.ACCENT + "/" + label + " setup" + Theme.MUTED + " - run the first-time setup");
     }
 }

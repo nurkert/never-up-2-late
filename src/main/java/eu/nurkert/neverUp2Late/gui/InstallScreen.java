@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
@@ -7,7 +8,6 @@ import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
 import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggester;
 import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggestion;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -65,7 +65,7 @@ final class InstallScreen {
 
         if (!player.hasPermission(Permissions.GUI_OPEN)
                 && !player.hasPermission(Permissions.GUI_MANAGE)) {
-            player.sendMessage(ChatColor.RED + "You do not have permission to open the NU2L GUI.");
+            player.sendMessage(Theme.ERROR + "You do not have permission to open the NU2L GUI.");
             return;
         }
         if (!state.checkPermission(player, Permissions.INSTALL)) {
@@ -74,13 +74,13 @@ final class InstallScreen {
 
         String trimmed = query != null ? query.trim() : "";
         if (trimmed.length() < 3) {
-            player.sendMessage(ChatColor.RED + "Please enter at least three characters.");
+            player.sendMessage(Theme.ERROR + "Please enter at least three characters.");
             return;
         }
 
         UUID playerId = player.getUniqueId();
         pendingInstallSearches.put(playerId, trimmed);
-        player.sendMessage(ChatColor.GRAY + "Searching for " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
+        player.sendMessage(Theme.MUTED + "Searching for " + Theme.ACCENT + trimmed + Theme.MUTED + " …");
 
         context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
             List<PluginLinkSuggestion> suggestions;
@@ -105,7 +105,7 @@ final class InstallScreen {
                 .toList();
 
         Inventory inventory = Bukkit.createInventory(null, INSTALL_INVENTORY_SIZE,
-                ChatColor.DARK_PURPLE + "NU2L – New plugin");
+                Theme.TITLE + "NU2L – New plugin");
 
         ItemStack filler = items.createFiller();
         for (int i = 0; i < INSTALL_INVENTORY_SIZE; i++) {
@@ -156,20 +156,20 @@ final class InstallScreen {
         ItemStack item = new ItemStack(Material.WRITTEN_BOOK);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Plugin search");
+            meta.setDisplayName(Theme.ACCENT + "Plugin search");
             List<String> lore = new ArrayList<>();
             if (searchTerm == null || searchTerm.isBlank()) {
-                lore.add(ChatColor.GRAY + "Use the search to browse Modrinth or Hangar.");
-                lore.add(ChatColor.GRAY + "Manual links support SpigotMC via the Spiget API.");
+                lore.add(Theme.MUTED + "Use the search to browse Modrinth or Hangar.");
+                lore.add(Theme.MUTED + "Manual links support SpigotMC via the Spiget API.");
             } else if (resultCount == 0) {
-                lore.add(ChatColor.YELLOW + "No results for: " + ChatColor.WHITE + searchTerm);
-                lore.add(ChatColor.GRAY + "Adjust the search term or try a direct link.");
+                lore.add(Theme.WARNING + "No results for: " + Theme.TEXT + searchTerm);
+                lore.add(Theme.MUTED + "Adjust the search term or try a direct link.");
             } else {
-                lore.add(ChatColor.GREEN + "Projects found: " + ChatColor.WHITE + resultCount);
-                lore.add(ChatColor.GRAY + "Click an entry to download the jar.");
+                lore.add(Theme.SUCCESS + "Projects found: " + Theme.TEXT + resultCount);
+                lore.add(Theme.MUTED + "Click an entry to download the jar.");
             }
             lore.add(" ");
-            lore.add(ChatColor.DARK_GRAY + "Plugins are not activated automatically.");
+            lore.add(Theme.SUBTLE + "Plugins are not activated automatically.");
             meta.setLore(lore);
             item.setItemMeta(meta);
         }
@@ -180,14 +180,14 @@ final class InstallScreen {
         ItemStack item = new ItemStack(Material.COMPASS);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GREEN + "Search for a plugin");
+            meta.setDisplayName(Theme.SUCCESS + "Search for a plugin");
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Opens a text input.");
-            lore.add(ChatColor.GRAY + "Searches Modrinth and Hangar simultaneously.");
-            lore.add(ChatColor.DARK_GRAY + "Use manual input for SpigotMC/Spiget links.");
+            lore.add(Theme.MUTED + "Opens a text input.");
+            lore.add(Theme.MUTED + "Searches Modrinth and Hangar simultaneously.");
+            lore.add(Theme.SUBTLE + "Use manual input for SpigotMC/Spiget links.");
             if (searchTerm != null && !searchTerm.isBlank()) {
                 lore.add(" ");
-                lore.add(ChatColor.DARK_GRAY + "Last search: " + ChatColor.WHITE + searchTerm);
+                lore.add(Theme.SUBTLE + "Last search: " + Theme.TEXT + searchTerm);
             }
             meta.setLore(lore);
             item.setItemMeta(meta);
@@ -199,10 +199,10 @@ final class InstallScreen {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Enter a direct link");
+            meta.setDisplayName(Theme.WARNING + "Enter a direct link");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Opens an anvil dialog",
-                    ChatColor.GRAY + "for direct download links (e.g. SpigotMC/Spiget)."
+                    Theme.MUTED + "Opens an anvil dialog",
+                    Theme.MUTED + "for direct download links (e.g. SpigotMC/Spiget)."
             ));
             item.setItemMeta(meta);
         }
@@ -213,8 +213,8 @@ final class InstallScreen {
         ItemStack item = new ItemStack(Material.ARROW);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Back to overview");
-            meta.setLore(List.of(ChatColor.GRAY + "Closes the install view and shows all plugins."));
+            meta.setDisplayName(Theme.WARNING + "Back to overview");
+            meta.setLore(List.of(Theme.MUTED + "Closes the install view and shows all plugins."));
             item.setItemMeta(meta);
         }
         return item;
@@ -228,12 +228,12 @@ final class InstallScreen {
         player.closeInventory();
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "NU2L search")
+                .title(Theme.TITLE + "NU2L search")
                 .initialText(previousTerm != null ? previousTerm : "")
                 .validation(value -> {
                     String trimmed = value != null ? value.trim() : "";
                     if (trimmed.length() < 3) {
-                        return Optional.of(ChatColor.RED + "Please enter at least three characters.");
+                        return Optional.of(Theme.ERROR + "Please enter at least three characters.");
                     }
                     return Optional.empty();
                 })
@@ -248,14 +248,14 @@ final class InstallScreen {
                                          String previousTerm) {
         String trimmed = query != null ? query.trim() : "";
         if (trimmed.length() < 3) {
-            player.sendMessage(ChatColor.RED + "Please enter at least three characters.");
+            player.sendMessage(Theme.ERROR + "Please enter at least three characters.");
             openStandaloneInstall(player, previousSuggestions, previousTerm);
             return;
         }
 
         UUID playerId = player.getUniqueId();
         pendingInstallSearches.put(playerId, trimmed);
-        player.sendMessage(ChatColor.GRAY + "Searching for " + ChatColor.AQUA + trimmed + ChatColor.GRAY + " …");
+        player.sendMessage(Theme.MUTED + "Searching for " + Theme.ACCENT + trimmed + Theme.MUTED + " …");
 
         context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
             List<PluginLinkSuggestion> suggestions;
@@ -288,9 +288,9 @@ final class InstallScreen {
 
         List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : suggestions;
         if (entries.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No results found. Try another term.");
+            player.sendMessage(Theme.WARNING + "No results found. Try another term.");
         } else {
-            player.sendMessage(ChatColor.GREEN + "Projects found: " + entries.size());
+            player.sendMessage(Theme.SUCCESS + "Projects found: " + entries.size());
         }
 
         openStandaloneInstall(player, entries, searchTerm);
@@ -304,7 +304,7 @@ final class InstallScreen {
         player.closeInventory();
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(ChatColor.DARK_PURPLE + "NU2L direct link")
+                .title(Theme.TITLE + "NU2L direct link")
                 .initialText("https://")
                 .onConfirm((p, value) -> installStandaloneFromUrl(p, value))
                 .onCancel(p -> openStandaloneInstall(p, previous, previousTerm))
@@ -315,19 +315,19 @@ final class InstallScreen {
         player.closeInventory();
         state.openInventories.remove(player.getUniqueId());
         String title = Objects.requireNonNullElse(suggestion.title(), suggestion.provider());
-        player.sendMessage(ChatColor.GREEN + "Installing " + ChatColor.AQUA
-                + suggestion.provider() + ChatColor.GREEN + " project " + ChatColor.AQUA
-                + title + ChatColor.GREEN + " …");
+        player.sendMessage(Theme.SUCCESS + "Installing " + Theme.ACCENT
+                + suggestion.provider() + Theme.SUCCESS + " project " + Theme.ACCENT
+                + title + Theme.SUCCESS + " …");
         coordinator.install(player, suggestion.url());
     }
 
     private void installStandaloneFromUrl(Player player, String value) {
         String trimmed = value != null ? value.trim() : "";
         if (trimmed.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "Please provide a valid download link.");
+            player.sendMessage(Theme.ERROR + "Please provide a valid download link.");
             return;
         }
-        player.sendMessage(ChatColor.GREEN + "Starting installation from direct link…");
+        player.sendMessage(Theme.SUCCESS + "Starting installation from direct link…");
         coordinator.install(player, trimmed);
     }
 }

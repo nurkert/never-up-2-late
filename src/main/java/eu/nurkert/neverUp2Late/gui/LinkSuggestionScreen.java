@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
@@ -9,7 +10,6 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggester;
 import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggestion;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -63,7 +63,7 @@ final class LinkSuggestionScreen {
 
         Path path = plugin.getPath();
         if (path == null) {
-            player.sendMessage(ChatColor.RED + "Could not find a jar for this plugin.");
+            player.sendMessage(Theme.ERROR + "Could not find a jar for this plugin.");
             return;
         }
 
@@ -81,7 +81,7 @@ final class LinkSuggestionScreen {
 
         prompts.pendingSuggestionRequests.put(playerId, plugin);
         prompts.armPrompt(player);
-        player.sendMessage(ChatColor.GRAY + "Searching for matching sources…");
+        player.sendMessage(Theme.MUTED + "Searching for matching sources…");
 
         context.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
             List<PluginLinkSuggestion> suggestions;
@@ -113,14 +113,14 @@ final class LinkSuggestionScreen {
         }
 
         if (suggestions == null || suggestions.isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No matching sources found. Please enter the link manually.");
+            player.sendMessage(Theme.WARNING + "No matching sources found. Please enter the link manually.");
             promptManualLinkInput(player, plugin, Optional.empty());
             return;
         }
 
-        player.sendMessage(ChatColor.GREEN + "Found " + suggestions.size()
+        player.sendMessage(Theme.SUCCESS + "Found " + suggestions.size()
                 + " potential update sources.");
-        player.sendMessage(ChatColor.GRAY + "Choose a suggestion or enter a link manually.");
+        player.sendMessage(Theme.MUTED + "Choose a suggestion or enter a link manually.");
         openLinkSuggestions(player, plugin, suggestions);
     }
 
@@ -134,7 +134,7 @@ final class LinkSuggestionScreen {
         size = Math.min(size, GuiState.MAX_SIZE);
 
         Inventory inventory = Bukkit.createInventory(null, size,
-                ChatColor.DARK_PURPLE + pluginName + " – Update sources");
+                Theme.TITLE + pluginName + " – Update sources");
 
         ItemStack filler = items.createFiller();
         for (int i = 0; i < size; i++) {
@@ -163,8 +163,8 @@ final class LinkSuggestionScreen {
         player.closeInventory();
         state.openInventories.remove(player.getUniqueId());
         prompts.pendingLinkRequests.remove(player.getUniqueId());
-        player.sendMessage(ChatColor.GREEN + "Applying suggestion " + ChatColor.AQUA
-                + suggestion.provider() + ChatColor.GREEN + " for " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
+        player.sendMessage(Theme.SUCCESS + "Applying suggestion " + Theme.ACCENT
+                + suggestion.provider() + Theme.SUCCESS + " for " + Theme.ACCENT + pluginName + Theme.SUCCESS + " …");
         coordinator.installForPlugin(player, pluginName, suggestion.url());
     }
 
@@ -197,11 +197,11 @@ final class LinkSuggestionScreen {
         prompts.pendingLinkRequests.put(playerId, new LinkRequest(pluginName, false));
         prompts.armPrompt(player);
 
-        player.sendMessage(ChatColor.AQUA + "Set update link for " + pluginName + ".");
+        player.sendMessage(Theme.ACCENT + "Set update link for " + pluginName + ".");
         existingSource.ifPresentOrElse(source ->
-                        player.sendMessage(ChatColor.GRAY + "Current source: " + ChatColor.AQUA + source.getName()),
-                () -> player.sendMessage(ChatColor.GRAY + "No source is currently linked."));
-        player.sendMessage(ChatColor.YELLOW + "Please enter the download URL in chat or type 'cancel'.");
+                        player.sendMessage(Theme.MUTED + "Current source: " + Theme.ACCENT + source.getName()),
+                () -> player.sendMessage(Theme.MUTED + "No source is currently linked."));
+        player.sendMessage(Theme.WARNING + "Please enter the download URL in chat or type 'cancel'.");
     }
 
     private List<String> buildSearchTerms(ManagedPlugin plugin) {
@@ -251,10 +251,10 @@ final class LinkSuggestionScreen {
         ItemStack item = new ItemStack(Material.OAK_SIGN);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.AQUA + "Enter a link manually");
+            meta.setDisplayName(Theme.ACCENT + "Enter a link manually");
             meta.setLore(List.of(
-                    ChatColor.GRAY + "Opens chat input,",
-                    ChatColor.GRAY + "so you can enter a URL manually."
+                    Theme.MUTED + "Opens chat input,",
+                    Theme.MUTED + "so you can enter a URL manually."
             ));
             item.setItemMeta(meta);
         }
@@ -265,8 +265,8 @@ final class LinkSuggestionScreen {
         ItemStack item = new ItemStack(Material.ARROW);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.YELLOW + "Back to plugin details");
-            meta.setLore(List.of(ChatColor.GRAY + "Returns to the plugin details."));
+            meta.setDisplayName(Theme.WARNING + "Back to plugin details");
+            meta.setLore(List.of(Theme.MUTED + "Returns to the plugin details."));
             item.setItemMeta(meta);
         }
         return item;
@@ -279,25 +279,25 @@ final class LinkSuggestionScreen {
         }
 
         if (message.isBlank()) {
-            player.sendMessage(ChatColor.RED + "Please enter a valid link or type 'cancel'.");
+            player.sendMessage(Theme.ERROR + "Please enter a valid link or type 'cancel'.");
             return;
         }
 
         if (message.equalsIgnoreCase("cancel")) {
             prompts.pendingLinkRequests.remove(playerId);
-            player.sendMessage(ChatColor.YELLOW + "Linking cancelled.");
+            player.sendMessage(Theme.WARNING + "Linking cancelled.");
             return;
         }
 
         prompts.pendingLinkRequests.remove(playerId);
         if (request.standalone()) {
-            player.sendMessage(ChatColor.GREEN + "Starting installation of a new plugin…");
+            player.sendMessage(Theme.SUCCESS + "Starting installation of a new plugin…");
             coordinator.install(player, message);
             return;
         }
 
         String pluginName = request.pluginName();
-        player.sendMessage(ChatColor.GREEN + "Processing link for " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " …");
+        player.sendMessage(Theme.SUCCESS + "Processing link for " + Theme.ACCENT + pluginName + Theme.SUCCESS + " …");
         coordinator.installForPlugin(player, pluginName, message);
     }
 }

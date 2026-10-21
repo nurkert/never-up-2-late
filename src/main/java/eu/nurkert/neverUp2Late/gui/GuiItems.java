@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
@@ -53,42 +54,42 @@ final class GuiItems {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + plugin.getName());
+            meta.setDisplayName(Theme.HEADING + plugin.getName());
 
             List<String> lore = new ArrayList<>();
             source.flatMap(linked -> context.getPersistentPluginHandler().getCheckState(linked.getName()))
                     .ifPresent(state -> lore.addAll(describeCheckState(state, plugin)));
-            lore.add(ChatColor.GRAY + "Status: " + statusLabel(plugin));
+            lore.add(Theme.MUTED + "Status: " + statusLabel(plugin));
             plugin.getPlugin().ifPresentOrElse(loaded -> {
                 String version = loaded.getDescription().getVersion();
                 if (version != null && !version.isBlank()) {
-                    lore.add(ChatColor.GRAY + "Version: " + ChatColor.AQUA + version);
+                    lore.add(Theme.MUTED + "Version: " + Theme.ACCENT + version);
                 }
-                lore.add(ChatColor.GRAY + "Enabled: "
-                        + (loaded.isEnabled() ? ChatColor.GREEN + "Yes" : ChatColor.RED + "No"));
-            }, () -> lore.add(ChatColor.RED + "Not loaded"));
+                lore.add(Theme.MUTED + "Enabled: "
+                        + (loaded.isEnabled() ? Theme.SUCCESS + "Yes" : Theme.ERROR + "No"));
+            }, () -> lore.add(Theme.ERROR + "Not loaded"));
 
             Path path = plugin.getPath();
             if (path != null) {
-                lore.add(ChatColor.DARK_GRAY + "File: " + ChatColor.WHITE + path.getFileName());
+                lore.add(Theme.SUBTLE + "File: " + Theme.TEXT + path.getFileName());
                 source.ifPresentOrElse(linkedSource -> {
-                    lore.add(ChatColor.GRAY + "Update source: " + ChatColor.AQUA + linkedSource.getName());
-                    lore.add(ChatColor.YELLOW + "Click to change the update source.");
-                }, () -> lore.add(ChatColor.RED + "No update source linked - click to set one."));
+                    lore.add(Theme.MUTED + "Update source: " + Theme.ACCENT + linkedSource.getName());
+                    lore.add(Theme.WARNING + "Click to change the update source.");
+                }, () -> lore.add(Theme.ERROR + "No update source linked - click to set one."));
             } else {
-                lore.add(ChatColor.RED + "No jar file found - cannot link.");
+                lore.add(Theme.ERROR + "No jar file found - cannot link.");
             }
 
             PluginUpdateSettings settings = readSettings(plugin);
             if (!settings.autoUpdateEnabled()) {
-                lore.add(ChatColor.GRAY + "Updates: " + ChatColor.RED + "Automatic updates disabled");
+                lore.add(Theme.MUTED + "Updates: " + Theme.ERROR + "Automatic updates disabled");
             } else if (settings.behaviour() == UpdateBehaviour.AUTO_RELOAD) {
-                lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GREEN + "Automatically reload");
+                lore.add(Theme.MUTED + "Updates: " + Theme.SUCCESS + "Automatically reload");
             } else {
-                lore.add(ChatColor.GRAY + "Updates: " + ChatColor.GOLD + "Server restart required");
+                lore.add(Theme.MUTED + "Updates: " + Theme.HEADING + "Server restart required");
             }
             if (isSelfPlugin(plugin)) {
-                lore.add(ChatColor.DARK_GRAY + "Managed by NeverUp2Late itself.");
+                lore.add(Theme.SUBTLE + "Managed by NeverUp2Late itself.");
             }
 
             meta.setLore(lore);
@@ -99,12 +100,12 @@ final class GuiItems {
 
     private String statusLabel(ManagedPlugin plugin) {
         if (plugin.isEnabled()) {
-            return ChatColor.GREEN + "Active";
+            return Theme.SUCCESS + "Active";
         }
         if (plugin.isLoaded()) {
-            return ChatColor.YELLOW + "Loaded";
+            return Theme.WARNING + "Loaded";
         }
-        return ChatColor.RED + "Not loaded";
+        return Theme.ERROR + "Not loaded";
     }
 
     ItemStack createFiller() {
@@ -169,21 +170,21 @@ final class GuiItems {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             String title = Objects.requireNonNullElse(suggestion.title(), suggestion.provider());
-            meta.setDisplayName(ChatColor.AQUA + title + ChatColor.DARK_GRAY + " (" + suggestion.provider() + ")");
+            meta.setDisplayName(Theme.ACCENT + title + Theme.SUBTLE + " (" + suggestion.provider() + ")");
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + suggestion.provider() + " suggestion");
+            lore.add(Theme.MUTED + suggestion.provider() + " suggestion");
             for (String line : wrapText(suggestion.description(), 40)) {
-                lore.add(ChatColor.DARK_GRAY + line);
+                lore.add(Theme.SUBTLE + line);
             }
             if (!suggestion.highlights().isEmpty()) {
                 lore.add(" ");
                 for (String highlight : suggestion.highlights()) {
-                    lore.add(ChatColor.GRAY + "• " + ChatColor.YELLOW + highlight);
+                    lore.add(Theme.MUTED + "• " + Theme.WARNING + highlight);
                 }
             }
             lore.add(" ");
-            lore.add(ChatColor.DARK_GRAY + suggestion.url());
-            lore.add(ChatColor.GREEN + "Click to use this link.");
+            lore.add(Theme.SUBTLE + suggestion.url());
+            lore.add(Theme.SUCCESS + "Click to use this link.");
             meta.setLore(lore);
             item.setItemMeta(meta);
         }
@@ -235,15 +236,15 @@ final class GuiItems {
         List<String> lines = new ArrayList<>();
         if (state.result() == UpdateStateRepository.CheckResult.FAILED) {
             String reason = state.error() == null || state.error().isBlank() ? "unknown reason" : state.error();
-            lines.add(ChatColor.RED + "Last check failed: " + ChatColor.WHITE + reason);
+            lines.add(Theme.ERROR + "Last check failed: " + Theme.TEXT + reason);
         } else if (isNewerThanRunning(state, plugin)) {
-            lines.add(ChatColor.GREEN + "" + ChatColor.BOLD + "Update ready: "
-                    + ChatColor.WHITE + state.latestVersion());
-            lines.add(ChatColor.GRAY + "Applied on the next restart.");
+            lines.add(Theme.SUCCESS + "" + ChatColor.BOLD + "Update ready: "
+                    + Theme.TEXT + state.latestVersion());
+            lines.add(Theme.MUTED + "Applied on the next restart.");
         } else {
-            lines.add(ChatColor.GREEN + "Up to date.");
+            lines.add(Theme.SUCCESS + "Up to date.");
         }
-        lines.add(ChatColor.DARK_GRAY + "Checked " + describeAge(state.checkedAt()));
+        lines.add(Theme.SUBTLE + "Checked " + describeAge(state.checkedAt()));
         return lines;
     }
 

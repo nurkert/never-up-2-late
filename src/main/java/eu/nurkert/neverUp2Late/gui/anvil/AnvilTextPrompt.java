@@ -1,7 +1,7 @@
 package eu.nurkert.neverUp2Late.gui.anvil;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -207,12 +207,12 @@ public class AnvilTextPrompt implements Listener {
                 : null;
         chatPrompts.put(playerId, new ChatPrompt(prompt, expiry));
         player.closeInventory();
-        player.sendMessage(ChatColor.AQUA + prompt.title());
+        player.sendMessage(Theme.ACCENT + prompt.title());
         if (prompt.initialText() != null && !prompt.initialText().isBlank()) {
-            player.sendMessage(ChatColor.GRAY + "Current value: " + ChatColor.WHITE + prompt.initialText());
+            player.sendMessage(Theme.MUTED + "Current value: " + Theme.TEXT + prompt.initialText());
         }
-        player.sendMessage(ChatColor.GRAY + "Type the new value in chat within 60 seconds, or "
-                + ChatColor.WHITE + "cancel" + ChatColor.GRAY + " to abort.");
+        player.sendMessage(Theme.MUTED + "Type the new value in chat within 60 seconds, or "
+                + Theme.TEXT + "cancel" + Theme.MUTED + " to abort.");
     }
 
     private void expireChatPrompt(UUID playerId) {
@@ -222,7 +222,7 @@ public class AnvilTextPrompt implements Listener {
         }
         Player player = plugin.getServer().getPlayer(playerId);
         if (player != null && player.isOnline()) {
-            player.sendMessage(ChatColor.GRAY + "Input timed out.");
+            player.sendMessage(Theme.MUTED + "Input timed out.");
             expired.prompt().onCancel().accept(player);
         }
     }
@@ -275,9 +275,9 @@ public class AnvilTextPrompt implements Listener {
 
         Optional<String> validation = prompt.validation().apply(value);
         if (validation.isPresent()) {
-            player.sendMessage(ChatColor.RED + validation.get());
-            player.sendMessage(ChatColor.GRAY + "Please try again, or type "
-                    + ChatColor.WHITE + "cancel" + ChatColor.GRAY + ".");
+            player.sendMessage(Theme.ERROR + validation.get());
+            player.sendMessage(Theme.MUTED + "Please try again, or type "
+                    + Theme.TEXT + "cancel" + Theme.MUTED + ".");
             startChatPrompt(player, prompt);
             return;
         }
@@ -314,13 +314,13 @@ public class AnvilTextPrompt implements Listener {
 
     public static final class Builder {
 
-        private String title = ChatColor.DARK_PURPLE + "Input";
+        private String title = Theme.TITLE + "Input";
         private String initialText = "";
         private ItemStack inputItem = new ItemStack(Material.PAPER);
         private Function<String, ItemStack> previewFactory;
         private Function<String, Optional<String>> validation = value -> {
             if (value == null || value.isBlank()) {
-                return Optional.of(ChatColor.RED + "Please enter a value.");
+                return Optional.of(Theme.ERROR + "Please enter a value.");
             }
             return Optional.empty();
         };
@@ -368,7 +368,7 @@ public class AnvilTextPrompt implements Listener {
                 ItemStack result = new ItemStack(template.getType());
                 ItemMeta meta = result.getItemMeta();
                 if (meta != null) {
-                    meta.setDisplayName(ChatColor.GREEN + value);
+                    meta.setDisplayName(Theme.SUCCESS + value);
                     result.setItemMeta(meta);
                 }
                 return result;
@@ -396,7 +396,7 @@ public class AnvilTextPrompt implements Listener {
             if (!clone.hasItemMeta()) {
                 ItemMeta meta = clone.getItemMeta();
                 if (meta != null) {
-                    meta.setDisplayName(ChatColor.GREEN + value);
+                    meta.setDisplayName(Theme.SUCCESS + value);
                     clone.setItemMeta(meta);
                 }
             }

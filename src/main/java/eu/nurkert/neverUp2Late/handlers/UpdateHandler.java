@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.net.HttpException;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
@@ -20,7 +21,6 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.update.VersionComparator;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.LogThrottle;
-import org.bukkit.ChatColor;
 import org.bukkit.Server;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -114,7 +114,7 @@ public class UpdateHandler {
         this.versionComparator = versionComparator;
         this.logger = plugin.getLogger();
         this.logThrottle = new LogThrottle(this.logger);
-        this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
+        this.messagePrefix = Theme.PREFIX;
         this.pluginLifecycleManager = pluginLifecycleManager;
         this.updateSettingsRepository = updateSettingsRepository;
         this.setupStateRepository = setupStateRepository;
@@ -473,17 +473,17 @@ public class UpdateHandler {
             return;
         }
         if (shuttingDown || !plugin.isEnabled()) {
-            notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
+            notify(sender, Theme.ERROR + "The updater is currently shutting down. Please try again later.");
             return;
         }
         List<UpdateSource> queue = List.copyOf(sources);
         scheduler.runTaskAsynchronously(plugin, () -> {
             if (shuttingDown || !plugin.isEnabled()) {
-                notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
+                notify(sender, Theme.ERROR + "The updater is currently shutting down. Please try again later.");
                 return;
             }
             if (!updateRunLock.tryLock()) {
-                notify(sender, ChatColor.RED + "Another update run is currently in progress. Please try again shortly.");
+                notify(sender, Theme.ERROR + "Another update run is currently in progress. Please try again shortly.");
                 return;
             }
             try {
@@ -511,16 +511,16 @@ public class UpdateHandler {
      */
     public void planNow(List<UpdateSource> sources, CommandSender sender) {
         if (sources == null || sources.isEmpty()) {
-            notify(sender, ChatColor.YELLOW + "No update sources are configured yet.");
+            notify(sender, Theme.WARNING + "No update sources are configured yet.");
             return;
         }
         if (shuttingDown || !plugin.isEnabled()) {
-            notify(sender, ChatColor.RED + "The updater is currently shutting down. Please try again later.");
+            notify(sender, Theme.ERROR + "The updater is currently shutting down. Please try again later.");
             return;
         }
         List<UpdateSource> queue = List.copyOf(sources);
         scheduler.runTaskAsynchronously(plugin, () -> {
-            notify(sender, ChatColor.GRAY + "Checking " + queue.size()
+            notify(sender, Theme.MUTED + "Checking " + queue.size()
                     + " source(s). Nothing will be downloaded or changed.");
             File pluginsFolder = plugin.getDataFolder().getParentFile();
             File serverFolder = server.getWorldContainer().getAbsoluteFile();
@@ -539,10 +539,10 @@ public class UpdateHandler {
                     blocked++;
                 }
             }
-            notify(sender, ChatColor.GRAY + "Done: " + ChatColor.WHITE + wouldInstall
-                    + ChatColor.GRAY + " would be installed, " + ChatColor.WHITE + blocked
-                    + ChatColor.GRAY + " would be refused. Run " + ChatColor.AQUA + "/nu2l check"
-                    + ChatColor.GRAY + " to apply.");
+            notify(sender, Theme.MUTED + "Done: " + Theme.TEXT + wouldInstall
+                    + Theme.MUTED + " would be installed, " + Theme.TEXT + blocked
+                    + Theme.MUTED + " would be refused. Run " + Theme.ACCENT + "/nu2l check"
+                    + Theme.MUTED + " to apply.");
         });
     }
 
@@ -551,7 +551,7 @@ public class UpdateHandler {
         Path destination = resolveDestination(source, pluginsFolder, serverFolder, false);
         if (destination == null) {
             return new Plan(false, true,
-                    ChatColor.RED + "✘ " + name + ChatColor.GRAY + " - no usable filename configured.");
+                    Theme.ERROR + "✘ " + name + Theme.MUTED + " - no usable filename configured.");
         }
 
         UpdateContext context = new UpdateContext(source, destination, logger);
@@ -560,14 +560,14 @@ public class UpdateHandler {
                     configuration.getBoolean("updates.respectManualRollback", true))
                     .execute(context);
         } catch (Exception ex) {
-            return new Plan(false, true, ChatColor.RED + "✘ " + name + ChatColor.GRAY + " - "
+            return new Plan(false, true, Theme.ERROR + "✘ " + name + Theme.MUTED + " - "
                     + (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()));
         }
 
         String fileName = destination.getFileName() != null
                 ? destination.getFileName().toString() : destination.toString();
         if (context.isCancelled()) {
-            return new Plan(false, false, ChatColor.DARK_GRAY + "= " + ChatColor.GRAY + name + " - "
+            return new Plan(false, false, Theme.SUBTLE + "= " + Theme.MUTED + name + " - "
                     + context.getCancelReason().orElse("nothing to do") + ".");
         }
 
@@ -580,15 +580,15 @@ public class UpdateHandler {
         if (pluginName != null) {
             Optional<Path> elsewhere = InstallationGuard.findExistingCopy(destination, pluginName);
             if (elsewhere.isPresent()) {
-                return new Plan(false, true, ChatColor.RED + "✘ " + name + ChatColor.GRAY
+                return new Plan(false, true, Theme.ERROR + "✘ " + name + Theme.MUTED
                         + " - would be refused: " + pluginName + " is already installed as "
                         + elsewhere.get().getFileName() + ", writing " + fileName
                         + " would leave two copies.");
             }
         }
 
-        return new Plan(true, false, ChatColor.GREEN + "↑ " + ChatColor.WHITE + name + ChatColor.GRAY
-                + " - would install " + ChatColor.WHITE + remote + ChatColor.GRAY + " to " + fileName + ".");
+        return new Plan(true, false, Theme.SUCCESS + "↑ " + Theme.TEXT + name + Theme.MUTED
+                + " - would install " + Theme.TEXT + remote + Theme.MUTED + " to " + fileName + ".");
     }
 
     private record Plan(boolean wouldInstall, boolean blocked, String message) {
@@ -601,42 +601,42 @@ public class UpdateHandler {
             File serverFolder = server.getWorldContainer().getAbsoluteFile();
             Path destination = resolveDestination(source, pluginsFolder, serverFolder);
             if (destination == null) {
-                notify(sender, ChatColor.RED + "No filename configured for " + displayName(source) + "; update aborted.");
+                notify(sender, Theme.ERROR + "No filename configured for " + displayName(source) + "; update aborted.");
                 return;
             }
             UpdateJob job = createDefaultJob();
             UpdateContext context = new UpdateContext(source, destination, logger);
             configureRetention(context, destination);
 
-            notify(sender, ChatColor.YELLOW + "Checking " + displayName(source) + " for new versions…");
+            notify(sender, Theme.WARNING + "Checking " + displayName(source) + " for new versions…");
 
             runJob(job, context);
             logThrottle.clear(failureKey(source));
             if (context.isCancelled()) {
                 String reason = context.getCancelReason().orElse("Installation cancelled.");
-                notify(sender, ChatColor.GOLD + reason);
+                notify(sender, Theme.HEADING + reason);
                 return;
             }
 
             String version = context.getLatestVersion();
             String buildInfo = version != null ? "Version " + version : "Build " + context.getLatestBuild();
             String destinationFile = destination.getFileName() != null ? destination.getFileName().toString() : destination.toString();
-            notify(sender, ChatColor.GREEN + "Installation complete: " + displayName(source) + " "
+            notify(sender, Theme.SUCCESS + "Installation complete: " + displayName(source) + " "
                     + buildInfo + " → " + destinationFile + ". Please restart the server.");
             reportBackup(sender, context);
         } catch (UnknownHostException e) {
-            notify(sender, ChatColor.RED + "Download failed: " + e.getMessage());
+            notify(sender, Theme.ERROR + "Download failed: " + e.getMessage());
             handleUnknownHost(source, e);
         } catch (IOException e) {
             if (e instanceof HttpException httpException) {
                 handleHttpError(sender, source, httpException);
             } else {
-                notify(sender, ChatColor.RED + "I/O error: " + e.getMessage());
+                notify(sender, Theme.ERROR + "I/O error: " + e.getMessage());
                 logger.log(Level.WARNING,
                         "I/O error while installing {0}: {1}", new Object[]{source.getName(), e.getMessage()});
             }
         } catch (Exception e) {
-            notify(sender, ChatColor.RED + "Unexpected error: " + e.getMessage());
+            notify(sender, Theme.ERROR + "Unexpected error: " + e.getMessage());
             logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
         }
     }
@@ -656,8 +656,8 @@ public class UpdateHandler {
         }
         Path dataFolder = plugin.getDataFolder().toPath().toAbsolutePath().normalize();
         Path shown = backup.startsWith(dataFolder) ? dataFolder.getParent().relativize(backup) : backup;
-        notify(sender, ChatColor.GRAY + "The previous file was kept at " + ChatColor.AQUA + shown
-                + ChatColor.GRAY + " in case you need it back.");
+        notify(sender, Theme.MUTED + "The previous file was kept at " + Theme.ACCENT + shown
+                + Theme.MUTED + " in case you need it back.");
         logger.log(Level.INFO, "Replaced artifact for {0} was backed up to {1}.",
                 new Object[]{context.getSource().getName(), backup});
     }
@@ -675,7 +675,7 @@ public class UpdateHandler {
             message = "HTTP " + statusCode + " error while downloading from " + displayHost + ".";
         }
 
-        notify(sender, ChatColor.RED + message);
+        notify(sender, Theme.ERROR + message);
         logger.log(Level.WARNING,
                 "HTTP error {0} while installing {1} from {2}: {3}",
                 new Object[]{statusCode, source.getName(), exception.getUrl(), truncate(exception.getResponseBody())});

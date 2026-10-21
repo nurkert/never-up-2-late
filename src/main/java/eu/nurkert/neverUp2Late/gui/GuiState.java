@@ -1,12 +1,12 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.update.suggestion.PluginLinkSuggester;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
 import java.util.Map;
@@ -47,7 +47,7 @@ final class GuiState {
         if (player.hasPermission(permission) || player.hasPermission(Permissions.GUI_MANAGE)) {
             return true;
         }
-        player.sendMessage(ChatColor.RED + "You are missing the permission " + permission + ".");
+        player.sendMessage(Theme.ERROR + "You are missing the permission " + permission + ".");
         return false;
     }
 }

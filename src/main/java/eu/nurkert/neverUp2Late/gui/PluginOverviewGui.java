@@ -1,12 +1,12 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.gui.ChatPrompts.LinkRequest;
 import eu.nurkert.neverUp2Late.gui.anvil.AnvilTextPrompt;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -60,11 +60,11 @@ public class PluginOverviewGui implements Listener {
 
     public void open(Player player) {
         if (!player.hasPermission(Permissions.GUI_OPEN)) {
-            player.sendMessage(ChatColor.RED + "You do not have permission to open the NU2L GUI.");
+            player.sendMessage(Theme.ERROR + "You do not have permission to open the NU2L GUI.");
             return;
         }
         if (state.context.getPluginLifecycleManager() == null) {
-            player.sendMessage(ChatColor.RED + "Plugin management is disabled.");
+            player.sendMessage(Theme.ERROR + "Plugin management is disabled.");
             return;
         }
         overview.openOverview(player);
@@ -174,7 +174,7 @@ public class PluginOverviewGui implements Listener {
             // This handler runs off the server thread; talking to a Player
             // belongs on it.
             state.context.getScheduler().runTask(state.context.getPlugin(), () -> player.sendMessage(
-                    ChatColor.GRAY + "The previous NU2L prompt timed out - nothing was changed."));
+                    Theme.MUTED + "The previous NU2L prompt timed out - nothing was changed."));
             return;
         }
         if (prompts.pendingCleanupConfirmations.remove(playerId)) {
@@ -185,7 +185,7 @@ public class PluginOverviewGui implements Listener {
                 if (answer.equalsIgnoreCase("yes")) {
                     overview.cleanupAllJarNames(player);
                 } else {
-                    player.sendMessage(ChatColor.YELLOW + "Nothing was renamed.");
+                    player.sendMessage(Theme.WARNING + "Nothing was renamed.");
                 }
             });
             return;
