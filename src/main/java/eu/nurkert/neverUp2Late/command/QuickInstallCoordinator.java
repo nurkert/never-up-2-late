@@ -15,7 +15,6 @@ import eu.nurkert.neverUp2Late.util.ChatMessages;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
 import eu.nurkert.neverUp2Late.net.HttpClient;
-import net.kyori.adventure.text.Component;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
@@ -547,10 +546,9 @@ public class QuickInstallCoordinator {
         send(sender, ChatColor.GOLD + "The archive contains multiple jar files:");
         for (int i = 0; i < entries.size(); i++) {
             ArchiveEntry entry = entries.get(i);
-            send(sender, ChatMessages.choice(i + 1,
+            sendChoice(sender, i + 1,
                     ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
-                            + ChatColor.AQUA + entry.fullPath(),
-                    "/nu2l select " + (i + 1)));
+                            + ChatColor.AQUA + entry.fullPath());
         }
         send(sender, ChatColor.YELLOW + "Click the file you want, or use /nu2l select <number>.");
     }
@@ -583,10 +581,9 @@ public class QuickInstallCoordinator {
             AssetSelectionRequiredException.ReleaseAsset asset = assets.get(i);
             String label = assetLabel(asset);
             String suffix = asset.archive() ? ChatColor.YELLOW + " (archive)" : "";
-            send(sender, ChatMessages.choice(i + 1,
+            sendChoice(sender, i + 1,
                     ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
-                            + ChatColor.AQUA + label + suffix,
-                    "/nu2l select " + (i + 1)));
+                            + ChatColor.AQUA + label + suffix);
         }
         send(sender, ChatColor.YELLOW + "Click the file you want, or use /nu2l select <number>.");
         if (selection.getAssetType() == AssetSelectionRequiredException.AssetType.ARCHIVE
@@ -930,12 +927,14 @@ public class QuickInstallCoordinator {
         }
     }
 
-    private void send(CommandSender sender, Component message) {
+    /** One entry of a list to choose from; clicking it selects entry {@code number}. */
+    private void sendChoice(CommandSender sender, int number, String message) {
         if (sender == null) {
             return;
         }
-        Component text = ChatMessages.PREFIX.append(message);
-        if (!runOnMainThread(() -> sender.sendMessage(text))
+        String text = messagePrefix + message;
+        String command = "/nu2l select " + number;
+        if (!runOnMainThread(() -> ChatMessages.sendChoice(sender, text, number, command))
                 && sender instanceof org.bukkit.command.ConsoleCommandSender) {
             sender.sendMessage(text);
         }

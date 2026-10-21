@@ -14,7 +14,6 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ChatMessages;
-import net.kyori.adventure.text.Component;
 import org.bukkit.ChatColor;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
@@ -210,18 +209,16 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
         }
         String name = event.getSource() != null ? event.getSource().getName() : "a plugin";
         String version = event.getLatestVersion().map(v -> " " + v).orElse("");
-        Component message = ChatMessages.PREFIX
-                .append(ChatMessages.legacy(ChatColor.YELLOW + "An update for " + ChatColor.WHITE + name + version
-                        + ChatColor.YELLOW + " is ready. The server restarts to apply it once everyone has left. "))
-                .append(ChatMessages.command("[Status]", "/nu2l status", "Show every managed plugin and its version"));
-        if (event.getReleasePageUrl().isPresent()) {
-            message = message.append(Component.text(" "))
-                    .append(ChatMessages.link("[Changelog]", event.getReleasePageUrl().get(), "See what changed in" + version));
-        }
+        String message = ChatMessages.PREFIX + ChatColor.YELLOW + "An update for " + ChatColor.WHITE + name + version
+                + ChatColor.YELLOW + " is ready. The server restarts to apply it once everyone has left.";
+        List<ChatMessages.Button> buttons = new java.util.ArrayList<>();
+        buttons.add(ChatMessages.Button.command("[Status]", "/nu2l status", "Show every managed plugin and its version"));
+        event.getReleasePageUrl().ifPresent(url ->
+                buttons.add(ChatMessages.Button.link("[Changelog]", url, "See what changed in" + version)));
         try {
             for (Player online : server.getOnlinePlayers()) {
                 if (online.hasPermission(Permissions.GUI_OPEN) || online.hasPermission(Permissions.INSTALL)) {
-                    online.sendMessage(message);
+                    ChatMessages.send(online, message, buttons.toArray(ChatMessages.Button[]::new));
                 }
             }
         } catch (RuntimeException ignored) {
