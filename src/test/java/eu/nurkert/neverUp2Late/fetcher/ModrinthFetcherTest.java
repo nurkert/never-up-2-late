@@ -267,6 +267,7 @@ class ModrinthFetcherTest {
 
         assertEquals("https://example.com/1.0.0.jar", fetcher.getLatestDownloadUrl());
         assertEquals(new JsonUpdateFetcher.Checksum("SHA-512", sha512), fetcher.getLatestChecksum().orElseThrow());
+        assertEquals("https://modrinth.com/plugin/example/version/1", fetcher.getLatestReleasePageUrl().orElseThrow());
     }
 
     private static class StubHttpClient extends HttpClient {

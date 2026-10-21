@@ -20,6 +20,7 @@ public class UpdateCompletedEvent {
     private final Path downloadedArtifact;
     private final String downloadUrl;
     private final Path replacedFileBackup;
+    private final String releasePageUrl;
 
     public UpdateCompletedEvent(UpdateSource source,
                                 Path destination,
@@ -41,6 +42,20 @@ public class UpdateCompletedEvent {
                                 Path downloadedArtifact,
                                 String downloadUrl,
                                 Path replacedFileBackup) {
+        this(source, destination, latestVersion, latestBuild, downloadedArtifact, downloadUrl, replacedFileBackup, null);
+    }
+
+    /**
+     * @param releasePageUrl where the installed release is described, or {@code null}
+     */
+    public UpdateCompletedEvent(UpdateSource source,
+                                Path destination,
+                                String latestVersion,
+                                int latestBuild,
+                                Path downloadedArtifact,
+                                String downloadUrl,
+                                Path replacedFileBackup,
+                                String releasePageUrl) {
         this.source = Objects.requireNonNull(source, "source");
         this.destination = Objects.requireNonNull(destination, "destination");
         this.latestVersion = latestVersion;
@@ -48,6 +63,7 @@ public class UpdateCompletedEvent {
         this.downloadedArtifact = downloadedArtifact;
         this.downloadUrl = downloadUrl;
         this.replacedFileBackup = replacedFileBackup;
+        this.releasePageUrl = releasePageUrl;
     }
 
     public UpdateSource getSource() {
@@ -76,5 +92,9 @@ public class UpdateCompletedEvent {
 
     public Optional<Path> getReplacedFileBackup() {
         return Optional.ofNullable(replacedFileBackup);
+    }
+
+    public Optional<String> getReleasePageUrl() {
+        return Optional.ofNullable(releasePageUrl);
     }
 }

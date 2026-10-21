@@ -252,6 +252,7 @@ class GithubReleaseFetcherTest {
                             "draft": false,
                             "prerelease": false,
                             "published_at": "2023-09-10T10:00:00Z",
+                            "html_url": "https://github.com/example/demo/releases/tag/v1.0.0",
                             "assets": [
                               { "name": "demo.jar", "browser_download_url": "https://example.com/demo.jar",
                                 "digest": "sha256:%s" }
@@ -264,6 +265,8 @@ class GithubReleaseFetcherTest {
         fetcher.loadLatestBuildInfo();
 
         assertEquals(new JsonUpdateFetcher.Checksum("SHA-256", sha256), fetcher.getLatestChecksum().orElseThrow());
+        assertEquals("https://github.com/example/demo/releases/tag/v1.0.0",
+                fetcher.getLatestReleasePageUrl().orElseThrow());
     }
 
     @Test

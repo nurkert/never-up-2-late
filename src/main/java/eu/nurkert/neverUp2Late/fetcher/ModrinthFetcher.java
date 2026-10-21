@@ -30,6 +30,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
     private static final String API_TEMPLATE = "https://api.modrinth.com/v2/project/%s/version";
 
     private final String apiUrl;
+    private final String projectSlug;
     private final Set<String> supportedLoaders;
     private final Set<String> allowedStatuses;
     private final Set<String> allowedVersionTypes;
@@ -54,6 +55,7 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         Objects.requireNonNull(config, "config");
 
         this.apiUrl = String.format(API_TEMPLATE, config.projectSlug);
+        this.projectSlug = config.projectSlug;
         this.supportedLoaders = config.supportedLoaders;
         this.allowedStatuses = config.allowedStatuses;
         this.allowedVersionTypes = config.allowedVersionTypes;
@@ -99,6 +101,9 @@ public class ModrinthFetcher extends JsonUpdateFetcher {
         ModrinthFile file = resolveDownloadFile(latestBuild);
 
         setLatestBuildInfo(latestBuild.versionNumber(), buildNumber, trimToNull(file.url()));
+        if (latestBuild.id() != null) {
+            setLatestReleasePage("https://modrinth.com/plugin/" + projectSlug + "/version/" + latestBuild.id());
+        }
         Map<String, String> hashes = file.hashes();
         if (hashes.containsKey("sha512")) {
             setLatestChecksum("SHA-512", hashes.get("sha512"));

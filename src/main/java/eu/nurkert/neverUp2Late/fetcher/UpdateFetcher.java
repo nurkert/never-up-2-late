@@ -54,6 +54,16 @@ public interface UpdateFetcher {
     String getInstalledVersion();
 
     /**
+     * The page where the latest release is described - its changelog, as far
+     * as the provider has one.
+     *
+     * @return the page, or empty if the provider has none
+     */
+    default java.util.Optional<String> getLatestReleasePageUrl() {
+        return java.util.Optional.empty();
+    }
+
+    /**
      * Allows fetchers to customise the update context after meta information has been loaded.
      * Implementations can use this hook to set checksum validators, download processors, or
      * additional metadata required by later pipeline steps.

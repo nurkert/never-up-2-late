@@ -41,6 +41,7 @@ public abstract class JsonUpdateFetcher implements UpdateFetcher {
     private int latestBuild;
     private String latestDownloadUrl;
     private Checksum latestChecksum;
+    private String latestReleasePageUrl;
 
     protected JsonUpdateFetcher() {
         this(new HttpClient(), defaultMapper());
@@ -166,6 +167,20 @@ public abstract class JsonUpdateFetcher implements UpdateFetcher {
         this.latestDownloadUrl = downloadUrl;
         // A checksum belongs to exactly one download; never let it outlive it.
         this.latestChecksum = null;
+        this.latestReleasePageUrl = null;
+    }
+
+    /**
+     * Records where the release set by the last {@link #setLatestBuildInfo}
+     * call is described, so an operator can read what changed.
+     */
+    protected void setLatestReleasePage(String url) {
+        this.latestReleasePageUrl = url == null || url.isBlank() ? null : url.trim();
+    }
+
+    @Override
+    public Optional<String> getLatestReleasePageUrl() {
+        return Optional.ofNullable(latestReleasePageUrl);
     }
 
     /**

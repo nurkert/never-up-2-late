@@ -198,7 +198,7 @@ public final class NeverUp2Late extends JavaPlugin {
                 if (sourceName == null) {
                     continue;
                 }
-                registry.findSource(sourceName).ifPresent(source -> installationHandler.onUpdateCompleted(
+                registry.findSource(sourceName).ifPresent(source -> installationHandler.queueRestart(
                         new UpdateCompletedEvent(source, rollback.entry().destination(), null,
                                 UpdateFetcher.UNKNOWN_BUILD, rollback.restoredTo(), null)));
             }

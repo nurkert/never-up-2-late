@@ -99,6 +99,8 @@ public class HangarFetcher extends JsonUpdateFetcher {
         int buildNumber = resolveBuildNumber(best);
 
         setLatestBuildInfo(best.name(), buildNumber, downloadUrl);
+        setLatestReleasePage("https://hangar.papermc.io/" + config.owner() + "/" + config.slug() + "/versions/"
+                + java.net.URLEncoder.encode(best.name(), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
         // The hash describes the file Hangar hosts; an external link may point
         // anywhere, so it is only checked when the download comes from Hangar.
         if (download.fileInfo() != null && downloadUrl.equals(trimToNull(download.downloadUrl()))) {

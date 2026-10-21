@@ -152,6 +152,18 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                 }
             }
         }
+        queueRestart(event);
+    }
+
+    /**
+     * Applies a file change that is already on disk the way an update is
+     * applied - reload or restart, respecting players and the maintenance
+     * window - without announcing it as an update.
+     */
+    public void queueRestart(UpdateCompletedEvent event) {
+        if (event == null) {
+            return;
+        }
         remember(event);
         applyPendingEvents(null);
     }
@@ -202,6 +214,10 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
                 .append(ChatMessages.legacy(ChatColor.YELLOW + "An update for " + ChatColor.WHITE + name + version
                         + ChatColor.YELLOW + " is ready. The server restarts to apply it once everyone has left. "))
                 .append(ChatMessages.command("[Status]", "/nu2l status", "Show every managed plugin and its version"));
+        if (event.getReleasePageUrl().isPresent()) {
+            message = message.append(Component.text(" "))
+                    .append(ChatMessages.link("[Changelog]", event.getReleasePageUrl().get(), "See what changed in" + version));
+        }
         try {
             for (Player online : server.getOnlinePlayers()) {
                 if (online.hasPermission(Permissions.GUI_OPEN) || online.hasPermission(Permissions.INSTALL)) {

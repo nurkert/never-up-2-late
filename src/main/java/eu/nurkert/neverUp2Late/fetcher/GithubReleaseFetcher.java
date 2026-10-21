@@ -312,6 +312,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
 
         int build = clampToInt(latest.id());
         setLatestBuildInfo(tagName, build, selected.browserDownloadUrl());
+        setLatestReleasePage(latest.htmlUrl());
         String digest = selected.digest();
         if (digest != null && digest.regionMatches(true, 0, "sha256:", 0, 7)) {
             setLatestChecksum("SHA-256", digest.substring(7));
@@ -408,6 +409,7 @@ public class GithubReleaseFetcher extends JsonUpdateFetcher {
             @JsonProperty("prerelease") boolean prerelease,
             @JsonProperty("published_at") Instant publishedAt,
             @JsonProperty("created_at") Instant createdAt,
+            @JsonProperty("html_url") String htmlUrl,
             @JsonProperty("assets") List<Asset> assets
     ) {
         private Release {
