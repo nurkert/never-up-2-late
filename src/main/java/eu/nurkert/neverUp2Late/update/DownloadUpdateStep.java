@@ -90,6 +90,11 @@ public class DownloadUpdateStep implements UpdateStep {
                 public void onFailure(Path destination, Exception exception) {
                     hook.onFailure(targetPath, exception);
                 }
+
+                @Override
+                public void onProgress(long bytesRead, long totalBytes) {
+                    hook.onProgress(bytesRead, totalBytes);
+                }
             };
 
             ArtifactDownloader.DownloadRequest.Builder builder = ArtifactDownloader.DownloadRequest.builder()

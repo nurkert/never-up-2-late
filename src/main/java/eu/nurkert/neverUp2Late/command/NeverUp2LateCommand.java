@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.command;
 
+import eu.nurkert.neverUp2Late.util.ChatMessages;
 import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
@@ -70,7 +71,8 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
             if (args.length >= 2) {
                 Optional<UpdateSource> single = context.getUpdateSourceRegistry().findSource(args[1]);
                 if (single.isEmpty()) {
-                    sender.sendMessage(Theme.ERROR + "No update source named " + args[1] + ".");
+                    ChatMessages.send(sender, Theme.PREFIX + Theme.ERROR + "No update source named " + args[1] + ".",
+                            ChatMessages.Button.command("[Show all]", "/nu2l status", "List every update source"));
                     return true;
                 }
                 sources = List.of(single.get());
@@ -268,7 +270,8 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     private void displayStatus(CommandSender sender) {
         List<PluginContext.UpdateSourceStatus> statuses = context.getUpdateSourceStatuses();
         if (statuses.isEmpty()) {
-            sender.sendMessage(Theme.WARNING + "No update sources are currently registered.");
+            ChatMessages.send(sender, Theme.PREFIX + Theme.WARNING + "No update sources are registered yet.",
+                    ChatMessages.Button.suggest("[Add a plugin]", "/nu2l ", "Paste a Modrinth, Hangar, GitHub, … link"));
             return;
         }
 
@@ -276,14 +279,17 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
         int failing = 0;
         int held = 0;
         long newestCheck = 0L;
-        List<String> lines = new ArrayList<>();
+        List<Runnable> rows = new ArrayList<>();
 
         for (PluginContext.UpdateSourceStatus status : statuses) {
             Optional<UpdateStateRepository.CheckState> check =
                     context.getPersistentPluginHandler().getCheckState(status.displayName());
 
+            String icon;
             String state;
+            String detail = null;
             if (check.isEmpty()) {
+                icon = Theme.SUBTLE + Theme.DOT;
                 state = Theme.SUBTLE + "not checked yet";
             } else {
                 UpdateStateRepository.CheckState value = check.get();
@@ -291,40 +297,61 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
                 switch (value.result()) {
                     case FAILED -> {
                         failing++;
-                        state = Theme.ERROR + "check failed: "
-                                + (value.error() == null ? "unknown reason" : value.error());
+                        icon = Theme.ERROR + Theme.CROSS;
+                        state = Theme.ERROR + "check failed";
+                        detail = value.error() == null ? "unknown reason" : value.error();
                     }
                     case UPDATED -> {
                         waiting++;
-                        state = Theme.SUCCESS + "updated to " + value.latestVersion()
-                                + Theme.MUTED + " (restart pending)";
+                        icon = Theme.WARNING + Theme.UP;
+                        state = Theme.SUCCESS + value.latestVersion() + Theme.MUTED + " · restart pending";
                     }
                     case HELD -> {
                         held++;
-                        state = Theme.HEADING + "held back: "
-                                + (value.error() == null ? "installation refused" : value.error());
+                        icon = Theme.HEADING + Theme.WARN;
+                        state = Theme.HEADING + "held back";
+                        detail = value.error() == null ? "installation refused" : value.error();
                     }
-                    default -> state = Theme.MUTED + "up to date";
+                    default -> {
+                        icon = Theme.SUCCESS + Theme.CHECK;
+                        state = Theme.MUTED + "up to date";
+                    }
                 }
             }
 
-            lines.add(Theme.ACCENT + status.displayName()
-                    + Theme.MUTED + " → " + Theme.WARNING + status.versionLabel()
-                    + Theme.MUTED + " | " + state
-                    + Theme.MUTED + " | auto-update: "
-                    + (status.autoUpdateEnabled() ? Theme.SUCCESS + "on" : Theme.ERROR + "off"));
+            String name = status.displayName();
+            String line = " " + icon + " " + Theme.TEXT + name + Theme.SUBTLE + "  " + Theme.ACCENT
+                    + status.versionLabel() + Theme.SUBTLE + "  " + state
+                    + (status.autoUpdateEnabled() ? "" : Theme.SUBTLE + " · auto-update off");
+            String hover = Theme.HEADING + name + "\n"
+                    + Theme.MUTED + "Plugin: " + Theme.TEXT + status.pluginDisplayName() + "\n"
+                    + Theme.MUTED + "File: " + Theme.TEXT + (status.targetPath() != null ? status.targetPath().getFileName() : "-") + "\n"
+                    + Theme.MUTED + "Installed: " + Theme.TEXT + status.versionLabel() + "\n"
+                    + Theme.MUTED + "Auto-update: " + (status.autoUpdateEnabled() ? Theme.SUCCESS + "on" : Theme.ERROR + "off")
+                    + check.map(value -> "\n" + Theme.MUTED + "Checked: " + Theme.TEXT + describeAge(value.checkedAt())).orElse("")
+                    + (detail != null ? "\n" + Theme.ERROR + detail : "");
+            List<ChatMessages.Button> buttons = new ArrayList<>();
+            buttons.add(ChatMessages.Button.command("[Check]", "/nu2l check " + name, "Look for a new " + name + " now"));
+            if (detail != null) {
+                buttons.add(ChatMessages.Button.suggest("[Rollback]", "/nu2l rollback " + name,
+                        "Put the previous version back (press Enter to confirm)"));
+            }
+            rows.add(() -> ChatMessages.sendWithHover(sender, line, hover, buttons.toArray(ChatMessages.Button[]::new)));
         }
 
         // The headline first: an operator wants the answer, not a table to read.
-        sender.sendMessage(Theme.HEADING + "NeverUp2Late: " + Theme.TEXT + statuses.size()
-                + Theme.MUTED + " source(s), " + Theme.TEXT + waiting
-                + Theme.MUTED + " waiting for a restart, " + Theme.TEXT + failing
-                + Theme.MUTED + " failing"
-                + (held > 0 ? Theme.MUTED + ", " + Theme.HEADING + held + Theme.MUTED + " held back" : "")
-                + Theme.MUTED + ".");
-        sender.sendMessage(Theme.MUTED + "Last check: " + Theme.TEXT + describeAge(newestCheck)
-                + Theme.SUBTLE + "  (/" + "nu2l check to look now)");
-        lines.forEach(sender::sendMessage);
+        sender.sendMessage(Theme.rule(40));
+        sender.sendMessage(" " + Theme.gradient("NeverUp2Late", 0x3DD6D0, 0x3B82F6) + Theme.SUBTLE + "  "
+                + Theme.TEXT + statuses.size() + Theme.MUTED + " sources" + Theme.SUBTLE + " · "
+                + (waiting > 0 ? Theme.WARNING : Theme.TEXT) + waiting + Theme.MUTED + " waiting for a restart" + Theme.SUBTLE + " · "
+                + (failing > 0 ? Theme.ERROR : Theme.TEXT) + failing + Theme.MUTED + " failing"
+                + (held > 0 ? Theme.SUBTLE + " · " + Theme.HEADING + held + Theme.MUTED + " held back" : ""));
+        ChatMessages.send(sender, " " + Theme.MUTED + "Last check: " + Theme.TEXT + describeAge(newestCheck),
+                ChatMessages.Button.command("[Check all]", "/nu2l check", "Look for updates to everything now"),
+                ChatMessages.Button.command("[Plan]", "/nu2l plan", "See what an update would do, without changing anything"));
+        sender.sendMessage("");
+        rows.forEach(Runnable::run);
+        sender.sendMessage(Theme.rule(40));
     }
 
     private String describeAge(long epochMillis) {
@@ -344,13 +371,39 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendHelp(CommandSender sender, String label) {
-        sender.sendMessage(Theme.HEADING + "NeverUp2Late " + Theme.MUTED + "- keeps your server and plugins current.");
-        sender.sendMessage(Theme.ACCENT + "/" + label + " status" + Theme.MUTED + " - what is tracked, what is due, what failed");
-        sender.sendMessage(Theme.ACCENT + "/" + label + " plan [source]" + Theme.MUTED + " - show what an update would do, without changing anything");
-        sender.sendMessage(Theme.ACCENT + "/" + label + " check [source]" + Theme.MUTED + " - look for updates right now and install them");
-        sender.sendMessage(Theme.ACCENT + "/" + label + " gui" + Theme.MUTED + " - the plugin overview (players only)");
-        sender.sendMessage(Theme.ACCENT + "/" + label + " <url>" + Theme.MUTED + " - install a plugin from a link");
-        sender.sendMessage(Theme.ACCENT + "/" + label + " rollback <source>" + Theme.MUTED + " - restore the previous version");
-        sender.sendMessage(Theme.ACCENT + "/" + label + " setup" + Theme.MUTED + " - run the first-time setup");
+        String command = "/" + label;
+        sender.sendMessage(Theme.rule(40));
+        sender.sendMessage(" " + Theme.gradient("NeverUp2Late", 0x3DD6D0, 0x3B82F6)
+                + Theme.MUTED + "  keeps your server and plugins current");
+        sender.sendMessage("");
+        helpLine(sender, command, "", "Open the plugin overview", true);
+        helpLine(sender, command, " <url>", "Install a plugin from a Modrinth, Hangar, GitHub, … link", false);
+        helpLine(sender, command, " status", "What is tracked, what is due, what failed", true);
+        helpLine(sender, command, " plan", "Show what an update would do, changing nothing", true);
+        helpLine(sender, command, " check", "Look for updates now and install them", true);
+        helpLine(sender, command, " rollback <source>", "Put the previous version back", false);
+        helpLine(sender, command, " setup", "Run the first-time setup", true);
+        sender.sendMessage("");
+        sender.sendMessage(" " + Theme.SUBTLE + "Click a command to " + Theme.MUTED + "run" + Theme.SUBTLE
+                + " it, or to put it in your chat box when it needs more.");
+        sender.sendMessage(Theme.rule(40));
+    }
+
+    /**
+     * @param complete whether the command can run as it stands; otherwise
+     *                 clicking only puts it into the chat box
+     */
+    private void helpLine(CommandSender sender, String command, String arguments, String description, boolean complete) {
+        String full = command + arguments;
+        String runnable = complete ? full : command + arguments.substring(0, Math.max(0, arguments.indexOf('<'))).stripTrailing() + " ";
+        ChatMessages.Button button = complete
+                ? ChatMessages.Button.command(full, full, description)
+                : ChatMessages.Button.suggest(full, runnable, description);
+        if (sender instanceof Player) {
+            ChatMessages.send(sender, " " + Theme.SUBTLE + Theme.ARROW, button);
+        } else {
+            sender.sendMessage(" " + Theme.SUBTLE + Theme.ARROW + " " + Theme.ACCENT + full);
+        }
+        sender.sendMessage("     " + Theme.MUTED + description);
     }
 }

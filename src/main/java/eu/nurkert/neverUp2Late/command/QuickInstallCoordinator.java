@@ -13,6 +13,7 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ChatMessages;
+import eu.nurkert.neverUp2Late.util.Feedback;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
 import eu.nurkert.neverUp2Late.net.HttpClient;
@@ -544,6 +545,7 @@ public class QuickInstallCoordinator {
         pendingArchiveSelections.put(key, new ArchivePendingSelection(plan, List.copyOf(entries)));
 
         send(sender, Theme.HEADING + "The archive contains multiple jar files:");
+        runOnMainThread(() -> Feedback.attention(sender));
         for (int i = 0; i < entries.size(); i++) {
             ArchiveEntry entry = entries.get(i);
             sendChoice(sender, i + 1,
@@ -574,6 +576,7 @@ public class QuickInstallCoordinator {
             default -> "assets";
         };
 
+        runOnMainThread(() -> Feedback.attention(sender));
         send(sender, Theme.HEADING + "Found multiple " + typeLabel + " for " + plan.getDisplayName()
                 + " (" + selection.getReleaseTag() + "):");
         List<AssetSelectionRequiredException.ReleaseAsset> assets = selection.getAssets();
@@ -614,7 +617,12 @@ public class QuickInstallCoordinator {
             send(sender, Theme.MUTED + "Listed versions: " + Theme.ACCENT + joined);
         }
 
-        send(sender, Theme.WARNING + "Use /nu2l ignore to install the latest version anyway or /nu2l cancel to abort.");
+        sendButtons(sender, Theme.WARNING + "Install it anyway?",
+                ChatMessages.Button.command("[Install anyway]", "/nu2l ignore", "Install the latest version regardless"),
+                ChatMessages.Button.command("[Cancel]", "/nu2l cancel", "Leave everything as it is"));
+        if (sender instanceof org.bukkit.command.ConsoleCommandSender) {
+            send(sender, Theme.MUTED + "Use /nu2l ignore to install anyway or /nu2l cancel to abort.");
+        }
     }
 
     private void finalizeInstallation(CommandSender sender, InstallationPlan plan) {
@@ -924,6 +932,20 @@ public class QuickInstallCoordinator {
             if (!preferred.equals(current)) {
                 plan.setSourceName(preferred);
             }
+        }
+    }
+
+    /** A message with buttons, sent on the server thread like {@link #send}. */
+    private void sendButtons(CommandSender sender, String message, ChatMessages.Button... buttons) {
+        if (sender == null) {
+            return;
+        }
+        String text = messagePrefix + message;
+        if (!runOnMainThread(() -> {
+            ChatMessages.send(sender, text, buttons);
+            Feedback.attention(sender);
+        }) && sender instanceof org.bukkit.command.ConsoleCommandSender) {
+            sender.sendMessage(text);
         }
     }
 

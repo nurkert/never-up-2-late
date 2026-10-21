@@ -1,5 +1,7 @@
 package eu.nurkert.neverUp2Late.handlers;
 
+import eu.nurkert.neverUp2Late.util.ChatMessages;
+import eu.nurkert.neverUp2Late.util.Feedback;
 import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.net.HttpException;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
@@ -539,10 +541,17 @@ public class UpdateHandler {
                     blocked++;
                 }
             }
-            notify(sender, Theme.MUTED + "Done: " + Theme.TEXT + wouldInstall
+            String summary = Theme.MUTED + "Done: " + Theme.TEXT + wouldInstall
                     + Theme.MUTED + " would be installed, " + Theme.TEXT + blocked
-                    + Theme.MUTED + " would be refused. Run " + Theme.ACCENT + "/nu2l check"
-                    + Theme.MUTED + " to apply.");
+                    + Theme.MUTED + " would be refused.";
+            String command = queue.size() == 1 ? "/nu2l check " + queue.get(0).getName() : "/nu2l check";
+            if (wouldInstall > 0 && sender instanceof org.bukkit.entity.Player) {
+                runOnMainThread(() -> ChatMessages.send(sender, messagePrefix + summary,
+                        ChatMessages.Button.command("[Install now]", command, "Run the update for real")));
+            } else {
+                notify(sender, summary + (wouldInstall > 0
+                        ? Theme.MUTED + " Run " + Theme.ACCENT + command + Theme.MUTED + " to apply." : ""));
+            }
         });
     }
 
@@ -608,26 +617,42 @@ public class UpdateHandler {
             UpdateContext context = new UpdateContext(source, destination, logger);
             configureRetention(context, destination);
 
-            notify(sender, Theme.WARNING + "Checking " + displayName(source) + " for new versions…");
+            String name = displayName(source);
+            progress(sender, Theme.ACCENT + "⟳ " + Theme.TEXT + name + Theme.MUTED + " · looking for a new version", true);
+            context.setDownloadHook(new ArtifactDownloader.DownloadHook() {
+                @Override
+                public void onProgress(long bytesRead, long totalBytes) {
+                    String amount = totalBytes > 0
+                            ? Theme.bar((double) bytesRead / totalBytes, 12) + " " + Theme.TEXT + (bytesRead * 100 / totalBytes) + " %"
+                            : Theme.TEXT + (bytesRead / 1024) + " KiB";
+                    progress(sender, Theme.ACCENT + "⟳ " + Theme.TEXT + name + Theme.MUTED + " · downloading " + amount, false);
+                }
+            });
 
             runJob(job, context);
             logThrottle.clear(failureKey(source));
             if (context.isCancelled()) {
                 String reason = context.getCancelReason().orElse("Installation cancelled.");
+                progress(sender, Theme.MUTED + reason, false);
                 notify(sender, Theme.HEADING + reason);
                 return;
             }
 
             String version = context.getLatestVersion();
-            String buildInfo = version != null ? "Version " + version : "Build " + context.getLatestBuild();
+            String buildInfo = version != null ? version : "build " + context.getLatestBuild();
             String destinationFile = destination.getFileName() != null ? destination.getFileName().toString() : destination.toString();
-            notify(sender, Theme.SUCCESS + "Installation complete: " + displayName(source) + " "
-                    + buildInfo + " → " + destinationFile + ". Please restart the server.");
+            progress(sender, Theme.SUCCESS + Theme.CHECK + " " + Theme.TEXT + name + Theme.MUTED + " updated to "
+                    + Theme.ACCENT + buildInfo, false);
+            notify(sender, Theme.SUCCESS + Theme.CHECK + " " + Theme.TEXT + name + Theme.MUTED + " updated to "
+                    + Theme.ACCENT + buildInfo + Theme.MUTED + " (" + destinationFile + "). It applies with the next restart.");
+            feedback(sender, Feedback::success);
             reportBackup(sender, context);
         } catch (UnknownHostException e) {
             notify(sender, Theme.ERROR + "Download failed: " + e.getMessage());
+            feedback(sender, Feedback::error);
             handleUnknownHost(source, e);
         } catch (IOException e) {
+            feedback(sender, Feedback::error);
             if (e instanceof HttpException httpException) {
                 handleHttpError(sender, source, httpException);
             } else {
@@ -637,7 +662,30 @@ public class UpdateHandler {
             }
         } catch (Exception e) {
             notify(sender, Theme.ERROR + "Unexpected error: " + e.getMessage());
+            feedback(sender, Feedback::error);
             logger.log(Level.SEVERE, "Unexpected error while running manual update for " + source.getName(), e);
+        }
+    }
+
+    /**
+     * Shows a step of a running job in the player's action bar instead of
+     * adding a chat line per step.
+     *
+     * @param consoleToo whether the console, which has no action bar, should
+     *                   get this step as a chat line - worth it for the start
+     *                   of a job, not for every percent of a download
+     */
+    private void progress(CommandSender sender, String text, boolean consoleToo) {
+        if (sender instanceof org.bukkit.entity.Player) {
+            runOnMainThread(() -> Feedback.actionBar(sender, text));
+        } else if (consoleToo) {
+            notify(sender, text);
+        }
+    }
+
+    private void feedback(CommandSender sender, java.util.function.Consumer<CommandSender> effect) {
+        if (sender instanceof org.bukkit.entity.Player) {
+            runOnMainThread(() -> effect.accept(sender));
         }
     }
 

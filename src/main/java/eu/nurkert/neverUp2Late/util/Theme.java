@@ -66,6 +66,16 @@ public final class Theme {
         return result.toString();
     }
 
+    /**
+     * A progress bar, e.g. {@code ▰▰▰▰▱▱▱▱▱▱}.
+     *
+     * @param fraction between 0 and 1
+     */
+    public static String bar(double fraction, int width) {
+        int filled = (int) Math.round(Math.max(0, Math.min(1, fraction)) * width);
+        return ACCENT + "▰".repeat(filled) + SUBTLE + "▱".repeat(width - filled);
+    }
+
     /** A thin horizontal rule for framing longer chat output. */
     public static String rule(int width) {
         return SUBTLE + ChatColor.STRIKETHROUGH + " ".repeat(width) + ChatColor.RESET;

@@ -376,7 +376,7 @@ public class ArtifactDownloader {
             Path tempFile = Files.createTempFile(parent, destination.getFileName().toString(), ".download");
             try {
                 URLConnection connection = openConnection(request);
-                copyToTempFile(connection, tempFile, request.getChecksumValidator());
+                copyToTempFile(connection, tempFile, request.getChecksumValidator(), hook);
                 validateArchiveIfExpected(destination, tempFile);
                 if (request.isBackupExisting()) {
                     try {
@@ -481,7 +481,8 @@ public class ArtifactDownloader {
 
     private void copyToTempFile(URLConnection connection,
                                 Path tempFile,
-                                ChecksumValidator checksumValidator) throws IOException {
+                                ChecksumValidator checksumValidator,
+                                DownloadHook hook) throws IOException {
         if (connection instanceof HttpURLConnection httpConnection) {
             int status = httpConnection.getResponseCode();
             if (status >= 400) {
@@ -492,7 +493,8 @@ public class ArtifactDownloader {
             }
         }
 
-        try (InputStream inputStream = connection.getInputStream();
+        long totalBytes = connection.getContentLengthLong();
+        try (InputStream inputStream = new ProgressInputStream(connection.getInputStream(), totalBytes, hook);
              OutputStream outputStream = Files.newOutputStream(tempFile, StandardOpenOption.WRITE)) {
 
             if (checksumValidator == null || !checksumValidator.requiresDigest()) {
@@ -753,6 +755,66 @@ public class ArtifactDownloader {
         }
 
         default void onFailure(Path destination, Exception exception) {
+        }
+
+        /**
+         * Reports how far a download got. Called from the download thread,
+         * at most once per percent.
+         *
+         * @param totalBytes the size the server announced, or {@code -1} if it did not
+         */
+        default void onProgress(long bytesRead, long totalBytes) {
+        }
+    }
+
+    /**
+     * Counts what passes through and tells the hook, at most once per percent
+     * (or per 256 KiB when the size is unknown) so a fast download does not
+     * flood whoever is listening.
+     */
+    private static final class ProgressInputStream extends java.io.FilterInputStream {
+        private static final long UNKNOWN_SIZE_STEP = 256 * 1024;
+
+        private final long totalBytes;
+        private final DownloadHook hook;
+        private long bytesRead;
+        private long lastReported = -1;
+
+        ProgressInputStream(InputStream in, long totalBytes, DownloadHook hook) {
+            super(in);
+            this.totalBytes = totalBytes;
+            this.hook = hook == null ? DownloadHook.NO_OP : hook;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = super.read();
+            if (value >= 0) {
+                advance(1);
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int read = super.read(buffer, offset, length);
+            if (read > 0) {
+                advance(read);
+            }
+            return read;
+        }
+
+        private void advance(long count) {
+            bytesRead += count;
+            long step = totalBytes > 0 ? bytesRead * 100 / totalBytes : bytesRead / UNKNOWN_SIZE_STEP;
+            if (step != lastReported) {
+                lastReported = step;
+                try {
+                    hook.onProgress(bytesRead, totalBytes);
+                } catch (RuntimeException ignored) {
+                    // Progress is a courtesy; the download goes on.
+                }
+            }
         }
     }
 

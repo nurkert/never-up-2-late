@@ -1,6 +1,7 @@
 package eu.nurkert.neverUp2Late.util;
 
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 
 import java.util.List;
 
@@ -67,13 +68,18 @@ public final class ChatMessages {
      * at the text itself - the place for details that would crowd the line.
      */
     public static void sendWithHover(CommandSender to, String legacyText, String legacyHover, Button... buttons) {
-        if (clickable(to)) {
+        boolean player = to instanceof Player;
+        if (player && clickable(to)) {
             AdventureChat.send(to, legacyText, legacyHover, List.of(buttons));
             return;
         }
+        // Nobody clicks in a console: commands would only be noise there, but
+        // a link is still worth having.
         StringBuilder text = new StringBuilder(legacyText);
         for (Button button : buttons) {
-            text.append(' ').append(button.asPlainText());
+            if (player || button.kind() == Button.Kind.URL) {
+                text.append(' ').append(button.asPlainText());
+            }
         }
         to.sendMessage(text.toString());
     }

@@ -12,10 +12,34 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ArtifactDownloaderTest {
+
+    @Test
+    void reportsProgressUpToTheFullSize(@TempDir Path tempDir) throws Exception {
+        Path source = tempDir.resolve("source.bin");
+        Files.write(source, new byte[300_000]);
+        List<long[]> reports = new java.util.ArrayList<>();
+
+        new ArtifactDownloader(tempDir.resolve("backups"), 1).download(ArtifactDownloader.DownloadRequest.builder()
+                .url(source.toUri().toURL().toString())
+                .destination(tempDir.resolve("out/target.bin"))
+                .hook(new ArtifactDownloader.DownloadHook() {
+                    @Override
+                    public void onProgress(long bytesRead, long totalBytes) {
+                        reports.add(new long[]{bytesRead, totalBytes});
+                    }
+                })
+                .build());
+
+        long[] last = reports.get(reports.size() - 1);
+        assertEquals(300_000L, last[0]);
+        assertEquals(300_000L, last[1]);
+        assertTrue(reports.size() <= 101, "at most once per percent, was " + reports.size());
+    }
 
     @Test
     void downloadBacksUpExistingFileWithoutRemovingDestination(@TempDir Path tempDir) throws Exception {

@@ -15,6 +15,7 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ChatMessages;
+import eu.nurkert.neverUp2Late.util.Feedback;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -219,6 +220,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
             for (Player online : server.getOnlinePlayers()) {
                 if (online.hasPermission(Permissions.GUI_OPEN) || online.hasPermission(Permissions.INSTALL)) {
                     ChatMessages.send(online, message, buttons.toArray(ChatMessages.Button[]::new));
+                    Feedback.attention(online);
                 }
             }
         } catch (RuntimeException ignored) {
