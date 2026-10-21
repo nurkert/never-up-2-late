@@ -20,14 +20,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.CodeSource;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Items and lookups more than one screen needs: the plugin status item, the filler,
- * suggestion entries, and what a managed plugin is linked to.
+ * Items and lookups more than one screen needs: the plugin status item, suggestion
+ * entries, what a managed plugin is linked to and where it stands.
  */
 final class GuiItems {
 
@@ -42,11 +43,35 @@ final class GuiItems {
         this.updateSettingsRepository = updateSettingsRepository;
     }
 
-    ItemStack createPluginItem(ManagedPlugin plugin) {
+    /** Where {@code plugin} stands - what decides its filter, its shimmer and the frame colour. */
+    PluginStatus statusOf(ManagedPlugin plugin) {
         Optional<UpdateSource> source = findMatchingSource(plugin);
-        boolean updateWaiting = source
-                .flatMap(linked -> context.getPersistentPluginHandler().getCheckState(linked.getName()))
-                .map(state -> isNewerThanRunning(state, plugin))
+        Optional<UpdateStateRepository.CheckState> checkState = source
+                .flatMap(linked -> context.getPersistentPluginHandler().getCheckState(linked.getName()));
+        boolean failed = checkState
+                .map(state -> state.result() == UpdateStateRepository.CheckResult.FAILED)
+                .orElse(false);
+        boolean ready = checkState.map(state -> isNewerThanRunning(state, plugin)).orElse(false);
+        return PluginStatus.of(source.isPresent(), failed, ready);
+    }
+
+    PluginSummary summarize(Collection<ManagedPlugin> plugins) {
+        return PluginSummary.of(plugins.stream().map(this::statusOf).toList());
+    }
+
+    /**
+     * A plugin as one item: what runs, what is waiting, where it comes from
+     * and when that was last asked - then, after a gap, what a click does.
+     *
+     * @param hints the action lines for the screen this item is shown on; may be empty
+     */
+    ItemStack createPluginItem(ManagedPlugin plugin, List<String> hints) {
+        Optional<UpdateSource> source = findMatchingSource(plugin);
+        Optional<UpdateStateRepository.CheckState> checkState = source
+                .flatMap(linked -> context.getPersistentPluginHandler().getCheckState(linked.getName()));
+        boolean updateWaiting = checkState.map(state -> isNewerThanRunning(state, plugin)).orElse(false);
+        boolean failed = checkState
+                .map(state -> state.result() == UpdateStateRepository.CheckResult.FAILED)
                 .orElse(false);
         Material material = updateWaiting
                 ? Material.WRITABLE_BOOK
@@ -54,28 +79,29 @@ final class GuiItems {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(Theme.HEADING + plugin.getName());
+            String marker = failed ? Theme.ERROR + Theme.WARN + " "
+                    : updateWaiting ? Theme.SUCCESS + Theme.UP + " " : "";
+            meta.setDisplayName(marker + Theme.HEADING + plugin.getName());
 
             List<String> lore = new ArrayList<>();
-            source.flatMap(linked -> context.getPersistentPluginHandler().getCheckState(linked.getName()))
-                    .ifPresent(state -> lore.addAll(describeCheckState(state, plugin)));
+            String running = plugin.getPlugin()
+                    .map(loaded -> loaded.getDescription().getVersion())
+                    .filter(version -> !version.isBlank())
+                    .orElse(null);
+            if (updateWaiting) {
+                lore.add(Theme.MUTED + "Version: " + Theme.TEXT + running + Theme.SUBTLE + " " + Theme.ARROW
+                        + " " + Theme.SUCCESS + ChatColor.BOLD + checkState.get().latestVersion());
+            } else if (running != null) {
+                lore.add(Theme.MUTED + "Version: " + Theme.ACCENT + running);
+            }
+            source.ifPresentOrElse(
+                    linked -> lore.add(Theme.MUTED + "Source: " + Theme.ACCENT + linked.getName()),
+                    () -> lore.add(Theme.MUTED + "Source: " + Theme.SUBTLE + "not linked"));
+            checkState.ifPresent(state -> lore.addAll(describeCheckState(state, updateWaiting)));
             lore.add(Theme.MUTED + "Status: " + statusLabel(plugin));
-            plugin.getPlugin().ifPresentOrElse(loaded -> {
-                String version = loaded.getDescription().getVersion();
-                if (version != null && !version.isBlank()) {
-                    lore.add(Theme.MUTED + "Version: " + Theme.ACCENT + version);
-                }
-                lore.add(Theme.MUTED + "Enabled: "
-                        + (loaded.isEnabled() ? Theme.SUCCESS + "Yes" : Theme.ERROR + "No"));
-            }, () -> lore.add(Theme.ERROR + "Not loaded"));
-
             Path path = plugin.getPath();
             if (path != null) {
-                lore.add(Theme.SUBTLE + "File: " + Theme.TEXT + path.getFileName());
-                source.ifPresentOrElse(linkedSource -> {
-                    lore.add(Theme.MUTED + "Update source: " + Theme.ACCENT + linkedSource.getName());
-                    lore.add(Theme.WARNING + "Click to change the update source.");
-                }, () -> lore.add(Theme.ERROR + "No update source linked - click to set one."));
+                lore.add(Theme.MUTED + "File: " + Theme.TEXT + path.getFileName());
             } else {
                 lore.add(Theme.ERROR + "No jar file found - cannot link.");
             }
@@ -91,8 +117,14 @@ final class GuiItems {
             if (isSelfPlugin(plugin)) {
                 lore.add(Theme.SUBTLE + "Managed by NeverUp2Late itself.");
             }
+            if (hints != null && !hints.isEmpty()) {
+                lore.add(" ");
+                lore.addAll(hints);
+            }
 
             meta.setLore(lore);
+            GuiChrome.quiet(meta);
+            GuiChrome.glint(meta, updateWaiting);
             item.setItemMeta(meta);
         }
         return item;
@@ -106,16 +138,6 @@ final class GuiItems {
             return Theme.WARNING + "Loaded";
         }
         return Theme.ERROR + "Not loaded";
-    }
-
-    ItemStack createFiller() {
-        ItemStack item = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(" ");
-            item.setItemMeta(meta);
-        }
-        return item;
     }
 
     PluginUpdateSettings readSettings(ManagedPlugin plugin) {
@@ -179,13 +201,15 @@ final class GuiItems {
             if (!suggestion.highlights().isEmpty()) {
                 lore.add(" ");
                 for (String highlight : suggestion.highlights()) {
-                    lore.add(Theme.MUTED + "• " + Theme.WARNING + highlight);
+                    lore.add(Theme.MUTED + Theme.DOT + " " + Theme.WARNING + highlight);
                 }
             }
             lore.add(" ");
             lore.add(Theme.SUBTLE + suggestion.url());
-            lore.add(Theme.SUCCESS + "Click to use this link.");
+            lore.add(" ");
+            lore.add(GuiChrome.hints("Click: use this link"));
             meta.setLore(lore);
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -232,19 +256,17 @@ final class GuiItems {
      * and did the last look actually work. Everything else on the item describes
      * what is installed or which policy applies - neither answers the question.
      */
-    private List<String> describeCheckState(UpdateStateRepository.CheckState state, ManagedPlugin plugin) {
+    private List<String> describeCheckState(UpdateStateRepository.CheckState state, boolean updateWaiting) {
         List<String> lines = new ArrayList<>();
+        lines.add(Theme.MUTED + "Last check: " + Theme.TEXT + describeAge(state.checkedAt()));
         if (state.result() == UpdateStateRepository.CheckResult.FAILED) {
             String reason = state.error() == null || state.error().isBlank() ? "unknown reason" : state.error();
-            lines.add(Theme.ERROR + "Last check failed: " + Theme.TEXT + reason);
-        } else if (isNewerThanRunning(state, plugin)) {
-            lines.add(Theme.SUCCESS + "" + ChatColor.BOLD + "Update ready: "
-                    + Theme.TEXT + state.latestVersion());
-            lines.add(Theme.MUTED + "Applied on the next restart.");
+            lines.add(Theme.ERROR + Theme.CROSS + " Failed: " + Theme.TEXT + reason);
+        } else if (updateWaiting) {
+            lines.add(Theme.SUCCESS + Theme.UP + " Update ready " + Theme.MUTED + "- applied on the next restart.");
         } else {
-            lines.add(Theme.SUCCESS + "Up to date.");
+            lines.add(Theme.SUCCESS + Theme.CHECK + " Up to date");
         }
-        lines.add(Theme.SUBTLE + "Checked " + describeAge(state.checkedAt()));
         return lines;
     }
 

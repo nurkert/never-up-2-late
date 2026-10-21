@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Feedback;
 import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
@@ -19,8 +20,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * and the chat prompts that are waiting on an answer.
  */
 final class GuiState {
-
-    static final int MAX_SIZE = 54;
 
     final PluginContext context;
     final QuickInstallCoordinator coordinator;
@@ -48,6 +47,7 @@ final class GuiState {
             return true;
         }
         player.sendMessage(Theme.ERROR + "You are missing the permission " + permission + ".");
+        Feedback.error(player);
         return false;
     }
 }

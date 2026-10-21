@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Feedback;
 import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
@@ -15,7 +16,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -127,33 +127,44 @@ final class LinkSuggestionScreen {
     private void openLinkSuggestions(Player player,
                                       ManagedPlugin plugin,
                                       List<PluginLinkSuggestion> suggestions) {
+        openLinkSuggestions(player, plugin, suggestions, 0);
+    }
+
+    /**
+     * One page of suggestions. Searching by several names can return more
+     * than fit in one chest; they used to be cut off at the bottom.
+     */
+    private void openLinkSuggestions(Player player,
+                                     ManagedPlugin plugin,
+                                     List<PluginLinkSuggestion> suggestions,
+                                     int requestedPage) {
         String pluginName = Objects.requireNonNullElse(plugin.getName(), "Plugin");
         List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : suggestions;
-        int baseCount = Math.max(0, entries.size()) + 2;
-        int size = Math.max(9, ((baseCount + 8) / 9) * 9);
-        size = Math.min(size, GuiState.MAX_SIZE);
+        Pagination pagination = Pagination.of(entries.size(), GuiLayout.CONTENT_SIZE, requestedPage);
 
-        Inventory inventory = Bukkit.createInventory(null, size,
-                Theme.TITLE + pluginName + " – Update sources");
+        Inventory inventory = Bukkit.createInventory(null, GuiLayout.SIZE, GuiChrome.title("Sources"));
+        GuiChrome.drawFrame(inventory, FrameState.of(items.statusOf(plugin)));
 
-        ItemStack filler = items.createFiller();
-        for (int i = 0; i < size; i++) {
-            inventory.setItem(i, filler.clone());
-        }
+        inventory.setItem(GuiLayout.SUMMARY_SLOT, GuiChrome.button(Material.WRITTEN_BOOK,
+                Theme.TEXT + "Update sources for " + Theme.ACCENT + pluginName, List.of(
+                        Theme.MUTED + "Found " + Theme.TEXT + entries.size() + Theme.MUTED + " possible source(s).",
+                        Theme.MUTED + "Pick one, or enter a link yourself.")));
+        inventory.setItem(GuiLayout.TOOL_RIGHT_SLOT, createManualLinkOptionItem());
 
         Map<Integer, PluginLinkSuggestion> mapping = new HashMap<>();
-        int maxSuggestions = Math.max(0, size - 2);
-        for (int i = 0; i < maxSuggestions && i < entries.size(); i++) {
-            PluginLinkSuggestion suggestion = entries.get(i);
-            inventory.setItem(i, items.createSuggestionItem(suggestion));
-            mapping.put(i, suggestion);
+        for (int index = pagination.fromIndex(); index < pagination.toIndex(); index++) {
+            int slot = GuiLayout.contentSlot(index - pagination.fromIndex());
+            PluginLinkSuggestion suggestion = entries.get(index);
+            inventory.setItem(slot, items.createSuggestionItem(suggestion));
+            mapping.put(slot, suggestion);
         }
 
-        int manualSlot = size - 2;
-        inventory.setItem(manualSlot, createManualLinkOptionItem());
-        inventory.setItem(size - 1, createSuggestionBackItem());
+        inventory.setItem(GuiLayout.BACK_SLOT, GuiChrome.back("the plugin details"));
+        GuiChrome.drawPager(inventory, pagination, Theme.MUTED + entries.size() + " suggestion(s)");
+        inventory.setItem(GuiLayout.CLOSE_SLOT, GuiChrome.close());
 
-        state.openInventories.put(player.getUniqueId(), InventorySession.suggestions(inventory, plugin, mapping, entries));
+        state.openInventories.put(player.getUniqueId(),
+                InventorySession.suggestions(inventory, plugin, mapping, entries, pagination.page()));
         player.openInventory(inventory);
     }
 
@@ -169,20 +180,29 @@ final class LinkSuggestionScreen {
     }
 
     void handleClick(Player player, ManagedPlugin plugin, InventorySession session, InventoryClickEvent event) {
-        int manualSlot = session.inventory().getSize() - 2;
-        int backSlot = session.inventory().getSize() - 1;
         int clicked = event.getRawSlot();
-        if (clicked == backSlot) {
+        if (clicked == GuiLayout.BACK_SLOT) {
+            Feedback.pageTurn(player);
             gui.details().openPluginDetails(player, plugin);
             return;
         }
-        if (clicked == manualSlot) {
+        if (clicked == GuiLayout.TOOL_RIGHT_SLOT) {
+            Feedback.click(player);
             player.closeInventory();
             promptManualLinkInput(player, plugin, Optional.empty());
             return;
         }
+        if (clicked == GuiLayout.PREVIOUS_SLOT || clicked == GuiLayout.NEXT_SLOT) {
+            if (OverviewScreen.isPagerArrow(event)) {
+                Feedback.pageTurn(player);
+                int delta = clicked == GuiLayout.NEXT_SLOT ? 1 : -1;
+                openLinkSuggestions(player, plugin, session.orderedSuggestions(), session.page() + delta);
+            }
+            return;
+        }
         PluginLinkSuggestion suggestion = session.suggestions().get(clicked);
         if (suggestion != null) {
+            Feedback.click(player);
             applySuggestion(player, plugin, suggestion);
         }
     }
@@ -248,28 +268,11 @@ final class LinkSuggestionScreen {
     }
 
     private ItemStack createManualLinkOptionItem() {
-        ItemStack item = new ItemStack(Material.OAK_SIGN);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(Theme.ACCENT + "Enter a link manually");
-            meta.setLore(List.of(
-                    Theme.MUTED + "Opens chat input,",
-                    Theme.MUTED + "so you can enter a URL manually."
-            ));
-            item.setItemMeta(meta);
-        }
-        return item;
-    }
-
-    private ItemStack createSuggestionBackItem() {
-        ItemStack item = new ItemStack(Material.ARROW);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(Theme.WARNING + "Back to plugin details");
-            meta.setLore(List.of(Theme.MUTED + "Returns to the plugin details."));
-            item.setItemMeta(meta);
-        }
-        return item;
+        return GuiChrome.button(Material.OAK_SIGN, Theme.ACCENT + "Enter a link manually", List.of(
+                Theme.MUTED + "Opens chat input,",
+                Theme.MUTED + "so you can enter a URL manually.",
+                " ",
+                GuiChrome.hints("Click: type a link")));
     }
 
     void handleChatInput(Player player, String message, LinkRequest request) {

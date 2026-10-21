@@ -38,7 +38,8 @@ final class PluginDetailItems {
                         Theme.MUTED + "NeverUp2Late keeps itself enabled.",
                         Theme.MUTED + "Restart the server to reload it."
                 ));
-                item.setItemMeta(meta);
+                GuiChrome.quiet(meta);
+            item.setItemMeta(meta);
             }
             return item;
         }
@@ -62,6 +63,7 @@ final class PluginDetailItems {
                         Theme.MUTED + "Starts the plugin after it has been loaded."
                 ));
             }
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -77,7 +79,8 @@ final class PluginDetailItems {
                         Theme.MUTED + "NeverUp2Late must stay loaded",
                         Theme.MUTED + "while it manages updates."
                 ));
-                item.setItemMeta(meta);
+                GuiChrome.quiet(meta);
+            item.setItemMeta(meta);
             }
             return item;
         }
@@ -97,6 +100,7 @@ final class PluginDetailItems {
                         Theme.MUTED + "Loads the plugin from the jar file and enables it."
                 ));
             }
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -111,6 +115,7 @@ final class PluginDetailItems {
                     Theme.MUTED + "Click to enter a new download URL.",
                     Theme.MUTED + "Custom links allow installation and updates."
             ));
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -146,6 +151,7 @@ final class PluginDetailItems {
                 lore.add(Theme.MUTED + "Use \"Set update link\" to enable updates.");
                 meta.setLore(lore);
             }
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -174,6 +180,7 @@ final class PluginDetailItems {
                             : Theme.WARNING + "Configured"),
                     Theme.WARNING + "Left/Right click for options"
             ));
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -188,7 +195,8 @@ final class PluginDetailItems {
                 meta.setLore(List.of(
                         Theme.MUTED + "NeverUp2Late cannot remove itself."
                 ));
-                item.setItemMeta(meta);
+                GuiChrome.quiet(meta);
+            item.setItemMeta(meta);
             }
             return item;
         }
@@ -200,6 +208,7 @@ final class PluginDetailItems {
                     Theme.MUTED + "Unloads the plugin, deletes the file",
                     Theme.MUTED + "and removes the update source."
             ));
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -214,7 +223,8 @@ final class PluginDetailItems {
                 meta.setLore(List.of(
                         Theme.MUTED + "NeverUp2Late manages its own file name."
                 ));
-                item.setItemMeta(meta);
+                GuiChrome.quiet(meta);
+            item.setItemMeta(meta);
             }
             return item;
         }
@@ -226,6 +236,7 @@ final class PluginDetailItems {
                     Theme.MUTED + "Changes the jar file name",
                     Theme.MUTED + "and updates the linked source."
             ));
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -270,20 +281,10 @@ final class PluginDetailItems {
                     " ",
                     Theme.SUBTLE + "Target: " + Theme.ACCENT + sanitized
             ));
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return Optional.of(item);
-    }
-
-    ItemStack createBackItem() {
-        ItemStack item = new ItemStack(Material.ARROW);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(Theme.WARNING + "Back to overview");
-            meta.setLore(List.of(Theme.MUTED + "Closes this view and shows all plugins."));
-            item.setItemMeta(meta);
-        }
-        return item;
     }
 
     ItemStack createCheckItem(ManagedPlugin plugin) {
@@ -295,6 +296,7 @@ final class PluginDetailItems {
             meta.setLore(List.of(linked
                     ? Theme.MUTED + "Ask this plugin's source right away."
                     : Theme.MUTED + "Link an update source first."));
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -314,6 +316,7 @@ final class PluginDetailItems {
                     Theme.MUTED + "Takes effect after a restart.",
                     Theme.SUBTLE + "The restored version is kept - it will not be",
                     Theme.SUBTLE + "replaced again until something newer appears."));
+            GuiChrome.quiet(meta);
             item.setItemMeta(meta);
         }
         return Optional.of(item);

@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Feedback;
 import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
@@ -10,6 +11,7 @@ import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -32,6 +34,7 @@ public class PluginOverviewGui implements Listener {
     private final PluginDetailScreen details;
     private final LinkSuggestionScreen links;
     private final InstallScreen install;
+    private final ConfirmationScreen confirmations;
 
     public PluginOverviewGui(PluginContext context, QuickInstallCoordinator coordinator, AnvilTextPrompt anvilTextPrompt) {
         this.state = new GuiState(context, coordinator, anvilTextPrompt);
@@ -40,6 +43,7 @@ public class PluginOverviewGui implements Listener {
         this.details = new PluginDetailScreen(state, this);
         this.links = new LinkSuggestionScreen(state, this);
         this.install = new InstallScreen(state, this);
+        this.confirmations = new ConfirmationScreen(state);
     }
 
     OverviewScreen overview() {
@@ -58,6 +62,10 @@ public class PluginOverviewGui implements Listener {
         return install;
     }
 
+    ConfirmationScreen confirmations() {
+        return confirmations;
+    }
+
     public void open(Player player) {
         if (!player.hasPermission(Permissions.GUI_OPEN)) {
             player.sendMessage(Theme.ERROR + "You do not have permission to open the NU2L GUI.");
@@ -67,7 +75,11 @@ public class PluginOverviewGui implements Listener {
             player.sendMessage(Theme.ERROR + "Plugin management is disabled.");
             return;
         }
+        // Opening the GUI afresh starts on page one of everything; going back
+        // from a plugin keeps the page, filter and search the operator chose.
+        overview.resetView(player);
         overview.openOverview(player);
+        Feedback.pageTurn(player);
     }
 
     public void openStandaloneSearch(Player player, String query) {
@@ -95,6 +107,25 @@ public class PluginOverviewGui implements Listener {
         }
 
         event.setCancelled(true);
+
+        // A double click arrives as one more event after its two clicks. Acting
+        // on it too would turn one page forward into two, or run an action twice.
+        if (event.getClick() == ClickType.DOUBLE_CLICK) {
+            return;
+        }
+
+        if (session.view() == InventorySession.View.CONFIRMATION) {
+            confirmations.handleClick(player, session, event);
+            return;
+        }
+
+        // Close sits in the same corner on every screen, so it is handled once.
+        if (event.getRawSlot() == GuiLayout.CLOSE_SLOT
+                && session.inventory().getSize() == GuiLayout.SIZE) {
+            Feedback.click(player);
+            player.closeInventory();
+            return;
+        }
 
         if (session.view() == InventorySession.View.NEW_INSTALL) {
             install.handleClick(player, session, event);
@@ -159,10 +190,9 @@ public class PluginOverviewGui implements Listener {
         UUID playerId = event.getPlayer().getUniqueId();
         state.openInventories.remove(playerId);
         prompts.pendingLinkRequests.remove(playerId);
-        prompts.pendingRemovalRequests.remove(playerId);
         prompts.pendingSuggestionRequests.remove(playerId);
         install.forget(playerId);
-        prompts.pendingCleanupConfirmations.remove(playerId);
+        overview.forget(playerId);
     }
 
     @EventHandler
@@ -175,27 +205,6 @@ public class PluginOverviewGui implements Listener {
             // belongs on it.
             state.context.getScheduler().runTask(state.context.getPlugin(), () -> player.sendMessage(
                     Theme.MUTED + "The previous NU2L prompt timed out - nothing was changed."));
-            return;
-        }
-        if (prompts.pendingCleanupConfirmations.remove(playerId)) {
-            event.setCancelled(true);
-            String answer = event.getMessage() == null ? "" : event.getMessage().trim();
-            state.context.getScheduler().runTask(state.context.getPlugin(), () -> {
-                prompts.promptDeadlines.remove(playerId);
-                if (answer.equalsIgnoreCase("yes")) {
-                    overview.cleanupAllJarNames(player);
-                } else {
-                    player.sendMessage(Theme.WARNING + "Nothing was renamed.");
-                }
-            });
-            return;
-        }
-        ManagedPlugin pendingRemoval = prompts.pendingRemovalRequests.get(playerId);
-        if (pendingRemoval != null) {
-            prompts.promptDeadlines.remove(playerId);
-            event.setCancelled(true);
-            state.context.getScheduler().runTask(state.context.getPlugin(),
-                    () -> details.handleRemovalInput(player, pendingRemoval, event.getMessage()));
             return;
         }
         LinkRequest request = prompts.pendingLinkRequests.get(playerId);

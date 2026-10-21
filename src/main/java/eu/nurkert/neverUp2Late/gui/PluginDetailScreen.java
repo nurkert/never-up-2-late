@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Feedback;
 import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
@@ -24,9 +25,10 @@ import org.bukkit.plugin.Plugin;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.logging.Level;
 
 /**
@@ -35,19 +37,19 @@ import java.util.logging.Level;
  */
 final class PluginDetailScreen {
 
-    private static final int DETAIL_INVENTORY_SIZE = 27;
-    private static final int DETAIL_STATUS_SLOT = 10;
-    private static final int DETAIL_ENABLE_SLOT = 12;
-    private static final int DETAIL_LOAD_SLOT = 14;
+    // Content area of the shared grid: lifecycle on the first row, updates on
+    // the second, the file on the third, and removal alone at the bottom,
+    // well away from everything else.
+    private static final int DETAIL_ENABLE_SLOT = 10;
+    private static final int DETAIL_LOAD_SLOT = 12;
+    private static final int DETAIL_CHECK_SLOT = 14;
     private static final int DETAIL_LINK_SLOT = 16;
-    private static final int DETAIL_DISABLE_SLOT = 18;
     private static final int DETAIL_UPDATE_SLOT = 20;
-    private static final int DETAIL_RENAME_SLOT = 21;
-    private static final int DETAIL_REMOVE_SLOT = 22;
-    private static final int DETAIL_QUICK_RENAME_SLOT = 23;
-    private static final int DETAIL_CHECK_SLOT = 11;
-    private static final int DETAIL_ROLLBACK_SLOT = 19;
-    private static final int DETAIL_BACK_SLOT = 26;
+    private static final int DETAIL_DISABLE_SLOT = 22;
+    private static final int DETAIL_ROLLBACK_SLOT = 24;
+    private static final int DETAIL_RENAME_SLOT = 30;
+    private static final int DETAIL_QUICK_RENAME_SLOT = 32;
+    private static final int DETAIL_REMOVE_SLOT = 40;
 
     private final GuiState state;
     private final PluginOverviewGui gui;
@@ -55,7 +57,6 @@ final class PluginDetailScreen {
     private final QuickInstallCoordinator coordinator;
     private final AnvilTextPrompt anvilTextPrompt;
     private final PluginUpdateSettingsRepository updateSettingsRepository;
-    private final ChatPrompts prompts;
     private final GuiItems items;
     private final PluginDetailItems detailItems;
 
@@ -66,21 +67,17 @@ final class PluginDetailScreen {
         this.coordinator = state.coordinator;
         this.anvilTextPrompt = state.anvilTextPrompt;
         this.updateSettingsRepository = state.updateSettingsRepository;
-        this.prompts = state.prompts;
         this.items = state.items;
         this.detailItems = new PluginDetailItems(state.items);
     }
 
     void openPluginDetails(Player player, ManagedPlugin plugin) {
-        Inventory inventory = Bukkit.createInventory(null, DETAIL_INVENTORY_SIZE,
-                Theme.TITLE + Objects.requireNonNullElse(plugin.getName(), "Plugin"));
+        Inventory inventory = Bukkit.createInventory(null, GuiLayout.SIZE,
+                GuiChrome.title(Objects.requireNonNullElse(plugin.getName(), "Plugin")));
 
-        ItemStack filler = items.createFiller();
-        for (int i = 0; i < DETAIL_INVENTORY_SIZE; i++) {
-            inventory.setItem(i, filler.clone());
-        }
+        GuiChrome.drawFrame(inventory, FrameState.of(items.statusOf(plugin)));
 
-        inventory.setItem(DETAIL_STATUS_SLOT, items.createPluginItem(plugin));
+        inventory.setItem(GuiLayout.SUMMARY_SLOT, items.createPluginItem(plugin, List.of()));
         inventory.setItem(DETAIL_ENABLE_SLOT, detailItems.createEnableItem(plugin));
         inventory.setItem(DETAIL_LOAD_SLOT, detailItems.createLoadItem(plugin));
         inventory.setItem(DETAIL_LINK_SLOT, detailItems.createLinkItem(plugin));
@@ -92,7 +89,8 @@ final class PluginDetailScreen {
         inventory.setItem(DETAIL_REMOVE_SLOT, detailItems.createRemoveItem(plugin));
         inventory.setItem(DETAIL_CHECK_SLOT, detailItems.createCheckItem(plugin));
         detailItems.createRollbackItem(plugin).ifPresent(item -> inventory.setItem(DETAIL_ROLLBACK_SLOT, item));
-        inventory.setItem(DETAIL_BACK_SLOT, detailItems.createBackItem());
+        inventory.setItem(GuiLayout.BACK_SLOT, GuiChrome.back("the plugin list"));
+        inventory.setItem(GuiLayout.CLOSE_SLOT, GuiChrome.close());
 
         state.openInventories.put(player.getUniqueId(), InventorySession.detail(inventory, plugin));
         player.openInventory(inventory);
@@ -100,35 +98,46 @@ final class PluginDetailScreen {
 
     void handleClick(Player player, ManagedPlugin plugin, InventoryClickEvent event) {
         int slot = event.getRawSlot();
-        if (slot == DETAIL_BACK_SLOT) {
+        if (slot == GuiLayout.BACK_SLOT) {
+            Feedback.pageTurn(player);
             gui.overview().openOverview(player);
             return;
         }
         if (slot == DETAIL_CHECK_SLOT) {
+            Feedback.click(player);
             checkSourceNow(player, plugin);
             return;
         }
         if (slot == DETAIL_ROLLBACK_SLOT) {
-            rollbackPlugin(player, plugin);
+            ItemStack clickedItem = event.getCurrentItem();
+            if (clickedItem != null && clickedItem.getType() == Material.CLOCK) {
+                Feedback.click(player);
+                confirmRollback(player, plugin);
+            }
             return;
         }
         if (slot == DETAIL_ENABLE_SLOT) {
+            Feedback.click(player);
             toggleEnable(player, plugin);
             return;
         }
         if (slot == DETAIL_LOAD_SLOT) {
+            Feedback.click(player);
             toggleLoad(player, plugin);
             return;
         }
         if (slot == DETAIL_LINK_SLOT) {
+            Feedback.click(player);
             gui.links().beginLinking(player, plugin);
             return;
         }
         if (slot == DETAIL_DISABLE_SLOT) {
+            Feedback.click(player);
             disableAutoUpdates(player, plugin);
             return;
         }
         if (slot == DETAIL_UPDATE_SLOT) {
+            Feedback.click(player);
             if (event.isRightClick()) {
                 toggleFilenameRetention(player, plugin);
             } else {
@@ -137,32 +146,64 @@ final class PluginDetailScreen {
             return;
         }
         if (slot == DETAIL_RENAME_SLOT) {
+            Feedback.click(player);
             beginRename(player, plugin);
             return;
         }
         if (slot == DETAIL_QUICK_RENAME_SLOT) {
             ItemStack clickedItem = event.getCurrentItem();
             if (clickedItem != null && clickedItem.getType() == Material.CHEST) {
+                Feedback.click(player);
                 quickRenameToDataDirectory(player, plugin);
             }
             return;
         }
         if (slot == DETAIL_REMOVE_SLOT) {
+            Feedback.click(player);
             confirmRemoval(player, plugin);
         }
     }
 
-    private void checkSourceNow(Player player, ManagedPlugin plugin) {
+    /** Asks this plugin's source right away - from this screen, or by right-clicking it in the list. */
+    void checkSourceNow(Player player, ManagedPlugin plugin) {
         if (!state.checkPermission(player, Permissions.INSTALL)) {
             return;
         }
         Optional<UpdateSource> source = items.findMatchingSource(plugin);
         if (source.isEmpty()) {
             player.sendMessage(Theme.ERROR + "This plugin has no update source linked yet.");
+            Feedback.error(player);
             return;
         }
         player.closeInventory();
         context.getUpdateHandler().runJobNow(source.get(), player);
+    }
+
+    private void confirmRollback(Player player, ManagedPlugin plugin) {
+        if (!state.checkPermission(player, Permissions.GUI_MANAGE_LIFECYCLE)) {
+            return;
+        }
+        Optional<UpdateSource> source = items.findMatchingSource(plugin);
+        if (source.isEmpty()) {
+            player.sendMessage(Theme.ERROR + "This plugin has no update source, so there is no backup to restore.");
+            Feedback.error(player);
+            return;
+        }
+        String pluginName = Objects.requireNonNullElse(plugin.getName(), "this plugin");
+        ItemStack description = GuiChrome.button(Material.CLOCK,
+                Theme.HEADING + "Restore " + Theme.ACCENT + pluginName, List.of(
+                        Theme.MUTED + "Puts the last backup back in place.",
+                        Theme.MUTED + "Takes effect after a restart.",
+                        Theme.MUTED + "Source: " + Theme.ACCENT + source.get().getName(),
+                        " ",
+                        Theme.SUBTLE + "The restored version is kept - it will not be",
+                        Theme.SUBTLE + "replaced again until something newer appears."));
+        gui.confirmations().open(player, new ConfirmationScreen.Confirmation(
+                "Rollback",
+                description,
+                "Restore the previous version.",
+                p -> rollbackPlugin(p, plugin),
+                p -> openPluginDetails(p, plugin)));
     }
 
     private void rollbackPlugin(Player player, ManagedPlugin plugin) {
@@ -172,6 +213,7 @@ final class PluginDetailScreen {
         Optional<UpdateSource> source = items.findMatchingSource(plugin);
         if (source.isEmpty()) {
             player.sendMessage(Theme.ERROR + "This plugin has no update source, so there is no backup to restore.");
+            Feedback.error(player);
             return;
         }
         player.closeInventory();
@@ -184,6 +226,7 @@ final class PluginDetailScreen {
         }
         if (items.isSelfPlugin(plugin)) {
             player.sendMessage(Theme.ERROR + "NeverUp2Late cannot toggle its own state while running.");
+            Feedback.error(player);
             return;
         }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
@@ -201,25 +244,31 @@ final class PluginDetailScreen {
         try {
             if (!plugin.isLoaded()) {
                 player.sendMessage(Theme.ERROR + "Please load the plugin before enabling it.");
+                Feedback.error(player);
             } else if (plugin.isEnabled()) {
                 if (manager.disablePlugin(pluginName)) {
                     player.sendMessage(Theme.WARNING + "Plugin " + Theme.ACCENT + pluginName
                             + Theme.WARNING + " has been disabled.");
+                    Feedback.success(player);
                 } else {
                     player.sendMessage(Theme.ERROR + "Could not disable plugin.");
+                    Feedback.error(player);
                 }
             } else {
                 if (manager.enablePlugin(pluginName)) {
                     player.sendMessage(Theme.SUCCESS + "Plugin " + Theme.ACCENT + pluginName
                             + Theme.SUCCESS + " has been enabled.");
+                    Feedback.success(player);
                 } else {
                     player.sendMessage(Theme.ERROR + "Could not enable plugin.");
+                    Feedback.error(player);
                 }
             }
         } catch (PluginLifecycleException ex) {
             context.getPlugin().getLogger().log(Level.WARNING,
                     "Failed to toggle plugin " + pluginName, ex);
             player.sendMessage(Theme.ERROR + "Action failed: " + ex.getMessage());
+            Feedback.error(player);
         }
 
         openPluginDetails(player, plugin);
@@ -231,6 +280,7 @@ final class PluginDetailScreen {
         }
         if (items.isSelfPlugin(plugin)) {
             player.sendMessage(Theme.ERROR + "NeverUp2Late must remain loaded to manage updates.");
+            Feedback.error(player);
             return;
         }
         PluginLifecycleManager manager = context.getPluginLifecycleManager();
@@ -250,8 +300,10 @@ final class PluginDetailScreen {
                 if (manager.unloadPlugin(pluginName)) {
                     player.sendMessage(Theme.WARNING + "Plugin " + Theme.ACCENT + pluginName
                             + Theme.WARNING + " has been unloaded.");
+                    Feedback.success(player);
                 } else {
                     player.sendMessage(Theme.ERROR + "Could not unload plugin.");
+                    Feedback.error(player);
                 }
             } else {
                 Path path = plugin.getPath();
@@ -262,14 +314,17 @@ final class PluginDetailScreen {
                 if (manager.loadPlugin(path)) {
                     player.sendMessage(Theme.SUCCESS + "Plugin " + Theme.ACCENT + pluginName
                             + Theme.SUCCESS + " has been loaded and enabled.");
+                    Feedback.success(player);
                 } else {
                     player.sendMessage(Theme.ERROR + "Could not load plugin.");
+                    Feedback.error(player);
                 }
             }
         } catch (PluginLifecycleException ex) {
             context.getPlugin().getLogger().log(Level.WARNING,
                     "Failed to toggle plugin load state for " + pluginName, ex);
             player.sendMessage(Theme.ERROR + "Action failed: " + ex.getMessage());
+            Feedback.error(player);
         }
 
         openPluginDetails(player, plugin);
@@ -315,6 +370,7 @@ final class PluginDetailScreen {
 
         updateSettingsRepository.saveSettings(pluginName, next);
         player.sendMessage(color + message);
+        Feedback.success(player);
         openPluginDetails(player, plugin);
     }
 
@@ -344,6 +400,7 @@ final class PluginDetailScreen {
         } else {
             player.sendMessage(Theme.WARNING + "NU2L will once again use configured file names.");
         }
+        Feedback.success(player);
 
         openPluginDetails(player, plugin);
     }
@@ -354,28 +411,57 @@ final class PluginDetailScreen {
         }
         if (items.isSelfPlugin(plugin)) {
             player.sendMessage(Theme.ERROR + "NeverUp2Late cannot remove itself while running.");
+            Feedback.error(player);
             return;
         }
-        prompts.pendingRemovalRequests.put(player.getUniqueId(), plugin);
-        prompts.armPrompt(player);
-        player.closeInventory();
-        player.sendMessage(Theme.ERROR + "Are you sure you want to remove "
-                + Theme.ACCENT + plugin.getName() + Theme.ERROR + "?");
-        player.sendMessage(Theme.WARNING + "Type \"yes\" to confirm or \"cancel\" to abort.");
-    }
-
-    void handleRemovalInput(Player player, ManagedPlugin plugin, String message) {
-        UUID playerId = player.getUniqueId();
-        prompts.pendingRemovalRequests.remove(playerId);
-        String trimmed = message != null ? message.trim() : "";
-        if (trimmed.equalsIgnoreCase("yes")) {
-            coordinator.removeManagedPlugin(player, plugin);
-        } else {
-            player.sendMessage(Theme.WARNING + "Removal cancelled.");
+        List<String> lore = new ArrayList<>();
+        lore.add(Theme.MUTED + "Unloads the plugin, deletes the file");
+        lore.add(Theme.MUTED + "and removes the update source.");
+        if (plugin.getPath() != null) {
+            lore.add(Theme.MUTED + "File: " + Theme.TEXT + plugin.getPath().getFileName());
         }
+        lore.add(" ");
+        lore.add(Theme.ERROR + Theme.WARN + " This cannot be undone.");
+        ItemStack description = GuiChrome.button(Material.TNT,
+                Theme.ERROR + "Remove " + Theme.ACCENT + plugin.getName() + Theme.ERROR + "?", lore);
+        gui.confirmations().open(player, new ConfirmationScreen.Confirmation(
+                "Remove plugin",
+                description,
+                "Remove " + plugin.getName() + ".",
+                p -> {
+                    p.closeInventory();
+                    coordinator.removeManagedPlugin(p, plugin);
+                },
+                p -> openPluginDetails(p, plugin)));
     }
 
+    /**
+     * Unlinking throws the source configuration away, so it is confirmed like
+     * any other removal. Without a source the button only explains itself.
+     */
     private void disableAutoUpdates(Player player, ManagedPlugin plugin) {
+        if (!state.checkPermission(player, Permissions.GUI_MANAGE_LINK)) {
+            return;
+        }
+        Optional<UpdateSource> source = items.findMatchingSource(plugin);
+        if (source.isEmpty()) {
+            applyDisableAutoUpdates(player, plugin);
+            return;
+        }
+        ItemStack description = GuiChrome.button(Material.BARRIER,
+                Theme.ERROR + "Disable automatic updates", List.of(
+                        Theme.MUTED + "Removes the update source "
+                                + Theme.ACCENT + source.get().getName(),
+                        Theme.MUTED + "from NU2L. The plugin remains installed."));
+        gui.confirmations().open(player, new ConfirmationScreen.Confirmation(
+                "Unlink source",
+                description,
+                "Disable updates for " + plugin.getName() + ".",
+                p -> applyDisableAutoUpdates(p, plugin),
+                p -> openPluginDetails(p, plugin)));
+    }
+
+    private void applyDisableAutoUpdates(Player player, ManagedPlugin plugin) {
         if (!state.checkPermission(player, Permissions.GUI_MANAGE_LINK)) {
             return;
         }
@@ -406,7 +492,7 @@ final class PluginDetailScreen {
         }
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(Theme.TITLE + "NU2L Rename")
+                .title(Theme.TITLE + "Rename file")
                 .initialText(currentName)
                 .inputItem(paper)
                 .previewFactory(this::createRenamePreview)
@@ -477,6 +563,7 @@ final class PluginDetailScreen {
         String current = path.getFileName().toString();
         if (sanitized.equals(current)) {
             player.sendMessage(Theme.WARNING + "Filename is already correct.");
+            Feedback.error(player);
             return;
         }
 

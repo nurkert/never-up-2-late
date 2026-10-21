@@ -5,19 +5,20 @@ import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import org.bukkit.entity.Player;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The chat questions the GUI is waiting on an answer for, and how long each one keeps listening.
+ *
+ * <p>Only questions that need typed text are asked here. Yes/no questions -
+ * removing a plugin, tidying every jar name - are a {@link ConfirmationScreen}.</p>
  */
 final class ChatPrompts {
 
     private static final long PROMPT_TIMEOUT_MILLIS = 60_000L;
 
     final Map<UUID, LinkRequest> pendingLinkRequests = new ConcurrentHashMap<>();
-    final Map<UUID, ManagedPlugin> pendingRemovalRequests = new ConcurrentHashMap<>();
     final Map<UUID, ManagedPlugin> pendingSuggestionRequests = new ConcurrentHashMap<>();
     /**
      * When each pending chat prompt stops listening. Without it the listener
@@ -25,7 +26,6 @@ final class ChatPrompts {
      * minutes later, about something else entirely.
      */
     final Map<UUID, Long> promptDeadlines = new ConcurrentHashMap<>();
-    final Set<UUID> pendingCleanupConfirmations = ConcurrentHashMap.newKeySet();
 
     boolean hasPromptExpired(UUID playerId) {
         Long deadline = promptDeadlines.get(playerId);
@@ -43,9 +43,7 @@ final class ChatPrompts {
     }
 
     private boolean hasPendingPrompt(UUID playerId) {
-        return pendingCleanupConfirmations.contains(playerId)
-                || pendingRemovalRequests.containsKey(playerId)
-                || pendingLinkRequests.containsKey(playerId)
+        return pendingLinkRequests.containsKey(playerId)
                 || pendingSuggestionRequests.containsKey(playerId);
     }
 
@@ -54,9 +52,7 @@ final class ChatPrompts {
         // Starting any prompt cancels whatever was pending before, so the answer
         // can never be routed to a question the operator has moved on from.
         UUID id = player.getUniqueId();
-        pendingCleanupConfirmations.remove(id);
         pendingLinkRequests.remove(id);
-        pendingRemovalRequests.remove(id);
         pendingSuggestionRequests.remove(id);
         promptDeadlines.put(player.getUniqueId(), System.currentTimeMillis() + PROMPT_TIMEOUT_MILLIS);
         player.sendMessage(Theme.SUBTLE + "You have 60 seconds; type "
@@ -65,9 +61,7 @@ final class ChatPrompts {
 
     void clearPrompts(UUID playerId) {
         promptDeadlines.remove(playerId);
-        pendingCleanupConfirmations.remove(playerId);
         pendingLinkRequests.remove(playerId);
-        pendingRemovalRequests.remove(playerId);
         pendingSuggestionRequests.remove(playerId);
     }
 

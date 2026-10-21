@@ -1,5 +1,6 @@
 package eu.nurkert.neverUp2Late.gui;
 
+import eu.nurkert.neverUp2Late.util.Feedback;
 import eu.nurkert.neverUp2Late.util.Theme;
 import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.command.QuickInstallCoordinator;
@@ -13,7 +14,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,12 +30,6 @@ import java.util.logging.Level;
  * or entering a direct download link.
  */
 final class InstallScreen {
-
-    private static final int INSTALL_INVENTORY_SIZE = 27;
-    private static final int INSTALL_INFO_SLOT = 18;
-    private static final int INSTALL_SEARCH_SLOT = 20;
-    private static final int INSTALL_MANUAL_SLOT = 22;
-    private static final int INSTALL_BACK_SLOT = 26;
 
     private final GuiState state;
     private final PluginOverviewGui gui;
@@ -100,124 +94,103 @@ final class InstallScreen {
     void openStandaloneInstall(Player player,
                                List<PluginLinkSuggestion> suggestions,
                                String searchTerm) {
-        List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : suggestions.stream()
-                .limit(INSTALL_INFO_SLOT)
-                .toList();
+        openStandaloneInstall(player, suggestions, searchTerm, 0);
+    }
 
-        Inventory inventory = Bukkit.createInventory(null, INSTALL_INVENTORY_SIZE,
-                Theme.TITLE + "NU2L – New plugin");
+    /** One page of search results; results beyond one chest used to be dropped. */
+    private void openStandaloneInstall(Player player,
+                                       List<PluginLinkSuggestion> suggestions,
+                                       String searchTerm,
+                                       int requestedPage) {
+        List<PluginLinkSuggestion> entries = suggestions == null ? List.of() : List.copyOf(suggestions);
+        Pagination pagination = Pagination.of(entries.size(), GuiLayout.CONTENT_SIZE, requestedPage);
 
-        ItemStack filler = items.createFiller();
-        for (int i = 0; i < INSTALL_INVENTORY_SIZE; i++) {
-            inventory.setItem(i, filler.clone());
-        }
+        Inventory inventory = Bukkit.createInventory(null, GuiLayout.SIZE, GuiChrome.title("New plugin"));
+        GuiChrome.drawFrame(inventory, items.summarize(
+                context.getPluginLifecycleManager().getManagedPlugins()).frameState());
 
         Map<Integer, PluginLinkSuggestion> mapping = new HashMap<>();
-        for (int i = 0; i < entries.size() && i < INSTALL_INFO_SLOT; i++) {
-            PluginLinkSuggestion suggestion = entries.get(i);
-            inventory.setItem(i, items.createSuggestionItem(suggestion));
-            mapping.put(i, suggestion);
+        for (int index = pagination.fromIndex(); index < pagination.toIndex(); index++) {
+            int slot = GuiLayout.contentSlot(index - pagination.fromIndex());
+            PluginLinkSuggestion suggestion = entries.get(index);
+            inventory.setItem(slot, items.createSuggestionItem(suggestion));
+            mapping.put(slot, suggestion);
         }
 
-        inventory.setItem(INSTALL_INFO_SLOT, createInstallInfoItem(entries.size(), searchTerm));
-        inventory.setItem(INSTALL_SEARCH_SLOT, createInstallSearchItem(searchTerm));
-        inventory.setItem(INSTALL_MANUAL_SLOT, createManualInstallItem());
-        inventory.setItem(INSTALL_BACK_SLOT, createBackToOverviewItem());
+        inventory.setItem(GuiLayout.SUMMARY_SLOT, createInstallInfoItem(entries.size(), searchTerm));
+        inventory.setItem(GuiLayout.TOOL_RIGHT_SLOT, createManualInstallItem());
+        inventory.setItem(GuiLayout.BACK_SLOT, GuiChrome.back("the plugin list"));
+        if (!entries.isEmpty()) {
+            GuiChrome.drawPager(inventory, pagination, Theme.MUTED + entries.size() + " result(s)");
+        }
+        inventory.setItem(GuiLayout.SEARCH_SLOT, GuiChrome.search("plugins on Modrinth and Hangar", searchTerm));
+        inventory.setItem(GuiLayout.CLOSE_SLOT, GuiChrome.close());
 
         state.openInventories.put(player.getUniqueId(),
-                InventorySession.newInstall(inventory, mapping, entries, searchTerm));
+                InventorySession.newInstall(inventory, mapping, entries, searchTerm, pagination.page()));
         player.openInventory(inventory);
     }
 
     void handleClick(Player player, InventorySession session, InventoryClickEvent event) {
         int clicked = event.getRawSlot();
-        if (clicked == INSTALL_BACK_SLOT) {
+        if (clicked == GuiLayout.BACK_SLOT) {
+            Feedback.pageTurn(player);
             gui.overview().openOverview(player);
             return;
         }
-        if (clicked == INSTALL_SEARCH_SLOT) {
-            promptStandaloneSearch(player, session);
+        if (clicked == GuiLayout.SEARCH_SLOT) {
+            Feedback.click(player);
+            if (event.isRightClick() && session.searchTerm() != null) {
+                openStandaloneInstall(player, List.of(), null);
+            } else {
+                promptStandaloneSearch(player, session);
+            }
             return;
         }
-        if (clicked == INSTALL_MANUAL_SLOT) {
+        if (clicked == GuiLayout.TOOL_RIGHT_SLOT) {
+            Feedback.click(player);
             promptStandaloneManualInstall(player, session);
             return;
         }
-        if (clicked == INSTALL_INFO_SLOT) {
+        if (clicked == GuiLayout.PREVIOUS_SLOT || clicked == GuiLayout.NEXT_SLOT) {
+            if (OverviewScreen.isPagerArrow(event)) {
+                Feedback.pageTurn(player);
+                int delta = clicked == GuiLayout.NEXT_SLOT ? 1 : -1;
+                openStandaloneInstall(player, session.orderedSuggestions(), session.searchTerm(),
+                        session.page() + delta);
+            }
             return;
         }
         PluginLinkSuggestion suggestion = session.suggestions().get(clicked);
         if (suggestion != null) {
+            Feedback.click(player);
             installStandaloneSuggestion(player, suggestion);
         }
     }
 
     private ItemStack createInstallInfoItem(int resultCount, String searchTerm) {
-        ItemStack item = new ItemStack(Material.WRITTEN_BOOK);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(Theme.ACCENT + "Plugin search");
-            List<String> lore = new ArrayList<>();
-            if (searchTerm == null || searchTerm.isBlank()) {
-                lore.add(Theme.MUTED + "Use the search to browse Modrinth or Hangar.");
-                lore.add(Theme.MUTED + "Manual links support SpigotMC via the Spiget API.");
-            } else if (resultCount == 0) {
-                lore.add(Theme.WARNING + "No results for: " + Theme.TEXT + searchTerm);
-                lore.add(Theme.MUTED + "Adjust the search term or try a direct link.");
-            } else {
-                lore.add(Theme.SUCCESS + "Projects found: " + Theme.TEXT + resultCount);
-                lore.add(Theme.MUTED + "Click an entry to download the jar.");
-            }
-            lore.add(" ");
-            lore.add(Theme.SUBTLE + "Plugins are not activated automatically.");
-            meta.setLore(lore);
-            item.setItemMeta(meta);
+        List<String> lore = new ArrayList<>();
+        if (searchTerm == null || searchTerm.isBlank()) {
+            lore.add(Theme.MUTED + "Use the search to browse Modrinth or Hangar.");
+            lore.add(Theme.MUTED + "Manual links support SpigotMC via the Spiget API.");
+        } else if (resultCount == 0) {
+            lore.add(Theme.WARNING + "No results for: " + Theme.TEXT + searchTerm);
+            lore.add(Theme.MUTED + "Adjust the search term or try a direct link.");
+        } else {
+            lore.add(Theme.SUCCESS + "Projects found: " + Theme.TEXT + resultCount);
+            lore.add(Theme.MUTED + "Click an entry to download the jar.");
         }
-        return item;
-    }
-
-    private ItemStack createInstallSearchItem(String searchTerm) {
-        ItemStack item = new ItemStack(Material.COMPASS);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(Theme.SUCCESS + "Search for a plugin");
-            List<String> lore = new ArrayList<>();
-            lore.add(Theme.MUTED + "Opens a text input.");
-            lore.add(Theme.MUTED + "Searches Modrinth and Hangar simultaneously.");
-            lore.add(Theme.SUBTLE + "Use manual input for SpigotMC/Spiget links.");
-            if (searchTerm != null && !searchTerm.isBlank()) {
-                lore.add(" ");
-                lore.add(Theme.SUBTLE + "Last search: " + Theme.TEXT + searchTerm);
-            }
-            meta.setLore(lore);
-            item.setItemMeta(meta);
-        }
-        return item;
+        lore.add(" ");
+        lore.add(Theme.SUBTLE + "Plugins are not activated automatically.");
+        return GuiChrome.button(Material.WRITTEN_BOOK, Theme.ACCENT + "Plugin search", lore);
     }
 
     private ItemStack createManualInstallItem() {
-        ItemStack item = new ItemStack(Material.OAK_SIGN);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(Theme.WARNING + "Enter a direct link");
-            meta.setLore(List.of(
-                    Theme.MUTED + "Opens an anvil dialog",
-                    Theme.MUTED + "for direct download links (e.g. SpigotMC/Spiget)."
-            ));
-            item.setItemMeta(meta);
-        }
-        return item;
-    }
-
-    private ItemStack createBackToOverviewItem() {
-        ItemStack item = new ItemStack(Material.ARROW);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(Theme.WARNING + "Back to overview");
-            meta.setLore(List.of(Theme.MUTED + "Closes the install view and shows all plugins."));
-            item.setItemMeta(meta);
-        }
-        return item;
+        return GuiChrome.button(Material.OAK_SIGN, Theme.WARNING + "Enter a direct link", List.of(
+                Theme.MUTED + "Opens an anvil dialog",
+                Theme.MUTED + "for direct download links (e.g. SpigotMC/Spiget).",
+                " ",
+                GuiChrome.hints("Click: enter a link")));
     }
 
     private void promptStandaloneSearch(Player player, InventorySession session) {
@@ -228,7 +201,7 @@ final class InstallScreen {
         player.closeInventory();
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(Theme.TITLE + "NU2L search")
+                .title(Theme.TITLE + "Search plugins")
                 .initialText(previousTerm != null ? previousTerm : "")
                 .validation(value -> {
                     String trimmed = value != null ? value.trim() : "";
@@ -304,7 +277,7 @@ final class InstallScreen {
         player.closeInventory();
 
         anvilTextPrompt.open(player, AnvilTextPrompt.Prompt.builder()
-                .title(Theme.TITLE + "NU2L direct link")
+                .title(Theme.TITLE + "Direct link")
                 .initialText("https://")
                 .onConfirm((p, value) -> installStandaloneFromUrl(p, value))
                 .onCancel(p -> openStandaloneInstall(p, previous, previousTerm))
