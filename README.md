@@ -1,237 +1,237 @@
 ![NeverUp2Late banner](images/banner.png)
 
-# NeverUp2Late
+<p align="center">
+  <a href="https://github.com/nurkert/never-up-2-late/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/nurkert/never-up-2-late?label=release&color=2ea44f"></a>
+  <a href="https://github.com/nurkert/never-up-2-late/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/nurkert/never-up-2-late/total?color=blue"></a>
+  <a href="https://github.com/nurkert/never-up-2-late/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/nurkert/never-up-2-late/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Paper 1.21+" src="https://img.shields.io/badge/Paper-1.21%2B-orange">
+  <img alt="Java 21+" src="https://img.shields.io/badge/Java-21%2B-red">
+  <img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-lightgrey">
+</p>
 
-NeverUp2Late keeps your Paper-based Minecraft server and its plugins permanently up to date. The plugin monitors all configured
-sources on a schedule, downloads the most recent builds, replaces outdated JARs, and optionally reloads or restarts the server
-once installations complete. You can manage update sources through YAML configuration, an interactive GUI, or the `/nu2l`
-command that understands direct project URLs from popular hosting platforms such as Hangar, Modrinth, GitHub Releases, Jenkins,
-and SpigotMC via the Spiget API.
+<h3 align="center">Your server and every plugin on it, always up to date, without you lifting a finger.</h3>
 
-## Highlights
-
-- **Automated update pipeline** – Fetch, download, and installation steps run asynchronously with retry logic and persistent
-  state tracking to avoid redundant downloads.
-- **Wide provider support** – Built-in fetchers cover Paper, Geyser, Hangar, Modrinth, CurseForge, GitHub Releases, Jenkins,
-  SpigotMC via the Spiget API, and fully custom implementations supplied by class name.
-- **Quick installation** – `/nu2l <url>` analyses Hangar, Modrinth, GitHub, Jenkins, and SpigotMC/Spiget links, creates an update source on the
-  fly, and immediately schedules the first installation run.
-- **Archive-aware downloads** – Releases that ship ZIP files can be inspected automatically; NeverUp2Late extracts the matching
-  JAR from the archive or asks you to select the correct entry when multiple candidates exist.
-- **Interactive server GUI** – `/nu2l` without arguments opens a chest-based interface for linking update sources with plugins,
-  changing per-plugin behaviour, renaming files, toggling updates, or launching manual searches.
-- **First-run setup wizard** – Operators with `neverup2late.setup` are guided through an in-game onboarding flow that explains
-  defaults, lets you review detected plugins, and activates the scheduler once finished.
-- **Lifecycle automation** – When enabled, NeverUp2Late reloads updated plugins or restarts the server after respecting a
-  cooldown timer, so changes become active without manual intervention.
-
-## Installation
-
-1. Download the latest release from the [GitHub release page](https://github.com/nurkert/never-up-2-late/releases).
-2. Copy `NeverUp2Late.jar` into the `plugins` directory of your Paper (or compatible) server.
-3. Start the server once so `config.yml`, state files, and the optional GUI resources are generated.
-4. Adjust `plugins/NeverUp2Late/config.yml` to fit your environment.
-5. Operators can complete the interactive setup wizard or open the GUI via `/nu2l` to review detected sources.
-
-NeverUp2Late automatically adds itself as an update source on new installations, so the plugin will keep itself up to date via GitHub in the future.
-
-### Requirements
-
-- Minecraft server implementing the Bukkit API (Paper recommended) for Minecraft 1.21 or newer.
-- Java 21 or higher (the Paper 1.21 baseline).
-
-## First-Time Setup
-
-On first launch the plugin stays in setup mode until an operator completes the wizard. Eligible players receive a chat prompt and
-an inventory interface that walks through:
-
-1. Reviewing automatically created Paper and Geyser sources (legacy defaults).
-2. Picking target directories (`server` or `plugins`) and filenames.
-3. Confirming whether to restart immediately or later.
-
-When the wizard finishes, NeverUp2Late records the completion status and starts the scheduled update loop. You can reopen the
-wizard at any time with `/nu2l setup` while setup mode is active. Server operators can now complete the onboarding headlessly via
-`/nu2l setup complete` from the console, or apply a prepared configuration file with `/nu2l setup apply <file>`.
-
-To skip the wizard entirely on fresh installations, set `setup.skipWizard: true` in `config.yml`. The plugin will immediately
-persist the default sources and start update checks.
-
-![Setup wizard showing update source selection](images/setup-update-source.png)
-
-## Commands
-
-| Command | Description | Permission | Notes |
-|---------|-------------|------------|-------|
-| `/nu2l` | Opens the plugin overview GUI. | `neverup2late.gui.open` | Requires a player; shows managed plugins and install actions. |
-| `/nu2l gui` | Explicitly opens the GUI. | `neverup2late.gui.open` | Alias for `/nu2l`. |
-| `/nu2l status` | Lists configured update sources with their target path, stored build/version, and auto-update flag. | `neverup2late.install` | Works for players and console; read-only overview. |
-| `/nu2l plan [source]` | Reports what an update run would install, and what it would refuse, without downloading or changing anything. | `neverup2late.install` | Reads only — no file, and not even `config.yml`, is written. Run this first when adding several sources at once. |
-| `/nu2l check [source]` | Looks for updates right now and installs what is newer. | `neverup2late.install` | Writes to disk; use `/nu2l plan` to see the outcome first. |
-| `/nu2l <url>` | Runs quick installation for the provided URL. | `neverup2late.install` | Works from console or in-game; URLs must use HTTP(S) and can target Hangar, Modrinth, GitHub Releases, Jenkins, or SpigotMC/Spiget resources. |
-| `/nu2l select <number>` | Chooses an asset when multiple files are available. | `neverup2late.install` | Responds to prompts generated during quick install. |
-| `/nu2l remove <name>` | Unregisters an update source and stops managing its file. | `neverup2late.gui.manage.remove` | Available from console and players. |
-| `/nu2l setup` | Opens the first-run setup wizard. | `neverup2late.setup` | Players only; shows if setup is not completed. |
-| `/nu2l setup complete` | Stores default sources and marks setup as finished without opening the GUI. | `neverup2late.setup` | Works from console or in-game. |
-| `/nu2l setup apply <file>` | Loads update sources from a YAML file and finalises setup. | `neverup2late.setup` | File paths are resolved relative to the plugin folder (`setup-presets/<file>.yml` is also checked). |
-
-### Permission Overview
+NeverUp2Late watches Paper and your plugins on Hangar, Modrinth, CurseForge, SpigotMC, GitHub and Jenkins.
+When something new comes out, it downloads it, checks that it is the real file and that your server can run it,
+swaps it in, and restarts at night once nobody is online. If an update does not start, it puts the old version back.
 
 ```
-neverup2late.setup             # Access to the setup wizard
-neverup2late.install           # Use /nu2l <url>, /nu2l status, and manage quick installs
-neverup2late.gui.open          # Open the GUI
-neverup2late.gui.manage        # Grant all GUI management permissions
-neverup2late.gui.manage.lifecycle
-neverup2late.gui.manage.link
-neverup2late.gui.manage.settings
-neverup2late.gui.manage.rename
-neverup2late.gui.manage.remove
+/nu2l https://modrinth.com/plugin/luckperms
 ```
 
-Default operators receive all permissions listed above.
+That is the whole setup for a new plugin. Paste a link and NeverUp2Late handles the rest, today and for every future release.
 
-#### Example `/nu2l status` output
+---
 
-```
-Update source status:
-• paper → /home/mcserver/paper.jar | Version 1.21.1 (Build 123) | Auto-Update: enabled | Plugin: Paper
-• geyser → /home/mcserver/plugins/Geyser-Spigot.jar | No installation recorded | Auto-Update: disabled | Plugin: unassigned
-```
+## Quickstart
 
-The command prints colour-coded lines in-game and plain text in the console, so administrators can quickly verify what NeverUp2Late is managing without opening the GUI.
+1. Download `NeverUp2Late.jar` from the [latest release](https://github.com/nurkert/never-up-2-late/releases/latest) and drop it into `plugins/`.
+2. Start the server. Operators get a short setup wizard in-game; on a console-only server run `/nu2l setup complete`.
+3. Add plugins by link with `/nu2l <url>`, or open the GUI with `/nu2l` and link the plugins you already have.
 
-## Quick Install Workflow
+Done. NeverUp2Late checks every three hours and keeps itself up to date as well.
 
-1. **Analyse the URL** – NeverUp2Late parses Hangar, Modrinth, GitHub Releases, Jenkins, and SpigotMC/Spiget project URLs, derives a readable name,
-   and prepares provider-specific options.
-2. **Link to an installed plugin** – The coordinator tries to match the download with an existing plugin to reuse version metadata
-   for smarter update checks.
-3. **Fetch latest build info** – Version metadata and download URLs are loaded asynchronously; the chat shows progress and detected
-   version numbers.
-4. **Resolve compatibility warnings** – If the provider does not advertise support for your Minecraft version, the workflow pauses
-   and asks whether to ignore the warning. Use `/nu2l ignore` to proceed with the newest build or `/nu2l cancel` to abort the
-   installation.
-5. **Handle archives or multiple assets** – If the release exposes several files or zipped distributions, the player is prompted to
-   pick the desired asset or JAR inside the archive; regex patterns are stored automatically for future updates.
-6. **Schedule installation** – Once information is complete, the update handler copies the build into the configured directory and
-   applies lifecycle rules (reload or restart).
+**Requirements:** Paper 1.21 or newer (or any server implementing the Bukkit API 1.21+) on Java 21.
+
+## Built to be trusted
+
+An updater that replaces files on a live server has to be more careful than you would be by hand. Every update passes
+through these checks, and any one of them can stop it, leaving the installed version untouched:
+
+| | What happens |
+|---|---|
+| **Checksum verified** | The download is compared against the SHA hash the platform publishes (Paper, Hangar, Modrinth, CurseForge, GitHub). A corrupted or tampered file never reaches your plugins folder. |
+| **Right plugin, right place** | The `plugin.yml` inside the jar must match the plugin it replaces. NeverUp2Late never overwrites another plugin's jar and never leaves two copies of one plugin behind. |
+| **Will it load?** | Before installing, NeverUp2Late checks that the new version supports your Minecraft version, was built for your Java version, and does not need a plugin you have not installed. |
+| **Backup first** | The previous jar is kept (5 per plugin by default). No backup, no install. |
+| **Automatic rollback** | After the restart, NeverUp2Late checks that every updated plugin actually started. If one did not, the previous version goes back in, and the broken release is not installed again. |
+| **Nobody gets kicked** | Plugin updates restart the server only when it is empty and between 03:00 and 06:00, with a one-hour cooldown. Admins online are told what is waiting. |
+| **Stays on your Minecraft version** | Paper is only updated within the version you run. A jump to a new Minecraft release is your decision (`allowGameVersionUpgrade`). |
+| **Works on Windows too** | A running jar is locked on Windows, so the update is placed in Bukkit's `update/` folder and the server swaps it in on the next start. |
+
+Want to see what would happen before anything changes? `/nu2l plan` reports every update it would install and every one
+it would refuse, without downloading or writing a single file.
+
+## Supported platforms
+
+| Platform | Add it with | Notes |
+|---|---|---|
+| **Paper** | preconfigured | Server jar; stays on your Minecraft version unless you allow upgrades. |
+| **Geyser** | preconfigured | Off by default, switch it on in the wizard or `config.yml`. |
+| **Hangar** | `/nu2l <hangar link>` | Prefers pinned and reviewed versions. |
+| **Modrinth** | `/nu2l <modrinth link>` | Filters by loader and Minecraft version. |
+| **CurseForge** | `/nu2l <curseforge link>` | Optional API key for higher rate limits. |
+| **SpigotMC** | `/nu2l <spigotmc link>` | Through the Spiget API. Premium resources cannot be downloaded. |
+| **GitHub Releases** | `/nu2l <github link>` | Picks the jar automatically, or asks once if a release has several. Extracts jars from ZIP archives. |
+| **Jenkins** | `/nu2l <jenkins job link>` | Last successful build, artifact by pattern. |
+| **Anything else** | custom `UpdateFetcher` class | Set `type` to its fully qualified class name. |
+
+## In-game
+
+### Paste a link, pick a file, done
 
 ![Quick install linking an update source from a URL](images/update-source-configured-by-link.png)
 
-## Graphical Interface
+When a release ships several jars or a ZIP, NeverUp2Late lists them in chat. Click the one you want; the choice is
+remembered for every future update.
 
-The GUI mirrors all managed plugins and update sources in a paginated chest inventory. From here you can:
+### A GUI for everything else
 
-- Inspect plugin status (loaded, disabled, pending reload) at a glance.
-- Enable, disable, load, or unload plugins when lifecycle management is active.
-- Link existing plugins to update sources or accept automatic suggestions from Modrinth/Hangar search.
-- Adjust per-plugin settings such as automatic updates, restart requirements, and filename retention (writes to `plugin-settings.yml`).
-- Initiate quick installs or manual searches without leaving the interface.
+`/nu2l` opens a chest interface with every plugin on the server. Link plugins to update sources (with suggestions from
+Modrinth and Hangar), turn updates on or off per plugin, choose between restart and hot-reload, rename files, or start a
+search.
 
 ![Plugin overview GUI listing managed plugins](images/plugins-lists.png)
+
+<details>
+<summary>More screenshots</summary>
 
 ![Update source recommendations inside the GUI](images/update-source-recommendation.png)
 
 ![Adjusting update behaviour for a plugin](images/adjust-update-behavior.png)
 
-If lifecycle management is disabled in the configuration, the GUI still lists update sources but hides actions that require
-reloading plugins.
+![Setup wizard showing update source selection](images/setup-update-source.png)
+
+</details>
+
+## Commands
+
+| Command | What it does | Permission |
+|---|---|---|
+| `/nu2l` | Opens the GUI. | `neverup2late.gui.open` |
+| `/nu2l <url>` | Adds the plugin behind a link and installs it. | `neverup2late.install` |
+| `/nu2l status` | Lists every update source with its file, version and auto-update state. | `neverup2late.install` |
+| `/nu2l plan [source]` | Shows what an update run would install or refuse. Changes nothing. | `neverup2late.install` |
+| `/nu2l check [source]` | Looks for updates right now and installs what is newer. | `neverup2late.install` |
+| `/nu2l rollback <source>` | Puts the previous version of a plugin back. | `neverup2late.install` |
+| `/nu2l remove <name>` | Stops managing a plugin. | `neverup2late.gui.manage.remove` |
+| `/nu2l select <number>` | Picks a file when a release offers several (clicking in chat does the same). | `neverup2late.install` |
+| `/nu2l ignore` / `cancel` | Installs anyway, or aborts, when a plugin does not list your Minecraft version. | `neverup2late.install` |
+| `/nu2l setup` | Opens the setup wizard. | `neverup2late.setup` |
+| `/nu2l setup complete` | Finishes setup with the defaults, also from the console. | `neverup2late.setup` |
+| `/nu2l setup apply <file>` | Loads update sources from a prepared YAML file and finishes setup. | `neverup2late.setup` |
+
+All permissions default to operators.
+
+<details>
+<summary>All permissions</summary>
+
+```
+neverup2late.setup                 # Setup wizard
+neverup2late.install               # /nu2l <url>, status, plan, check, rollback, select
+neverup2late.gui.open              # Open the GUI
+neverup2late.gui.manage            # All of the following
+neverup2late.gui.manage.lifecycle  # Load, unload, enable plugins
+neverup2late.gui.manage.link       # Link plugins with update sources
+neverup2late.gui.manage.settings   # Per-plugin update settings
+neverup2late.gui.manage.rename     # Rename plugin files
+neverup2late.gui.manage.remove     # Remove plugins
+```
+
+The command itself has no permission on purpose: moderators with only `neverup2late.gui.open` can still open the GUI.
+
+</details>
 
 ## Configuration
 
-All configuration lives in `plugins/NeverUp2Late/config.yml`. The default layout looks like this:
+Everything lives in `plugins/NeverUp2Late/config.yml`, and the file explains each setting in place. The ones you are most
+likely to touch:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `updateInterval` | `180` | Minutes between update checks. |
+| `startupDelaySeconds` | `60` | Wait after server start before the first check. |
+| `backups.maxCount` | `5` | Backups kept per plugin; `0` keeps all. |
+| `updates.ignoreUnstable` | `true` | Prefer stable releases over betas. |
+| `updates.respectManualRollback` | `true` | Do not reinstall a version you (or the automatic rollback) rolled back from. |
+| `pluginLifecycle.autoManage` | `true` | Enables load/unload in the GUI and hot-reload for plugins set to `AUTO_RELOAD`. |
+| `quickInstall.ignoreCompatibilityWarnings` | `false` | Install even when a plugin does not list your Minecraft version. |
+| `setup.skipWizard` | `false` | Skip the wizard on fresh installs and start updating right away. |
+
+New settings from later versions are added to your file automatically; values you set are never changed.
+
+<details>
+<summary>Update sources in config.yml</summary>
+
+`/nu2l <url>` writes these for you, but you can also edit them by hand:
 
 ```yaml
-setup:
-  skipWizard: false
-
-filenames:
-  geyser: "Geyser-Spigot.jar"
-  paper: "paper.jar"
-
-updateInterval: 180
-pluginLifecycle:
-  autoManage: true
-quickInstall:
-  ignoreCompatibilityWarnings: false
-
 updates:
-  ignoreUnstable: true
   sources:
-    - name: paper
-      type: paper
-      target: server
-      filename: "paper.jar"
-    - name: geyser
-      type: geyser
-      target: plugins
-      filename: "Geyser-Spigot.jar"
+    - name: luckperms
+      type: modrinth
+      target: plugins            # or "server" for the server jar
+      filename: "LuckPerms.jar"
+      options:
+        project: luckperms
+        installedPlugin: LuckPerms
 ```
-
-Key options:
-
-- `setup.skipWizard` – When `true`, NeverUp2Late skips the interactive wizard and applies default sources on startup.
-- `updateInterval` – Minutes between scheduled update checks (default: 180 minutes / 3 hours).
-- `pluginLifecycle.autoManage` – Enables automatic plugin reloads and lifecycle controls. Set to `false` to keep manual restarts.
-- `quickInstall.ignoreCompatibilityWarnings` – When `true`, the quick install workflow skips Minecraft-version compatibility
-  checks reported by providers like Modrinth and installs the latest build regardless.
-- `filenames.<name>` – Default filename for a source if `updates.sources[].filename` is omitted.
-- `updates.ignoreUnstable` – Global default for filtering unstable/prerelease builds; individual sources can override it.
-- `updates.sources` – Array of source descriptors, each providing `name`, `type`, `target` (`server` or `plugins`), optional
-  `filename`, and an `options` block for provider-specific settings.
-
-### Provider-Specific Options
 
 | Type | Notable `options` |
 |------|-------------------|
-| `paper` | No additional fields required; auto-detects the installed Minecraft version. Supports `ignoreUnstable` / `allowUnstable` overrides and `minimumUnstableBuild` (default `50`) to delay prerelease builds until a specific build number is reached. |
-| `geyser` | Preconfigured Modrinth integration with required build numbers; usually needs no extra options. |
-| `hangar` | Specify `owner` + `slug` or `project`. Optional: `platform`, `allowedChannels`, `ignoreUnstable` / `allowUnstable`, `requireReviewed`, `preferPinned`, `pageSize`, `maxPages`, and `installedPlugin` for version detection. |
-| `modrinth` | Provide `project`; optionally filter by `loaders`, `statuses`, `versionTypes`, `gameVersions`, or `preferPrimaryFile`. `installedPlugin` links to an existing plugin. |
-| `curseforge` | Requires `modId`. Optional rate-limit friendly `apiKey`, release type filters, game versions, and `installedPlugin`. |
-| `spigot` | Requires `resourceId` from the SpigotMC URL. Optional: `preferredGameVersions` (list), `ignoreCompatibilityWarnings`, and `installedPlugin` for version lookups via the running server. |
-| `githubRelease` | Needs `owner` and `repository`; supports `assetPattern`, `allowPrerelease`, `archiveEntryPattern`, and `installedPlugin` for archive extraction and version checks. |
-| `jenkins` | Configure `baseUrl` and `job`. Additional keys control artifact selection (`artifact`, `artifactPattern`), preferred build (`preferLastSuccessful`), and version parsing (`versionSource`, `versionPattern`, `installedPlugin`). |
-| Custom class | Set `type` to the fully qualified class name of your `UpdateFetcher` implementation; all `options` values are passed to the constructor. |
+| `paper` | No fields required; detects the installed Minecraft version. `ignoreUnstable` / `allowUnstable`, `minimumUnstableBuild` (default `50`), `allowGameVersionUpgrade` (default `false`). |
+| `geyser` | Preconfigured; usually needs nothing. |
+| `hangar` | `owner` + `slug` (or `project: owner/slug`). Optional: `platform`, `allowedChannels`, `ignoreUnstable` / `allowUnstable`, `requireReviewed`, `preferPinned`, `pageSize`, `maxPages`, `installedPlugin`. |
+| `modrinth` | `project`. Optional: `loaders`, `statuses`, `versionTypes`, `gameVersions`, `preferPrimaryFile`, `installedPlugin`. |
+| `curseforge` | `modId`. Optional: `apiKey`, release type filters, game versions, `installedPlugin`. |
+| `spigot` | `resourceId`. Optional: `preferredGameVersions`, `ignoreCompatibilityWarnings`, `installedPlugin`. |
+| `githubRelease` | `owner`, `repository`. Optional: `assetPattern`, `allowPrerelease`, `archiveEntryPattern`, `installedPlugin`. |
+| `jenkins` | `baseUrl`, `job`. Optional: `artifact`, `artifactPattern`, `preferLastSuccessful`, `versionSource`, `versionPattern`, `installedPlugin`. |
+| custom class | `type` is the fully qualified class name of your `UpdateFetcher`; all `options` are passed to its constructor. |
 
-### Per-Plugin Behaviour (`plugin-settings.yml`)
+</details>
 
-NeverUp2Late writes individual preferences to `plugins/NeverUp2Late/plugin-settings.yml` whenever you tweak settings through the
-GUI or API.
+<details>
+<summary>Per-plugin settings (plugin-settings.yml)</summary>
 
-- `autoUpdate` – Toggle automatic update checks per plugin; disabling prevents scheduled downloads but manual runs still work.
-- `behaviour` – Choose between `AUTO_RELOAD` (try to hot-reload after updates) and `REQUIRE_RESTART` (defer to server restart).
-- `retainUpstreamFilename` – Preserve the upstream filename instead of renaming it to the configured target name.
+Written by the GUI, one entry per plugin:
 
-## Update Cycle and Lifecycle Handling
+- `autoUpdate` – check this plugin on the schedule. Manual checks always work.
+- `behaviour` – `REQUIRE_RESTART` (default, the safe choice) or `AUTO_RELOAD` to hot-reload right after the update.
+- `retainUpstreamFilename` – keep the file name the platform uses instead of the configured one.
 
-The update handler continuously iterates over registered sources:
+</details>
 
-1. **Fetch metadata** – Each fetcher loads the latest build number and version string. Results are cached in `plugins.yml` to avoid
-   downloading identical builds again.
-2. **Download artifacts** – Files are downloaded to a temporary location with retry logic and validated before being moved into the
-   `server` or `plugins` directory.
-3. **Install and notify** – After copying, the installation handler executes post-update actions: plugin reload attempts, file path
-   updates, and optional server restarts (with a one-hour cooldown that persists across restarts).
-4. **Lifecycle decisions** – If no players are online when an update finishes, actions run immediately; otherwise they are deferred
-   until the server empties to avoid interrupting active sessions.
+<details>
+<summary>Files NeverUp2Late keeps</summary>
 
-## Persistence Layer
+All under `plugins/NeverUp2Late/`:
 
-NeverUp2Late stores multiple files under `plugins/NeverUp2Late/`:
+- `plugins.yml` – the installed version per source, so nothing is downloaded twice.
+- `plugin-settings.yml` – per-plugin preferences from the GUI.
+- `setup-state.yml` – how far the setup wizard got.
+- `restart-state.yml` – time of the last automatic restart, for the cooldown.
+- `pending-verification.yml` – updates that still have to prove they start.
+- `config-upgrade.yml` – which config upgrades were applied.
+- `backups/` – previous versions of replaced jars.
 
-- `plugins.yml` – Tracks the last installed build and version per update source to prevent redundant downloads.
-- `plugin-settings.yml` – Remembers per-plugin preferences such as automatic updates and restart behaviour.
-- `setup-state.yml` – Records the current setup phase so the onboarding wizard only appears when needed.
-- `restart-cooldown.json` – Maintains the timestamp of the last automatic restart to enforce the cooldown.
+</details>
 
-## Troubleshooting Tips
+## FAQ
 
-- Use the console log at `FINE` level to inspect fetcher creation and lifecycle decisions; NeverUp2Late logs misconfigured sources
-  and disabled lifecycle management prominently.
-- If quick install cannot determine the correct asset, rerun `/nu2l select <number>` or configure `assetPattern` /
-  `archiveEntryPattern` manually in `config.yml` to persist the desired file match.
-- Lifecycle automation can be disabled entirely by setting `pluginLifecycle.autoManage: false` when you prefer manual restarts.
+**Will it restart my server while people are playing?**
+No. Plugin updates wait until the server is empty and it is between 03:00 and 06:00. Admins who are online get a chat
+message with the version and a link to the changelog.
+
+**What if an update breaks a plugin?**
+If the plugin fails to start, NeverUp2Late restores the previous version on its own and does not install that release
+again. You can also roll back by hand with `/nu2l rollback <source>` at any time.
+
+**Can I see what it is going to do first?**
+`/nu2l plan` lists every update it would install and every one it would refuse, and changes nothing.
+
+**I only want some plugins updated automatically.**
+Turn auto-updates off per plugin in the GUI. Manual `/nu2l check <source>` still works for those.
+
+**How does NeverUp2Late update itself?**
+From this repository's GitHub releases. Every release first sits as a pre-release for 24 hours, which no installation
+downloads, so a broken build can be pulled before it reaches any server.
+
+## Troubleshooting
+
+- Set the log level to `FINE` to see every fetch, decision and lifecycle step.
+- If a release has several files and the wrong one is picked, set `assetPattern` or `archiveEntryPattern` for that source.
+- Prefer to restart by hand? Set `pluginLifecycle.autoManage: false` and leave every plugin on `REQUIRE_RESTART`.
 
 ## License
 
