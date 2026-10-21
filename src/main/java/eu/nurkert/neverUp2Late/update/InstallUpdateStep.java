@@ -44,7 +44,8 @@ public class InstallUpdateStep implements UpdateStep {
                     context.getLatestVersion(),
                     context.getLatestBuild(),
                     context.getDownloadedArtifact().orElse(null),
-                    context.getDownloadUrl());
+                    context.getDownloadUrl(),
+                    context.getReplacedFileBackup().orElse(null));
             if (plugin == null) {
                 installationHandler.onUpdateCompleted(event);
                 return;

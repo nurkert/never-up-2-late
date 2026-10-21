@@ -53,6 +53,10 @@ updates:
   # updater will not push the version you rolled back from onto the server
   # again - it waits for a genuinely newer one. Set this to false if an update
   # should always be re-applied instead.
+  #
+  # The same holds for the automatic rollback: a plugin whose update did not
+  # start is put back to its previous version, and this setting is what keeps
+  # the failed version from being installed again on the next check.
   respectManualRollback: true
 
   # Configure the update sources that should be checked.

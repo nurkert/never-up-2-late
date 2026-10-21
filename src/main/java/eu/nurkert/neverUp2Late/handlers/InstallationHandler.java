@@ -49,6 +49,7 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
     private final JavaPlugin plugin;
     private final Server server;
     private final List<PostUpdateAction> actions = new CopyOnWriteArrayList<>();
+    private final List<UpdateCompletionListener> completionListeners = new CopyOnWriteArrayList<>();
     /**
      * Updates that are already written to disk but whose post-update actions
      * still have to happen. Keyed by destination and kept in arrival order: a
@@ -126,10 +127,28 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
         actions.add(action);
     }
 
+    /**
+     * Registers a listener that learns about every update the moment its file
+     * is on disk - unlike the post-update actions, which may wait hours for an
+     * empty server and are lost if the server is restarted by hand meanwhile.
+     */
+    public void addCompletionListener(UpdateCompletionListener listener) {
+        completionListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
     @Override
     public void onUpdateCompleted(UpdateCompletedEvent event) {
         if (event == null) {
             return;
+        }
+        for (UpdateCompletionListener listener : completionListeners) {
+            try {
+                listener.onUpdateCompleted(event);
+            } catch (RuntimeException ex) {
+                if (logger != null) {
+                    logger.log(Level.WARNING, "An update listener failed for " + event.getDestination(), ex);
+                }
+            }
         }
         remember(event);
         applyPendingEvents(null);

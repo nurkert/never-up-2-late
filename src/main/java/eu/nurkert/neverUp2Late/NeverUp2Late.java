@@ -10,16 +10,21 @@ import eu.nurkert.neverUp2Late.handlers.InstallationHandler;
 import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.handlers.PortalVelocityListener;
 import eu.nurkert.neverUp2Late.handlers.UpdateHandler;
+import eu.nurkert.neverUp2Late.handlers.UpdateVerifier;
+import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
 import eu.nurkert.neverUp2Late.plugin.PluginManagerApi;
+import eu.nurkert.neverUp2Late.update.UpdateCompletedEvent;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.VersionComparator;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import eu.nurkert.neverUp2Late.persistence.ConfigurationUpgrader;
 import eu.nurkert.neverUp2Late.persistence.LegacyConfigMigrator;
+import eu.nurkert.neverUp2Late.persistence.PendingVerificationRepository;
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
 import eu.nurkert.neverUp2Late.persistence.SetupStateRepository;
 import eu.nurkert.neverUp2Late.persistence.UpdateStateRepository;
@@ -27,6 +32,7 @@ import eu.nurkert.neverUp2Late.persistence.SetupStateRepository.SetupPhase;
 import eu.nurkert.neverUp2Late.setup.InitialSetupManager;
 
 import java.nio.file.Path;
+import java.util.List;
 
 public final class NeverUp2Late extends JavaPlugin {
 
@@ -98,6 +104,13 @@ public final class NeverUp2Late extends JavaPlugin {
 
         InstallationHandler installationHandler = new InstallationHandler(this, pluginLifecycleManager, updateSettingsRepository);
         UpdateSourceRegistry updateSourceRegistry = new UpdateSourceRegistry(getLogger(), configuration);
+        UpdateVerifier updateVerifier = new UpdateVerifier(
+                new PendingVerificationRepository(getDataFolder(), getLogger()), getName(), getLogger());
+        installationHandler.addCompletionListener(updateVerifier);
+        // The first tick runs once the server is done starting, when every
+        // plugin that is going to be enabled is.
+        getServer().getScheduler().runTask(this,
+                () -> verifyUpdatedPlugins(updateVerifier, updateSourceRegistry, installationHandler));
         int maxBackups = Math.max(0, configuration.getInt("backups.maxCount", 5));
         Path backupsDirectory = getDataFolder().toPath().resolve("backups");
         ArtifactDownloader artifactDownloader = new ArtifactDownloader(backupsDirectory, maxBackups);
@@ -165,6 +178,33 @@ public final class NeverUp2Late extends JavaPlugin {
         getServer().getPluginManager().registerEvents(overviewGui, this);
         getServer().getPluginManager().registerEvents(setupManager, this);
         getServer().getPluginManager().registerEvents(new PortalVelocityListener(this), this);
+    }
+
+    private void verifyUpdatedPlugins(UpdateVerifier verifier,
+                                      UpdateSourceRegistry registry,
+                                      InstallationHandler installationHandler) {
+        try {
+            java.io.File updateFolder = getServer().getUpdateFolderFile();
+            List<UpdateVerifier.Rollback> rollbacks = verifier.verifyAfterStartup(
+                    name -> {
+                        Plugin plugin = getServer().getPluginManager().getPlugin(name);
+                        return plugin != null && plugin.isEnabled();
+                    },
+                    updateFolder != null ? updateFolder.toPath() : null);
+            for (UpdateVerifier.Rollback rollback : rollbacks) {
+                // Hand the restored jar to the same restart logic as any update:
+                // it waits for an empty server and the maintenance window.
+                String sourceName = rollback.entry().sourceName();
+                if (sourceName == null) {
+                    continue;
+                }
+                registry.findSource(sourceName).ifPresent(source -> installationHandler.onUpdateCompleted(
+                        new UpdateCompletedEvent(source, rollback.entry().destination(), null,
+                                UpdateFetcher.UNKNOWN_BUILD, rollback.restoredTo(), null)));
+            }
+        } catch (RuntimeException ex) {
+            getLogger().log(java.util.logging.Level.WARNING, "Could not verify the plugins updated before this start", ex);
+        }
     }
 
     @Override

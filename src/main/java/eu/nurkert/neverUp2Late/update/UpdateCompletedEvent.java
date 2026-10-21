@@ -19,6 +19,7 @@ public class UpdateCompletedEvent {
     private final int latestBuild;
     private final Path downloadedArtifact;
     private final String downloadUrl;
+    private final Path replacedFileBackup;
 
     public UpdateCompletedEvent(UpdateSource source,
                                 Path destination,
@@ -26,12 +27,27 @@ public class UpdateCompletedEvent {
                                 int latestBuild,
                                 Path downloadedArtifact,
                                 String downloadUrl) {
+        this(source, destination, latestVersion, latestBuild, downloadedArtifact, downloadUrl, null);
+    }
+
+    /**
+     * @param replacedFileBackup the copy kept of the file the update replaced,
+     *                           or {@code null} if nothing was replaced
+     */
+    public UpdateCompletedEvent(UpdateSource source,
+                                Path destination,
+                                String latestVersion,
+                                int latestBuild,
+                                Path downloadedArtifact,
+                                String downloadUrl,
+                                Path replacedFileBackup) {
         this.source = Objects.requireNonNull(source, "source");
         this.destination = Objects.requireNonNull(destination, "destination");
         this.latestVersion = latestVersion;
         this.latestBuild = latestBuild;
         this.downloadedArtifact = downloadedArtifact;
         this.downloadUrl = downloadUrl;
+        this.replacedFileBackup = replacedFileBackup;
     }
 
     public UpdateSource getSource() {
@@ -56,5 +72,9 @@ public class UpdateCompletedEvent {
 
     public Optional<String> getDownloadUrl() {
         return Optional.ofNullable(downloadUrl);
+    }
+
+    public Optional<Path> getReplacedFileBackup() {
+        return Optional.ofNullable(replacedFileBackup);
     }
 }
