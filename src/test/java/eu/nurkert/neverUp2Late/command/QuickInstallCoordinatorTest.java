@@ -33,7 +33,7 @@ class QuickInstallCoordinatorTest {
 
     @Test
     void extractModrinthSlugReturnsFirstRelevantSegment() {
-        Optional<String> slug = QuickInstallCoordinator.extractModrinthSlug(List.of("plugin", "chunky", "versions"));
+        Optional<String> slug = InstallationPlanner.extractModrinthSlug(List.of("plugin", "chunky", "versions"));
 
         assertTrue(slug.isPresent());
         assertEquals("chunky", slug.orElseThrow());
@@ -41,7 +41,7 @@ class QuickInstallCoordinatorTest {
 
     @Test
     void extractModrinthSlugFallsBackToFirstSegmentWhenNoPrefix() {
-        Optional<String> slug = QuickInstallCoordinator.extractModrinthSlug(List.of("chunky", "versions"));
+        Optional<String> slug = InstallationPlanner.extractModrinthSlug(List.of("chunky", "versions"));
 
         assertTrue(slug.isPresent());
         assertEquals("chunky", slug.orElseThrow());
@@ -49,7 +49,7 @@ class QuickInstallCoordinatorTest {
 
     @Test
     void extractModrinthSlugIgnoresCategorySegments() {
-        Optional<String> slug = QuickInstallCoordinator.extractModrinthSlug(List.of("datapack", "veinminer"));
+        Optional<String> slug = InstallationPlanner.extractModrinthSlug(List.of("datapack", "veinminer"));
 
         assertTrue(slug.isPresent());
         assertEquals("veinminer", slug.orElseThrow());
@@ -57,7 +57,7 @@ class QuickInstallCoordinatorTest {
 
     @Test
     void extractModrinthSlugDecodesUrlEncodedSegments() {
-        Optional<String> slug = QuickInstallCoordinator.extractModrinthSlug(List.of("plugin", "My%20Plugin"));
+        Optional<String> slug = InstallationPlanner.extractModrinthSlug(List.of("plugin", "My%20Plugin"));
 
         assertTrue(slug.isPresent());
         assertEquals("My Plugin", slug.orElseThrow());
@@ -65,83 +65,83 @@ class QuickInstallCoordinatorTest {
 
     @Test
     void extractModrinthSlugReturnsEmptyWhenSlugMissing() {
-        Optional<String> slug = QuickInstallCoordinator.extractModrinthSlug(List.of("plugin"));
+        Optional<String> slug = InstallationPlanner.extractModrinthSlug(List.of("plugin"));
 
         assertFalse(slug.isPresent());
     }
 
     @Test
     void extractCurseforgeProjectReturnsSlugFromBasePath() {
-        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project =
-                QuickInstallCoordinator.extractCurseforgeProject(List.of("minecraft", "bukkit-plugins", "treetimber"));
+        Optional<InstallationPlanner.CurseforgeProjectPath> project =
+                InstallationPlanner.extractCurseforgeProject(List.of("minecraft", "bukkit-plugins", "treetimber"));
 
         assertTrue(project.isPresent());
-        QuickInstallCoordinator.CurseforgeProjectPath path = project.orElseThrow();
+        InstallationPlanner.CurseforgeProjectPath path = project.orElseThrow();
         assertEquals(2, path.slugIndex());
         assertEquals("treetimber", path.slug());
     }
 
     @Test
     void extractCurseforgeProjectSkipsDownloadSegments() {
-        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project = QuickInstallCoordinator.extractCurseforgeProject(
+        Optional<InstallationPlanner.CurseforgeProjectPath> project = InstallationPlanner.extractCurseforgeProject(
                 List.of("minecraft", "bukkit-plugins", "treetimber", "download", "5102550")
         );
 
         assertTrue(project.isPresent());
-        QuickInstallCoordinator.CurseforgeProjectPath path = project.orElseThrow();
+        InstallationPlanner.CurseforgeProjectPath path = project.orElseThrow();
         assertEquals(2, path.slugIndex());
         assertEquals("treetimber", path.slug());
     }
 
     @Test
     void extractCurseforgeProjectDecodesSlug() {
-        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project = QuickInstallCoordinator.extractCurseforgeProject(
+        Optional<InstallationPlanner.CurseforgeProjectPath> project = InstallationPlanner.extractCurseforgeProject(
                 List.of("minecraft", "bukkit-plugins", "My%20Plugin", "files", "12345")
         );
 
         assertTrue(project.isPresent());
-        QuickInstallCoordinator.CurseforgeProjectPath path = project.orElseThrow();
+        InstallationPlanner.CurseforgeProjectPath path = project.orElseThrow();
         assertEquals(2, path.slugIndex());
         assertEquals("My Plugin", path.slug());
     }
 
     @Test
     void extractCurseforgeProjectReturnsEmptyWhenMissingSlug() {
-        Optional<QuickInstallCoordinator.CurseforgeProjectPath> project =
-                QuickInstallCoordinator.extractCurseforgeProject(List.of("minecraft", "bukkit-plugins"));
+        Optional<InstallationPlanner.CurseforgeProjectPath> project =
+                InstallationPlanner.extractCurseforgeProject(List.of("minecraft", "bukkit-plugins"));
 
         assertFalse(project.isPresent());
     }
 
     @Test
     void extractOwnerAndSlugSkipsPrefixesForHangar() {
-        Optional<QuickInstallCoordinator.OwnerSlug> result = QuickInstallCoordinator.extractOwnerAndSlug(
+        Optional<InstallationPlanner.OwnerSlug> result = InstallationPlanner.extractOwnerAndSlug(
                 List.of("project", "PaperMC", "Paper", "versions"),
                 List.of("plugins", "plugin", "project")
         );
 
         assertTrue(result.isPresent());
-        QuickInstallCoordinator.OwnerSlug ownerSlug = result.orElseThrow();
+        InstallationPlanner.OwnerSlug ownerSlug = result.orElseThrow();
         assertEquals("PaperMC", ownerSlug.owner());
         assertEquals("Paper", ownerSlug.slug());
     }
 
     @Test
     void extractOwnerAndSlugSkipsPrefixesForGithub() {
-        Optional<QuickInstallCoordinator.OwnerSlug> result = QuickInstallCoordinator.extractOwnerAndSlug(
+        Optional<InstallationPlanner.OwnerSlug> result = InstallationPlanner.extractOwnerAndSlug(
                 List.of("repos", "PaperMC", "Paper", "releases"),
                 List.of("repos", "projects", "users", "orgs")
         );
 
         assertTrue(result.isPresent());
-        QuickInstallCoordinator.OwnerSlug ownerSlug = result.orElseThrow();
+        InstallationPlanner.OwnerSlug ownerSlug = result.orElseThrow();
         assertEquals("PaperMC", ownerSlug.owner());
         assertEquals("Paper", ownerSlug.slug());
     }
 
     @Test
     void extractOwnerAndSlugReturnsEmptyWhenSlugMissing() {
-        Optional<QuickInstallCoordinator.OwnerSlug> result = QuickInstallCoordinator.extractOwnerAndSlug(
+        Optional<InstallationPlanner.OwnerSlug> result = InstallationPlanner.extractOwnerAndSlug(
                 List.of("project", "onlyOwner"),
                 List.of("project")
         );
@@ -151,24 +151,24 @@ class QuickInstallCoordinatorTest {
 
     @Test
     void extractSpigotResourceParsesSlugAndId() {
-        Optional<QuickInstallCoordinator.SpigotResource> result = QuickInstallCoordinator.extractSpigotResource(
+        Optional<InstallationPlanner.SpigotResource> result = InstallationPlanner.extractSpigotResource(
                 List.of("resources", "chunky.81534", "download")
         );
 
         assertTrue(result.isPresent());
-        QuickInstallCoordinator.SpigotResource resource = result.orElseThrow();
+        InstallationPlanner.SpigotResource resource = result.orElseThrow();
         assertEquals(81534L, resource.resourceId());
         assertEquals("chunky", resource.slug());
     }
 
     @Test
     void extractSpigotResourceFallsBackForNumericPaths() {
-        Optional<QuickInstallCoordinator.SpigotResource> result = QuickInstallCoordinator.extractSpigotResource(
+        Optional<InstallationPlanner.SpigotResource> result = InstallationPlanner.extractSpigotResource(
                 List.of("resources", "81534", "download")
         );
 
         assertTrue(result.isPresent());
-        QuickInstallCoordinator.SpigotResource resource = result.orElseThrow();
+        InstallationPlanner.SpigotResource resource = result.orElseThrow();
         assertEquals(81534L, resource.resourceId());
         assertEquals("resource-81534", resource.slug());
     }

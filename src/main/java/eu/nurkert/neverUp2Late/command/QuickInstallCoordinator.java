@@ -4,7 +4,6 @@ import eu.nurkert.neverUp2Late.Permissions;
 import eu.nurkert.neverUp2Late.core.PluginContext;
 import eu.nurkert.neverUp2Late.fetcher.AssetPatternBuilder;
 import eu.nurkert.neverUp2Late.fetcher.GithubReleaseFetcher;
-import eu.nurkert.neverUp2Late.fetcher.UpdateFetcher;
 import eu.nurkert.neverUp2Late.fetcher.exception.AssetSelectionRequiredException;
 import eu.nurkert.neverUp2Late.fetcher.exception.CompatibilityMismatchException;
 import eu.nurkert.neverUp2Late.handlers.ArtifactDownloader;
@@ -15,24 +14,18 @@ import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ChatMessages;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
-import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
 import eu.nurkert.neverUp2Late.net.HttpClient;
-import org.bukkit.Bukkit;
 import net.kyori.adventure.text.Component;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.InvalidConfigurationException;
-import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.PluginDescriptionFile;
-import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.entity.Player;
 
 import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository;
-import eu.nurkert.neverUp2Late.persistence.PluginUpdateSettingsRepository.PluginUpdateSettings;
 import eu.nurkert.neverUp2Late.plugin.ManagedPlugin;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleException;
 import eu.nurkert.neverUp2Late.plugin.PluginLifecycleManager;
@@ -41,16 +34,10 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,75 +47,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.OptionalLong;
 import java.util.regex.Pattern;
-import java.util.regex.Matcher;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
-import java.security.CodeSource;
 
 public class QuickInstallCoordinator {
-
-    private static final Set<String> MODRINTH_SEGMENT_PREFIXES = Set.of(
-            "plugin",
-            "plugins",
-            "project",
-            "projects",
-            "mod",
-            "mods",
-            "modpack",
-            "modpacks",
-            "datapack",
-            "datapacks",
-            "resourcepack",
-            "resourcepacks",
-            "shaderpack",
-            "shaderpacks",
-            "shader",
-            "shaders"
-    );
-
-    private static final Set<String> CURSEFORGE_TRAILING_SEGMENTS = Set.of(
-            "files",
-            "download",
-            "relations",
-            "changelog",
-            "description",
-            "issues",
-            "images",
-            "comments",
-            "wiki",
-            "source"
-    );
-
-    private static final Set<String> CURSEFORGE_CATEGORY_SEGMENTS = Set.of(
-            "minecraft",
-            "mc-mods",
-            "bukkit-plugins",
-            "customization",
-            "texture-packs",
-            "worlds",
-            "maps",
-            "addons",
-            "modpacks",
-            "shaderpacks",
-            "shaders",
-            "datapacks",
-            "data-packs",
-            "resourcepacks",
-            "resource-packs"
-    );
-
-    private static final Pattern CURSEFORGE_DATA_PROJECT_ID_PATTERN = Pattern.compile(
-            "data-project-id\\s*=\\s*\"?(\\d+)\"?",
-            Pattern.CASE_INSENSITIVE
-    );
-
-    private static final Pattern CURSEFORGE_SPAN_PROJECT_ID_PATTERN = Pattern.compile(
-            "project-id[^>]*>(\\d+)<",
-            Pattern.CASE_INSENSITIVE
-    );
 
     private final JavaPlugin plugin;
     private final BukkitScheduler scheduler;
@@ -147,6 +71,7 @@ public class QuickInstallCoordinator {
     private final ArtifactDownloader artifactDownloader;
     private final boolean ignoreCompatibilityWarnings;
     private final Object configurationLock = new Object();
+    private final ManagedPluginActions managedPluginActions;
 
     public QuickInstallCoordinator(PluginContext context) {
         this.plugin = context.getPlugin();
@@ -167,6 +92,33 @@ public class QuickInstallCoordinator {
         this.logger = plugin.getLogger();
         this.messagePrefix = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] " + ChatColor.RESET;
         this.ignoreCompatibilityWarnings = configuration.getBoolean("quickInstall.ignoreCompatibilityWarnings", false);
+        this.managedPluginActions = new ManagedPluginActions(
+                plugin,
+                scheduler,
+                configuration,
+                updateSourceRegistry,
+                persistentPluginHandler,
+                pluginUpdateSettingsRepository,
+                pluginLifecycleManager,
+                artifactDownloader,
+                logger,
+                this::send,
+                this::hasPermission);
+    }
+
+    private InstallationPlanner planner() {
+        return new InstallationPlanner(this, configuration, httpClient, logger, ignoreCompatibilityWarnings);
+    }
+
+    private SourceDeduplicator sourceDeduplicator() {
+        return new SourceDeduplicator(
+                updateSourceRegistry,
+                configuration,
+                configurationLock,
+                plugin,
+                logger,
+                this::resolveDestination,
+                this::send);
     }
 
     public void install(CommandSender sender, String rawUrl) {
@@ -306,7 +258,7 @@ public class QuickInstallCoordinator {
         }
 
         scheduler.runTask(plugin, () -> {
-            String preferredName = trimToNull(source.getInstalledPluginName());
+            String preferredName = InstallationPlanner.trimToNull(source.getInstalledPluginName());
             try {
                 boolean reloaded = preferredName != null
                         ? pluginLifecycleManager.reloadPlugin(preferredName)
@@ -339,335 +291,34 @@ public class QuickInstallCoordinator {
     }
 
     private void deduplicateExistingSources(CommandSender sender) {
-        if (updateSourceRegistry == null) {
-            return;
-        }
-
-        Map<Path, Integer> usage = computePathUsage();
-        Map<String, List<UpdateSource>> groups = new LinkedHashMap<>();
-        Set<String> removed = new LinkedHashSet<>();
-
-        for (UpdateSource source : updateSourceRegistry.getSources()) {
-            String installed = normalizePluginName(source.getInstalledPluginName());
-            if (installed != null) {
-                groups.computeIfAbsent("plugin:" + installed, key -> new ArrayList<>()).add(source);
-            }
-            Path destination = normalizePath(resolveDestination(source));
-            if (destination != null) {
-                groups.computeIfAbsent("path:" + destination, key -> new ArrayList<>()).add(source);
-            }
-        }
-
-        for (List<UpdateSource> group : groups.values()) {
-            List<UpdateSource> candidates = new ArrayList<>();
-            for (UpdateSource source : group) {
-                if (!removed.contains(source.getName())) {
-                    candidates.add(source);
-                }
-            }
-            if (candidates.size() <= 1) {
-                continue;
-            }
-            UpdateSource primary = selectPrimarySource(candidates, null);
-            if (primary == null) {
-                continue;
-            }
-            List<UpdateSource> redundant = new ArrayList<>(candidates);
-            redundant.remove(primary);
-            if (redundant.isEmpty()) {
-                continue;
-            }
-            removed.addAll(cleanupRedundantSources(sender, primary, redundant, usage));
-        }
+        sourceDeduplicator().deduplicateExistingSources(sender);
     }
 
     private Map<Path, Integer> computePathUsage() {
-        Map<Path, Integer> usage = new HashMap<>();
-        if (updateSourceRegistry == null) {
-            return usage;
-        }
-        for (UpdateSource source : updateSourceRegistry.getSources()) {
-            Path destination = normalizePath(resolveDestination(source));
-            if (destination != null) {
-                usage.merge(destination, 1, Integer::sum);
-            }
-        }
-        return usage;
+        return sourceDeduplicator().computePathUsage();
     }
 
     private Set<String> cleanupRedundantSources(CommandSender sender,
                                                 UpdateSource primary,
                                                 List<UpdateSource> redundant,
                                                 Map<Path, Integer> usage) {
-        if (updateSourceRegistry == null || primary == null || redundant == null || redundant.isEmpty()) {
-            return Set.of();
-        }
-
-        Set<String> removed = new LinkedHashSet<>();
-        Path primaryPath = normalizePath(resolveDestination(primary));
-
-        for (UpdateSource duplicate : redundant) {
-            if (!updateSourceRegistry.unregisterSource(duplicate.getName())) {
-                continue;
-            }
-            removed.add(duplicate.getName());
-            Path duplicatePath = normalizePath(resolveDestination(duplicate));
-            if (duplicatePath == null) {
-                continue;
-            }
-            int remaining = usage.getOrDefault(duplicatePath, 1) - 1;
-            if (remaining <= 0) {
-                usage.remove(duplicatePath);
-            } else {
-                usage.put(duplicatePath, remaining);
-            }
-            if (remaining <= 0 && (primaryPath == null || !primaryPath.equals(duplicatePath))) {
-                // Previously: delete file. Now we keep it to prevent data loss.
-                logger.log(Level.FINE, "Duplicate artifact {0} kept for safety after source cleanup.", duplicatePath);
-            }
-        }
-
-        if (!removed.isEmpty() && sender != null) {
-            send(sender, ChatColor.YELLOW + "Removed duplicate update sources: " + String.join(", ", removed));
-        }
-
-        return removed;
+        return sourceDeduplicator().cleanupRedundantSources(sender, primary, redundant, usage);
     }
 
     private List<UpdateSource> findConflictingSources(InstallationPlan plan) {
-        if (updateSourceRegistry == null || plan == null) {
-            return List.of();
-        }
-
-        Set<UpdateSource> matches = new LinkedHashSet<>();
-        String desiredFilename = normalizeFilename(plan.getFilename());
-        Set<String> candidateNames = new HashSet<>();
-        candidateNames.add(normalizePluginName(plan.getSuggestedName()));
-        candidateNames.add(normalizePluginName(plan.getSourceName()));
-        candidateNames.addAll(plan.getPluginNameCandidates().stream()
-                .map(this::normalizePluginName)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet()));
-
-        Object installedOption = plan.getOptions().get("installedPlugin");
-        if (installedOption instanceof String installed) {
-            String normalized = normalizePluginName(installed);
-            if (normalized != null) {
-                candidateNames.add(normalized);
-            }
-        }
-
-        for (UpdateSource source : updateSourceRegistry.getSources()) {
-            if (source.getTargetDirectory() != plan.getTargetDirectory()) {
-                continue;
-            }
-            String sourceFilename = normalizeFilename(source.getFilename());
-            if (desiredFilename != null && desiredFilename.equals(sourceFilename)) {
-                matches.add(source);
-                continue;
-            }
-            String installed = normalizePluginName(source.getInstalledPluginName());
-            if (installed != null && candidateNames.contains(installed)) {
-                matches.add(source);
-                continue;
-            }
-            String normalizedName = normalizePluginName(source.getName());
-            if (normalizedName != null && candidateNames.contains(normalizedName)) {
-                matches.add(source);
-            }
-        }
-
-        return new ArrayList<>(matches);
+        return sourceDeduplicator().findConflictingSources(plan);
     }
 
-    /**
-     * Whether an existing source and a new plan point at the same thing.
-     *
-     * <p>The fetcher class only says which provider is involved; what identifies
-     * the artifact lives in the options - owner and repository, the project
-     * slug, the resource id. Options that merely describe handling are ignored,
-     * so re-installing the same link does not count as a change.</p>
-     */
     private boolean describesSameArtifact(UpdateSource source, InstallationPlan plan) {
-        if (!fetcherMatchesPlan(source, plan)) {
-            return false;
-        }
-        return identifyingOptions(configuredOptions(source.getName()))
-                .equals(identifyingOptions(plan.getOptions()));
-    }
-
-    private static final Set<String> NON_IDENTIFYING_OPTIONS =
-            Set.of("installedplugin", "ignorecompatibilitywarnings", "_ignoreunstabledefault",
-                    "preferredgameversions", "maxgameversion");
-
-    private Map<String, String> identifyingOptions(Map<String, Object> options) {
-        Map<String, String> identity = new LinkedHashMap<>();
-        if (options == null) {
-            return identity;
-        }
-        options.forEach((key, value) -> {
-            if (key == null || value == null) {
-                return;
-            }
-            String normalized = key.toLowerCase(Locale.ROOT);
-            if (NON_IDENTIFYING_OPTIONS.contains(normalized)) {
-                return;
-            }
-            identity.put(normalized, String.valueOf(value));
-        });
-        return identity;
-    }
-
-    /** Reads the options a source is configured with, in either config layout. */
-    private Map<String, Object> configuredOptions(String sourceName) {
-        synchronized (configurationLock) {
-            ConfigurationSection section = configuration.getConfigurationSection("updates.sources");
-            if (section != null && !section.getKeys(false).isEmpty()) {
-                // Sources are matched case-insensitively everywhere else, so a
-                // key that differs only in case must not read as "no options" -
-                // that would make every install look like a re-link.
-                ConfigurationSection entry = section.getKeys(false).stream()
-                        .filter(key -> key.equalsIgnoreCase(sourceName))
-                        .findFirst()
-                        .map(section::getConfigurationSection)
-                        .orElse(null);
-                ConfigurationSection options = entry == null ? null : entry.getConfigurationSection("options");
-                return options == null ? Map.of() : options.getValues(true);
-            }
-            for (Map<?, ?> raw : configuration.getMapList("updates.sources")) {
-                if (!sourceName.equalsIgnoreCase(Objects.toString(raw.get("name"), ""))) {
-                    continue;
-                }
-                Object options = raw.get("options");
-                if (options instanceof Map<?, ?> map) {
-                    Map<String, Object> copy = new LinkedHashMap<>();
-                    map.forEach((k, v) -> copy.put(String.valueOf(k), v));
-                    return copy;
-                }
-                if (options instanceof ConfigurationSection configured) {
-                    return configured.getValues(true);
-                }
-            }
-            return Map.of();
-        }
+        return sourceDeduplicator().describesSameArtifact(source, plan);
     }
 
     private boolean fetcherMatchesPlan(UpdateSource source, InstallationPlan plan) {
-        if (source == null || plan == null) {
-            return false;
-        }
-
-        UpdateFetcher fetcher = source.getFetcher();
-        if (fetcher == null) {
-            return false;
-        }
-
-        String type = plan.getFetcherType();
-        if (type == null || type.isBlank()) {
-            return false;
-        }
-
-        String normalizedType = type.trim();
-        Class<?> fetcherClass = fetcher.getClass();
-
-        if (normalizedType.contains(".")) {
-            return fetcherClass.getName().equalsIgnoreCase(normalizedType);
-        }
-
-        String target = normalizedType.toLowerCase(Locale.ROOT);
-        String simpleName = fetcherClass.getSimpleName().toLowerCase(Locale.ROOT);
-        if (simpleName.equals(target) || simpleName.equals(target + "fetcher")) {
-            return true;
-        }
-
-        String fullName = fetcherClass.getName().toLowerCase(Locale.ROOT);
-        return fullName.endsWith('.' + target) || fullName.endsWith('.' + target + "fetcher");
+        return sourceDeduplicator().fetcherMatchesPlan(source, plan);
     }
 
     private void removeConflictingSources(CommandSender sender, List<UpdateSource> conflicts) {
-        if (updateSourceRegistry == null || conflicts == null || conflicts.isEmpty()) {
-            return;
-        }
-
-        Set<String> removed = new LinkedHashSet<>();
-
-        for (UpdateSource conflict : conflicts) {
-            if (conflict == null) {
-                continue;
-            }
-            String name = conflict.getName();
-            if (name == null || name.isBlank()) {
-                continue;
-            }
-            if (updateSourceRegistry.unregisterSource(name)) {
-                removed.add(name);
-                if (logger != null) {
-                    logger.log(Level.INFO,
-                            "Removed conflicting update source {0} before applying new quick install plan.",
-                            name);
-                }
-            }
-        }
-
-        if (removed.isEmpty()) {
-            return;
-        }
-
-        if (sender != null) {
-            send(sender, ChatColor.YELLOW + "Removed conflicting update sources: " + String.join(", ", removed));
-        }
-
-        saveConfigQuietly();
-    }
-
-    private void saveConfigQuietly() {
-        if (plugin == null) {
-            return;
-        }
-        try {
-            plugin.saveConfig();
-        } catch (RuntimeException ex) {
-            if (logger != null) {
-                logger.log(Level.WARNING, "Failed to save configuration after removing conflicting sources", ex);
-            }
-        }
-    }
-
-    private UpdateSource selectPrimarySource(List<UpdateSource> candidates, InstallationPlan plan) {
-        if (candidates == null || candidates.isEmpty()) {
-            return null;
-        }
-        if (plan != null) {
-            String preferred = normalizePluginName(plan.getSuggestedName());
-            for (UpdateSource candidate : candidates) {
-                if (preferred != null && preferred.equals(normalizePluginName(candidate.getName()))) {
-                    return candidate;
-                }
-            }
-        }
-        return candidates.get(0);
-    }
-
-    private Path normalizePath(Path path) {
-        return path != null ? path.toAbsolutePath().normalize() : null;
-    }
-
-    private String normalizeFilename(String value) {
-        if (value == null) {
-            return null;
-        }
-        return value.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private String normalizePluginName(String value) {
-        if (value == null) {
-            return null;
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        normalized = normalized.replace(" ", "");
-        normalized = normalized.replace("-", "");
-        normalized = normalized.replace("_", "");
-        return normalized.isEmpty() ? null : normalized;
+        sourceDeduplicator().removeConflictingSources(sender, conflicts);
     }
 
     private void prepareAndInstall(CommandSender sender, InstallationPlan plan) {
@@ -954,7 +605,7 @@ public class QuickInstallCoordinator {
                 + plan.getDisplayName() + ChatColor.GOLD + ".");
         send(sender, ChatColor.YELLOW + compatibility.getMessage());
 
-        String serverVersion = trimToNull(compatibility.getServerVersion());
+        String serverVersion = InstallationPlanner.trimToNull(compatibility.getServerVersion());
         if (serverVersion != null) {
             send(sender, ChatColor.GRAY + "Your server reports Minecraft version " + ChatColor.AQUA
                     + serverVersion + ChatColor.GRAY + ".");
@@ -1238,703 +889,15 @@ public class QuickInstallCoordinator {
     }
 
     private Optional<String> detectInstalledPlugin(InstallationPlan plan) {
-        PluginManager pluginManager = Bukkit.getPluginManager();
-        if (pluginManager == null) {
-            return Optional.empty();
-        }
-
-        Set<String> candidates = new LinkedHashSet<>();
-        candidates.add(plan.getDisplayName());
-        candidates.addAll(plan.getPluginNameCandidates());
-        plan.getHost().ifPresent(candidates::add);
-
-        Map<String, Plugin> plugins = new LinkedHashMap<>();
-        for (Plugin plugin : pluginManager.getPlugins()) {
-            plugins.put(normalize(plugin.getName()), plugin);
-        }
-
-        for (String candidate : candidates) {
-            String normalizedCandidate = normalize(candidate);
-            Plugin match = plugins.get(normalizedCandidate);
-            if (match != null) {
-                return Optional.of(match.getName());
-            }
-        }
-
-        // A substring match used to answer here, in both directions, so a short
-        // installed plugin name matched almost any candidate. What was matched
-        // becomes the source's "installedPlugin", and that name decides which
-        // jar the download lands on - so a wrong guess writes one plugin over
-        // another. Only an unambiguous signal is allowed to answer now; a plan
-        // without an installed plugin is treated as a new install, which is the
-        // harmless reading of "we do not know".
-        for (String candidate : candidates) {
-            String normalizedCandidate = normalize(candidate);
-            if (normalizedCandidate.isBlank()) {
-                continue;
-            }
-            List<Plugin> viaWebsite = new ArrayList<>();
-            for (Map.Entry<String, Plugin> entry : plugins.entrySet()) {
-                PluginDescriptionFile description = entry.getValue().getDescription();
-                String website = description.getWebsite();
-                if (website != null && plan.getHost().isPresent()
-                        && websiteMatchesCandidate(website, plan.getHost().get(), normalizedCandidate)) {
-                    viaWebsite.add(entry.getValue());
-                }
-            }
-            if (viaWebsite.size() == 1) {
-                return Optional.of(viaWebsite.get(0).getName());
-            }
-            if (viaWebsite.size() > 1) {
-                logger.log(Level.INFO,
-                        "Several installed plugins point at {0}; not guessing which one {1} updates.",
-                        new Object[]{plan.getHost().orElse("the same site"), plan.getDisplayName()});
-            }
-        }
-
-        return Optional.empty();
-    }
-
-    private boolean websiteMatchesCandidate(String website, String expectedHost, String normalizedCandidate) {
-        if (normalizedCandidate == null || normalizedCandidate.isBlank()) {
-            return false;
-        }
-
-        String trimmedHost = trimWww(expectedHost);
-        if (trimmedHost.isEmpty()) {
-            return false;
-        }
-
-        try {
-            URI uri = new URI(website);
-            String host = trimWww(Optional.ofNullable(uri.getHost()).orElse(""));
-            if (!host.equalsIgnoreCase(trimmedHost)) {
-                return false;
-            }
-            String path = normalize(uri.getPath());
-            return !path.isBlank() && path.contains(normalizedCandidate);
-        } catch (URISyntaxException ignored) {
-            String normalizedWebsite = normalize(website);
-            return normalizedWebsite.contains(normalizedCandidate)
-                    && normalize(trimmedHost).equals(normalize(extractHostFallback(website)));
-        }
-    }
-
-    private String trimWww(String host) {
-        if (host == null) {
-            return "";
-        }
-        String value = host.trim();
-        if (value.regionMatches(true, 0, "www.", 0, 4)) {
-            return value.substring(4);
-        }
-        return value;
-    }
-
-    private String extractHostFallback(String website) {
-        int schemeSeparator = website.indexOf("//");
-        int start = schemeSeparator >= 0 ? schemeSeparator + 2 : 0;
-        int slash = website.indexOf('/', start);
-        String host = slash >= 0 ? website.substring(start, slash) : website.substring(start);
-        return trimWww(host);
+        return planner().detectInstalledPlugin(plan);
     }
 
     private InstallationPlan analyse(URI uri, String originalUrl) {
-        String host = Optional.ofNullable(uri.getHost()).map(String::toLowerCase).orElse("");
-        if (host.contains("hangar.papermc")) {
-            return buildHangarPlan(uri, originalUrl, host);
-        }
-        if (host.contains("modrinth.com")) {
-            return buildModrinthPlan(uri, originalUrl, host);
-        }
-        if (host.contains("spigotmc.org") || host.contains("api.spiget.org")) {
-            return buildSpigotPlan(uri, originalUrl, host);
-        }
-        if (host.contains("github.com")) {
-            return buildGithubPlan(uri, originalUrl, host);
-        }
-        if (host.contains("curseforge.com")) {
-            return buildCurseforgePlan(uri, originalUrl, host);
-        }
-        if (uri.getPath() != null && uri.getPath().toLowerCase(Locale.ROOT).contains("/job/")) {
-            return buildJenkinsPlan(uri, originalUrl, host);
-        }
-        throw new IllegalArgumentException("This URL is not currently supported.");
-    }
-
-    private InstallationPlan buildHangarPlan(URI uri, String originalUrl, String host) {
-        List<String> segments = pathSegments(uri.getPath());
-        OwnerSlug ownerSlug = extractOwnerAndSlug(segments, List.of("plugins", "plugin", "project"))
-                .orElseThrow(() -> new IllegalArgumentException("Hangar URL must follow the /Owner/Project format."));
-        String owner = ownerSlug.owner();
-        String slug = ownerSlug.slug();
-        Map<String, Object> options = new LinkedHashMap<>();
-        options.put("project", owner + "/" + slug);
-        options.put("platform", "PAPER");
-        applyCompatibilityPreference(options);
-
-        String defaultFilename = resolveDefaultFilename(slug, owner + "-" + slug);
-
-        InstallationPlan plan = new InstallationPlan(
-                originalUrl,
-                "Hangar",
-                host,
-                "hangar",
-                slug,
-                toDisplayName(slug),
-                TargetDirectory.PLUGINS,
-                options,
-                defaultFilename
-        );
-        plan.addPluginNameCandidate(owner);
-        plan.addPluginNameCandidate(slug);
-        plan.addPluginNameCandidate(toDisplayName(slug));
-        return plan;
-    }
-
-    private InstallationPlan buildModrinthPlan(URI uri, String originalUrl, String host) {
-        List<String> segments = pathSegments(uri.getPath());
-        String slug = extractModrinthSlug(segments)
-                .orElseThrow(() -> new IllegalArgumentException("Could not parse Modrinth URL."));
-
-        Map<String, Object> options = new LinkedHashMap<>();
-        options.put("project", slug);
-        options.put("loaders", List.of("paper", "spigot"));
-        applyCompatibilityPreference(options);
-
-        String defaultFilename = resolveDefaultFilename(slug);
-
-        InstallationPlan plan = new InstallationPlan(
-                originalUrl,
-                "Modrinth",
-                host,
-                "modrinth",
-                slug,
-                toDisplayName(slug),
-                TargetDirectory.PLUGINS,
-                options,
-                defaultFilename
-        );
-        plan.addPluginNameCandidate(slug);
-        plan.addPluginNameCandidate(toDisplayName(slug));
-        return plan;
-    }
-
-    private InstallationPlan buildCurseforgePlan(URI uri, String originalUrl, String host) {
-        List<String> segments = pathSegments(uri.getPath());
-        CurseforgeProjectPath projectPath = extractCurseforgeProject(segments)
-                .orElseThrow(() -> new IllegalArgumentException("Could not parse CurseForge URL."));
-
-        String slug = projectPath.slug();
-        OptionalLong projectId;
-        try {
-            projectId = fetchCurseforgeProjectId(uri, segments, projectPath.slugIndex());
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Failed to query CurseForge: " + e.getMessage(), e);
-        }
-
-        if (projectId.isEmpty()) {
-            throw new IllegalArgumentException("Could not determine the CurseForge project ID from the provided URL.");
-        }
-
-        Map<String, Object> options = new LinkedHashMap<>();
-        options.put("modId", projectId.getAsLong());
-        applyCompatibilityPreference(options);
-
-        String defaultFilename = resolveDefaultFilename(slug);
-
-        InstallationPlan plan = new InstallationPlan(
-                originalUrl,
-                "CurseForge",
-                host,
-                "curseforge",
-                slug,
-                toDisplayName(slug),
-                TargetDirectory.PLUGINS,
-                options,
-                defaultFilename
-        );
-        plan.addPluginNameCandidate(slug);
-        plan.addPluginNameCandidate(toDisplayName(slug));
-        return plan;
-    }
-
-    private InstallationPlan buildSpigotPlan(URI uri, String originalUrl, String host) {
-        List<String> segments = pathSegments(uri.getPath());
-        SpigotResource resource = extractSpigotResource(segments)
-                .orElseThrow(() -> new IllegalArgumentException("Could not parse SpigotMC URL."));
-
-        long resourceId = resource.resourceId();
-        String slug = resource.slug();
-
-        Map<String, Object> options = new LinkedHashMap<>();
-        options.put("resourceId", resourceId);
-        applyCompatibilityPreference(options);
-
-        String defaultFilename = resolveDefaultFilename(slug, slug + "-" + resourceId, "resource-" + resourceId);
-
-        String providerLabel = host != null && host.contains("api.spiget.org") ? "Spiget API" : "SpigotMC";
-
-        InstallationPlan plan = new InstallationPlan(
-                originalUrl,
-                providerLabel,
-                host,
-                "spigot",
-                slug,
-                toDisplayName(slug),
-                TargetDirectory.PLUGINS,
-                options,
-                defaultFilename
-        );
-        plan.addPluginNameCandidate(slug);
-        plan.addPluginNameCandidate(toDisplayName(slug));
-        if (!slug.equalsIgnoreCase("resource-" + resourceId)) {
-            plan.addPluginNameCandidate(slug.replace('-', ' '));
-        }
-        plan.addPluginNameCandidate(String.valueOf(resourceId));
-        return plan;
-    }
-
-    private OptionalLong fetchCurseforgeProjectId(URI uri, List<String> segments, int slugIndex) throws IOException {
-        String projectUrl = buildCurseforgeProjectUrl(uri, segments, slugIndex);
-        try {
-            String body = httpClient.get(projectUrl);
-            OptionalLong projectId = extractCurseforgeProjectId(body);
-            if (projectId.isEmpty()) {
-                logger.log(Level.FINE, "CurseForge response from {0} did not include a project id.", projectUrl);
-            }
-            return projectId;
-        } catch (IOException e) {
-            logger.log(Level.FINE, "Failed to download CurseForge project page " + projectUrl, e);
-            throw e;
-        }
-    }
-
-    private String buildCurseforgeProjectUrl(URI uri, List<String> segments, int slugIndex) {
-        if (segments == null || slugIndex < 0 || slugIndex >= segments.size()) {
-            throw new IllegalArgumentException("Invalid CurseForge URL structure.");
-        }
-        String authority = uri.getAuthority();
-        if (authority == null || authority.isBlank()) {
-            throw new IllegalArgumentException("CurseForge URL must include a host.");
-        }
-        String scheme = Optional.ofNullable(uri.getScheme()).orElse("https");
-        StringBuilder pathBuilder = new StringBuilder();
-        for (int i = 0; i <= slugIndex; i++) {
-            pathBuilder.append('/').append(segments.get(i));
-        }
-        return scheme + "://" + authority + pathBuilder;
-    }
-
-    private OptionalLong extractCurseforgeProjectId(String html) {
-        if (html == null || html.isBlank()) {
-            return OptionalLong.empty();
-        }
-        Pattern[] patterns = {CURSEFORGE_DATA_PROJECT_ID_PATTERN, CURSEFORGE_SPAN_PROJECT_ID_PATTERN};
-        for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(html);
-            if (!matcher.find()) {
-                continue;
-            }
-            String value = matcher.group(1);
-            if (value == null || value.isBlank()) {
-                continue;
-            }
-            try {
-                long id = Long.parseLong(value.trim());
-                if (id > 0) {
-                    return OptionalLong.of(id);
-                }
-            } catch (NumberFormatException ignored) {
-                // Ignore malformed matches and continue with the next pattern
-            }
-        }
-        return OptionalLong.empty();
-    }
-
-    static Optional<String> extractModrinthSlug(List<String> segments) {
-        String slug = null;
-        boolean expectSlug = false;
-
-        for (String rawSegment : segments) {
-            String segment = decode(rawSegment);
-            if (segment.isBlank()) {
-                continue;
-            }
-
-            String normalized = segment.toLowerCase(Locale.ROOT);
-
-            if (expectSlug) {
-                slug = segment;
-                break;
-            }
-
-            if (MODRINTH_SEGMENT_PREFIXES.contains(normalized)) {
-                expectSlug = true;
-                continue;
-            }
-
-            if (slug == null) {
-                slug = segment;
-                break;
-            }
-        }
-
-        return Optional.ofNullable(trimToNull(slug));
-    }
-
-    static Optional<SpigotResource> extractSpigotResource(List<String> segments) {
-        if (segments == null || segments.isEmpty()) {
-            return Optional.empty();
-        }
-
-        Long resourceId = null;
-        String slug = null;
-
-        for (int i = 0; i < segments.size(); i++) {
-            String decoded = decode(segments.get(i));
-            String trimmed = trimToNull(decoded);
-            if (trimmed == null) {
-                continue;
-            }
-
-            String normalized = trimmed.toLowerCase(Locale.ROOT);
-            if ("resources".equals(normalized) || "resource".equals(normalized)) {
-                for (int j = i + 1; j < segments.size(); j++) {
-                    SpigotResource parsed = parseSpigotResourceSegment(segments.get(j));
-                    if (parsed != null) {
-                        resourceId = parsed.resourceId();
-                        slug = parsed.slug();
-                        break;
-                    }
-                }
-                if (resourceId != null) {
-                    break;
-                }
-                continue;
-            }
-
-            if (resourceId == null) {
-                SpigotResource parsed = parseSpigotResourceSegment(segments.get(i));
-                if (parsed != null) {
-                    resourceId = parsed.resourceId();
-                    slug = parsed.slug();
-                    break;
-                }
-            }
-        }
-
-        if (resourceId == null) {
-            return Optional.empty();
-        }
-
-        String finalSlug = slug;
-        if (finalSlug == null || finalSlug.isBlank()) {
-            finalSlug = "resource-" + resourceId;
-        }
-
-        return Optional.of(new SpigotResource(resourceId, finalSlug));
-    }
-
-    private static SpigotResource parseSpigotResourceSegment(String rawSegment) {
-        String decoded = decode(rawSegment);
-        String candidate = trimToNull(decoded);
-        if (candidate == null) {
-            return null;
-        }
-
-        int dotIndex = candidate.lastIndexOf('.');
-        if (dotIndex > 0 && dotIndex + 1 < candidate.length()) {
-            String idPart = candidate.substring(dotIndex + 1);
-            if (isNumeric(idPart)) {
-                long id = Long.parseLong(idPart);
-                String slugPart = trimToNull(candidate.substring(0, dotIndex));
-                return new SpigotResource(id, slugPart);
-            }
-        }
-
-        if (isNumeric(candidate)) {
-            long id = Long.parseLong(candidate);
-            return new SpigotResource(id, null);
-        }
-
-        return null;
-    }
-
-    static Optional<CurseforgeProjectPath> extractCurseforgeProject(List<String> segments) {
-        if (segments == null || segments.isEmpty()) {
-            return Optional.empty();
-        }
-
-        int index = segments.size() - 1;
-        while (index >= 0) {
-            String decoded = decode(segments.get(index));
-            String trimmed = decoded.trim();
-            if (trimmed.isEmpty()) {
-                index--;
-                continue;
-            }
-
-            String normalized = trimmed.toLowerCase(Locale.ROOT);
-            if (CURSEFORGE_TRAILING_SEGMENTS.contains(normalized)) {
-                index--;
-                continue;
-            }
-
-            if (CURSEFORGE_CATEGORY_SEGMENTS.contains(normalized)) {
-                index--;
-                continue;
-            }
-
-            if (isNumeric(normalized)) {
-                if (index > 0) {
-                    String previous = decode(segments.get(index - 1)).trim().toLowerCase(Locale.ROOT);
-                    if (CURSEFORGE_TRAILING_SEGMENTS.contains(previous)) {
-                        index -= 2;
-                        continue;
-                    }
-                }
-                index--;
-                continue;
-            }
-
-            String slug = trimToNull(trimmed);
-            if (slug == null) {
-                index--;
-                continue;
-            }
-            return Optional.of(new CurseforgeProjectPath(index, slug));
-        }
-
-        return Optional.empty();
-    }
-
-    static Optional<OwnerSlug> extractOwnerAndSlug(List<String> segments, Collection<String> segmentsToIgnore) {
-        if (segments == null || segments.isEmpty()) {
-            return Optional.empty();
-        }
-
-        Set<String> ignore = new HashSet<>();
-        if (segmentsToIgnore != null) {
-            for (String segment : segmentsToIgnore) {
-                if (segment != null && !segment.isBlank()) {
-                    ignore.add(segment.toLowerCase(Locale.ROOT));
-                }
-            }
-        }
-
-        String owner = null;
-        String slug = null;
-
-        for (String rawSegment : segments) {
-            String segment = decode(rawSegment);
-            if (segment.isBlank()) {
-                continue;
-            }
-
-            String normalized = segment.toLowerCase(Locale.ROOT);
-            if (ignore.contains(normalized)) {
-                continue;
-            }
-
-            if (owner == null) {
-                owner = segment;
-                continue;
-            }
-
-            slug = segment;
-            break;
-        }
-
-        owner = trimToNull(owner);
-        slug = trimToNull(slug);
-        if (owner == null || slug == null) {
-            return Optional.empty();
-        }
-
-        return Optional.of(new OwnerSlug(owner, slug));
-    }
-
-    private InstallationPlan buildGithubPlan(URI uri, String originalUrl, String host) {
-        List<String> segments = pathSegments(uri.getPath());
-        OwnerSlug ownerSlug = extractOwnerAndSlug(segments, List.of("repos", "projects", "users", "orgs"))
-                .orElseThrow(() -> new IllegalArgumentException("GitHub URL must follow the /Owner/Repository format."));
-        String owner = ownerSlug.owner();
-        String repository = ownerSlug.slug();
-
-        Map<String, Object> options = new LinkedHashMap<>();
-        options.put("owner", owner);
-        options.put("repository", repository);
-        applyCompatibilityPreference(options);
-        String defaultFilename = resolveDefaultFilename(repository, owner + "-" + repository);
-
-        InstallationPlan plan = new InstallationPlan(
-                originalUrl,
-                "GitHub Releases",
-                host,
-                "githubRelease",
-                repository,
-                toDisplayName(repository),
-                TargetDirectory.PLUGINS,
-                options,
-                defaultFilename
-        );
-        plan.addPluginNameCandidate(repository);
-        plan.addPluginNameCandidate(toDisplayName(repository));
-        plan.addPluginNameCandidate(owner + " " + repository);
-        return plan;
-    }
-
-    private InstallationPlan buildJenkinsPlan(URI uri, String originalUrl, String host) {
-        List<String> segments = pathSegments(uri.getPath());
-        List<String> jobSegments = new ArrayList<>();
-        for (int i = 0; i < segments.size(); i++) {
-            if ("job".equalsIgnoreCase(segments.get(i)) && i + 1 < segments.size()) {
-                jobSegments.add(decode(segments.get(++i)));
-            }
-        }
-        if (jobSegments.isEmpty()) {
-            throw new IllegalArgumentException("Jenkins URL must contain /job/<name>.");
-        }
-
-        String jobPath = String.join("/", jobSegments);
-        String baseUrl = buildJenkinsBaseUrl(uri, segments);
-
-        Map<String, Object> options = new LinkedHashMap<>();
-        options.put("baseUrl", baseUrl);
-        options.put("job", jobPath);
-        options.put("artifactPattern", "(?i).*\\.jar$");
-        applyCompatibilityPreference(options);
-
-        String displayName = jobSegments.get(jobSegments.size() - 1);
-        String providerLabel = (host == null || host.isBlank()) ? "Jenkins" : host;
-        String defaultFilename = resolveDefaultFilename(displayName, jobPath);
-
-        InstallationPlan plan = new InstallationPlan(
-                originalUrl,
-                providerLabel,
-                host,
-                "jenkins",
-                sanitizeKey(displayName),
-                displayName,
-                TargetDirectory.PLUGINS,
-                options,
-                defaultFilename
-        );
-        plan.addPluginNameCandidate(displayName);
-        plan.addPluginNameCandidate(displayName.replace("-", " "));
-        if (displayName.contains("-")) {
-            plan.addPluginNameCandidate(displayName.substring(0, displayName.indexOf('-')).trim());
-        }
-        return plan;
-    }
-
-    private void applyCompatibilityPreference(Map<String, Object> options) {
-        if (ignoreCompatibilityWarnings && options != null) {
-            options.put("ignoreCompatibilityWarnings", true);
-        }
-    }
-
-    private String buildJenkinsBaseUrl(URI uri, List<String> segments) {
-        String scheme = Optional.ofNullable(uri.getScheme()).orElse("https");
-        StringBuilder base = new StringBuilder();
-        base.append(scheme).append("://").append(uri.getHost());
-        if (uri.getPort() > 0) {
-            base.append(":").append(uri.getPort());
-        }
-        int firstJob = -1;
-        for (int i = 0; i < segments.size(); i++) {
-            if ("job".equalsIgnoreCase(segments.get(i))) {
-                firstJob = i;
-                break;
-            }
-        }
-        StringBuilder path = new StringBuilder();
-        for (int i = 0; i < segments.size(); i++) {
-            if (i == firstJob) {
-                break;
-            }
-            path.append('/').append(segments.get(i));
-        }
-        if (path.length() == 0) {
-            path.append('/');
-        }
-        if (path.charAt(path.length() - 1) != '/') {
-            path.append('/');
-        }
-        base.append(path);
-        return base.toString();
+        return planner().analyse(uri, originalUrl);
     }
 
     private String determineFilename(String downloadUrl, String fallback) {
-        String sanitizedFallback = fallback != null && !fallback.isBlank() ? fallback : null;
-        try {
-            URI uri = new URI(downloadUrl);
-            String path = Optional.ofNullable(uri.getPath()).orElse("");
-            int lastSlash = path.lastIndexOf('/');
-            String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-            candidate = candidate.split("\\?")[0];
-
-            // First guess: the Content-Disposition header, when the path has no usable name
-            if (candidate.isBlank() || candidate.equalsIgnoreCase("download")) {
-                String cdName = tryResolveContentDisposition(downloadUrl);
-                if (cdName != null && !cdName.isBlank()) {
-                    candidate = cdName;
-                }
-            }
-
-            // Second guess: a host specific default
-            if (candidate.isBlank() || candidate.equalsIgnoreCase("download")) {
-                candidate = sanitizedFallback != null ? sanitizedFallback : null;
-            }
-            if (candidate == null || candidate.isBlank()) {
-                candidate = "plugin-" + sanitizeKey(Optional.ofNullable(uri.getHost()).orElse("source")) + ".jar";
-            }
-
-            // The candidate can come straight from a remote Content-Disposition
-            // header, so it is attacker controlled. Sanitising turns any path
-            // separator into a dash and appends the .jar extension, which keeps
-            // the result a plain file name inside the target directory.
-            String safe = FileNameSanitizer.sanitizeJarFilename(candidate);
-            return safe != null ? safe : "plugin-source.jar";
-        } catch (Exception e) {
-            logger.log(Level.FINE, "Failed to parse filename from " + downloadUrl, e);
-            if (sanitizedFallback != null && !sanitizedFallback.isBlank()) {
-                return sanitizedFallback.toLowerCase(Locale.ROOT).endsWith(".jar")
-                        ? sanitizedFallback
-                        : sanitizedFallback + ".jar";
-            }
-            return "plugin-source.jar";
-        }
-    }
-
-    private String tryResolveContentDisposition(String url) {
-        try {
-            java.net.http.HttpClient client = eu.nurkert.neverUp2Late.net.HttpClient.sharedClient();
-            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
-                    .method("HEAD", java.net.http.HttpRequest.BodyPublishers.noBody())
-                    .uri(URI.create(url))
-                    .timeout(java.time.Duration.ofSeconds(5))
-                    .build();
-            java.net.http.HttpResponse<Void> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.discarding());
-            String disposition = response.headers().firstValue("Content-Disposition").orElse(null);
-            if (disposition == null || disposition.isBlank()) {
-                return null;
-            }
-            // Simple parsing for filename="..."
-            int idx = disposition.toLowerCase(Locale.ROOT).indexOf("filename=");
-            if (idx < 0) {
-                return null;
-            }
-            String part = disposition.substring(idx + "filename=".length()).trim();
-            part = part.replaceAll("^[\\\"']|[\\\"']$", "");
-            if (part.isBlank()) {
-                return null;
-            }
-            return part;
-        } catch (Exception ignored) {
-            return null;
-        }
+        return planner().determineFilename(downloadUrl, fallback);
     }
 
     private String ensureUniqueName(String base) {
@@ -2035,309 +998,20 @@ public class QuickInstallCoordinator {
         return false;
     }
 
-    private boolean isSelfPlugin(ManagedPlugin target) {
-        if (target == null) {
-            return false;
-        }
-        if (target.getPlugin().map(plugin::equals).orElse(false)) {
-            return true;
-        }
-        String targetName = target.getName();
-        if (targetName != null && targetName.equalsIgnoreCase(plugin.getName())) {
-            return true;
-        }
-        Path path = target.getPath();
-        if (path == null) {
-            return false;
-        }
-        try {
-            CodeSource codeSource = plugin.getClass().getProtectionDomain().getCodeSource();
-            if (codeSource == null || codeSource.getLocation() == null) {
-                return false;
-            }
-            Path selfPath = Path.of(codeSource.getLocation().toURI());
-            if (!Files.exists(selfPath)) {
-                return false;
-            }
-            return path.toAbsolutePath().normalize().equals(selfPath.toAbsolutePath().normalize());
-        } catch (Exception ex) {
-            return false;
-        }
-    }
-
     public void removeManagedPlugin(CommandSender sender, ManagedPlugin target) {
-        if (target == null) {
-            send(sender, ChatColor.RED + "Unknown plugin – action cancelled.");
-            return;
-        }
-        if (!hasPermission(sender, Permissions.GUI_MANAGE_REMOVE)) {
-            return;
-        }
-        if (isSelfPlugin(target)) {
-            send(sender, ChatColor.RED + "NeverUp2Late cannot remove itself while it is running.");
-            return;
-        }
-        if (pluginLifecycleManager == null) {
-            send(sender, ChatColor.RED + "Plugin management is disabled; removal not possible.");
-            return;
-        }
-
-        scheduler.runTask(plugin, () -> {
-            String pluginName = Optional.ofNullable(target.getName()).orElse("Plugin");
-            Path jarPath = target.getPath();
-            ArtifactDownloader.BackupRecord backupRecord = null;
-
-            try {
-                if (target.isEnabled()) {
-                    pluginLifecycleManager.disablePlugin(pluginName);
-                }
-                if (target.isLoaded()) {
-                    pluginLifecycleManager.unloadPlugin(pluginName);
-                }
-            } catch (PluginLifecycleException ex) {
-                send(sender, ChatColor.RED + "Failed to unload " + pluginName + ": " + ex.getMessage());
-                logger.log(Level.WARNING, "Failed to unload plugin " + pluginName, ex);
-                return;
-            }
-
-            if (jarPath != null) {
-                try {
-                    backupRecord = artifactDownloader.backupExistingFile(jarPath, pluginName, pluginName)
-                            .orElse(null);
-                    Files.deleteIfExists(jarPath);
-                } catch (IOException ex) {
-                    // rollback backup if deletion failed after moving
-                    if (backupRecord != null) {
-                        try {
-                            Files.move(backupRecord.getPath(), jarPath, StandardCopyOption.REPLACE_EXISTING);
-                            send(sender, ChatColor.YELLOW + "Removal aborted; restored original file from backup.");
-                        } catch (IOException restoreEx) {
-                            send(sender, ChatColor.RED + "Could not delete or restore file: " + jarPath.getFileName());
-                            logger.log(Level.SEVERE, "Failed to restore backup for " + jarPath, restoreEx);
-                        }
-                    } else {
-                        send(sender, ChatColor.RED + "Could not delete file: " + jarPath.getFileName());
-                    }
-                    logger.log(Level.WARNING, "Failed to delete plugin jar " + jarPath, ex);
-                    return;
-                }
-            }
-
-            List<UpdateSource> matchingSources = updateSourceRegistry.getSources().stream()
-                    .filter(source -> matchesPluginSource(source, pluginName, jarPath))
-                    .toList();
-
-            for (UpdateSource source : matchingSources) {
-                if (updateSourceRegistry.unregisterSource(source.getName())) {
-                    configuration.set("filenames." + source.getName(), null);
-                    persistentPluginHandler.removePluginInfo(source.getName());
-                }
-            }
-
-            if (!matchingSources.isEmpty()) {
-                plugin.saveConfig();
-            }
-
-            if (pluginUpdateSettingsRepository != null) {
-                pluginUpdateSettingsRepository.removeSettings(pluginName);
-            }
-
-            send(sender, ChatColor.GREEN + "Plugin " + ChatColor.AQUA + pluginName + ChatColor.GREEN + " has been removed.");
-        });
-    }
-
-    private boolean matchesPluginSource(UpdateSource source, String pluginName, Path jarPath) {
-        if (source == null) {
-            return false;
-        }
-        String filename = source.getFilename();
-        if (jarPath != null && jarPath.getFileName() != null
-                && filename != null
-                && jarPath.getFileName().toString().equalsIgnoreCase(filename)) {
-            return true;
-        }
-        String installedPlugin = source.getInstalledPluginName();
-        return installedPlugin != null && installedPlugin.equalsIgnoreCase(pluginName);
+        managedPluginActions.removeManagedPlugin(sender, target);
     }
 
     public void removePlugin(CommandSender sender, String pluginName) {
-        if (pluginLifecycleManager == null) {
-            send(sender, ChatColor.RED + "Plugin management is disabled; removal not possible.");
-            return;
-        }
-        ManagedPlugin target = pluginLifecycleManager.findByName(pluginName).orElse(null);
-        if (target == null) {
-            send(sender, ChatColor.RED + "Plugin " + pluginName + " was not found.");
-            return;
-        }
-        removeManagedPlugin(sender, target);
+        managedPluginActions.removePlugin(sender, pluginName);
     }
 
     public void disableAutomaticUpdates(CommandSender sender, ManagedPlugin target) {
-        if (target == null) {
-            send(sender, ChatColor.RED + "Unknown plugin – action cancelled.");
-            return;
-        }
-        if (!hasPermission(sender, Permissions.GUI_MANAGE_LINK)) {
-            return;
-        }
-
-        String initialPluginName = Optional.ofNullable(target.getName()).orElse("");
-        Path jarPath = target.getPath();
-
-        List<UpdateSource> matchingSources = updateSourceRegistry.getSources().stream()
-                .filter(source -> matchesPluginSource(source, initialPluginName, jarPath))
-                .toList();
-
-        String pluginName = initialPluginName;
-        String displayName = pluginName.isBlank() ? "Plugin" : pluginName;
-
-        if (matchingSources.isEmpty()) {
-            send(sender, ChatColor.YELLOW + "No update source is configured for "
-                    + ChatColor.AQUA + displayName + ChatColor.YELLOW + ".");
-            return;
-        }
-
-        if (pluginName.isBlank()) {
-            pluginName = matchingSources.stream()
-                    .map(UpdateSource::getInstalledPluginName)
-                    .filter(Objects::nonNull)
-                    .findFirst()
-                    .orElse("");
-            if (!pluginName.isBlank()) {
-                displayName = pluginName;
-            }
-        }
-
-        int removed = 0;
-        for (UpdateSource source : matchingSources) {
-            if (updateSourceRegistry.unregisterSource(source.getName())) {
-                configuration.set("filenames." + source.getName(), null);
-                persistentPluginHandler.removePluginInfo(source.getName());
-                removed++;
-            }
-        }
-
-        if (removed > 0) {
-            plugin.saveConfig();
-        }
-
-        if (pluginUpdateSettingsRepository != null && !pluginName.isBlank()) {
-            PluginUpdateSettings current = pluginUpdateSettingsRepository.getSettings(pluginName);
-            if (current.autoUpdateEnabled()) {
-                pluginUpdateSettingsRepository.saveSettings(pluginName,
-                        new PluginUpdateSettings(false, current.behaviour(), current.retainUpstreamFilename()));
-            }
-        }
-
-        if (removed > 0) {
-            send(sender, ChatColor.YELLOW + "Automatic updates for " + ChatColor.AQUA + displayName
-                    + ChatColor.YELLOW + " have been disabled.");
-            send(sender, ChatColor.GRAY + "The plugin remains installed; only the update source was removed.");
-        } else {
-            send(sender, ChatColor.RED + "Could not disable automatic updates.");
-        }
+        managedPluginActions.disableAutomaticUpdates(sender, target);
     }
 
     public void renameManagedPlugin(CommandSender sender, ManagedPlugin target, String requestedName) {
-        if (target == null) {
-            send(sender, ChatColor.RED + "Unknown plugin – action cancelled.");
-            return;
-        }
-        if (!hasPermission(sender, Permissions.GUI_MANAGE_RENAME)) {
-            return;
-        }
-        if (isSelfPlugin(target)) {
-            send(sender, ChatColor.RED + "NeverUp2Late manages its own file name and cannot be renamed here.");
-            return;
-        }
-        if (pluginLifecycleManager == null) {
-            send(sender, ChatColor.RED + "Plugin management is disabled; rename not possible.");
-            return;
-        }
-
-        scheduler.runTask(plugin, () -> {
-            Path currentPath = target.getPath();
-            if (currentPath == null) {
-                send(sender, ChatColor.RED + "Could not determine a file path.");
-                return;
-            }
-
-            String sanitized = FileNameSanitizer.sanitizeJarFilename(requestedName);
-            if (sanitized == null) {
-                send(sender, ChatColor.RED + "Please provide a valid file name.");
-                return;
-            }
-
-            Path parent = currentPath.getParent();
-            if (parent == null) {
-                send(sender, ChatColor.RED + "Could not determine target directory.");
-                return;
-            }
-            Path targetPath = parent.resolve(sanitized).toAbsolutePath().normalize();
-            if (targetPath.equals(currentPath)) {
-                send(sender, ChatColor.GRAY + "The file name remains unchanged.");
-                return;
-            }
-            if (Files.exists(targetPath)) {
-                send(sender, ChatColor.RED + "A file with that name already exists: " + targetPath.getFileName());
-                return;
-            }
-
-            boolean wasLoaded = target.isLoaded();
-            String pluginName = Optional.ofNullable(target.getName()).orElse("Plugin");
-
-            try {
-                if (target.isEnabled()) {
-                    pluginLifecycleManager.disablePlugin(pluginName);
-                }
-                if (target.isLoaded()) {
-                    pluginLifecycleManager.unloadPlugin(pluginName);
-                }
-            } catch (PluginLifecycleException ex) {
-                send(sender, ChatColor.RED + "Failed to unload " + pluginName + ": " + ex.getMessage());
-                logger.log(Level.WARNING, "Failed to unload plugin for rename " + pluginName, ex);
-                return;
-            }
-
-            try {
-                Files.move(currentPath, targetPath,
-                        StandardCopyOption.REPLACE_EXISTING,
-                        StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException ex) {
-                try {
-                    Files.move(currentPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                } catch (IOException inner) {
-                    send(sender, ChatColor.RED + "Rename failed: " + inner.getMessage());
-                    logger.log(Level.WARNING, "Failed to rename plugin jar", inner);
-                    return;
-                }
-            } catch (IOException ex) {
-                send(sender, ChatColor.RED + "Rename failed: " + ex.getMessage());
-                logger.log(Level.WARNING, "Failed to rename plugin jar", ex);
-                return;
-            }
-
-            List<UpdateSource> matchingSources = updateSourceRegistry.getSources().stream()
-                    .filter(source -> matchesPluginSource(source, pluginName, currentPath))
-                    .toList();
-
-            for (UpdateSource source : matchingSources) {
-                if (updateSourceRegistry.updateSourceFilename(source.getName(), sanitized)) {
-                    configuration.set("filenames." + source.getName(), sanitized);
-                }
-            }
-            if (!matchingSources.isEmpty()) {
-                plugin.saveConfig();
-            }
-
-            pluginLifecycleManager.updateManagedPluginPath(currentPath, targetPath);
-
-            send(sender, ChatColor.GREEN + "Renamed plugin file to " + ChatColor.AQUA + sanitized + ChatColor.GREEN + ".");
-            if (wasLoaded) {
-                send(sender, ChatColor.YELLOW + "Please reload or restart the server to activate the plugin again.");
-            }
-        });
+        managedPluginActions.renameManagedPlugin(sender, target, requestedName);
     }
 
     private void clearPendingSelection(CommandSender sender) {
@@ -2362,7 +1036,7 @@ public class QuickInstallCoordinator {
         if (asset == null) {
             return "Unknown";
         }
-        String name = trimToNull(asset.name());
+        String name = InstallationPlanner.trimToNull(asset.name());
         if (name != null) {
             return name;
         }
@@ -2390,113 +1064,6 @@ public class QuickInstallCoordinator {
             }
             return sanitized.isBlank() ? null : sanitized;
         }
-    }
-
-    private static String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private String resolveDefaultFilename(String... candidates) {
-        if (candidates == null || candidates.length == 0) {
-            return null;
-        }
-
-        Set<String> keys = new LinkedHashSet<>();
-        for (String candidate : candidates) {
-            if (candidate == null || candidate.isBlank()) {
-                continue;
-            }
-            keys.add(candidate);
-            keys.add(candidate.toLowerCase(Locale.ROOT));
-            keys.add(sanitizeKey(candidate));
-        }
-
-        for (String key : keys) {
-            if (key == null || key.isBlank()) {
-                continue;
-            }
-            String value = configuration.getString("filenames." + key);
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-
-        return null;
-    }
-
-    private List<String> pathSegments(String path) {
-        List<String> segments = new ArrayList<>();
-        if (path == null || path.isEmpty()) {
-            return segments;
-        }
-        for (String segment : path.split("/")) {
-            if (!segment.isBlank()) {
-                segments.add(segment);
-            }
-        }
-        return segments;
-    }
-
-    private static String decode(String value) {
-        return URLDecoder.decode(value, StandardCharsets.UTF_8);
-    }
-
-    private static boolean isNumeric(String value) {
-        if (value == null || value.isBlank()) {
-            return false;
-        }
-        for (int i = 0; i < value.length(); i++) {
-            if (!Character.isDigit(value.charAt(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private String sanitizeKey(String value) {
-        String normalized = value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
-        normalized = normalized.replaceAll("-+", "-");
-        normalized = trimDashes(normalized);
-        return normalized.isBlank() ? "source" : normalized;
-    }
-
-    private String trimDashes(String value) {
-        int start = 0;
-        int end = value.length();
-        while (start < end && value.charAt(start) == '-') {
-            start++;
-        }
-        while (end > start && value.charAt(end - 1) == '-') {
-            end--;
-        }
-        return value.substring(start, end);
-    }
-
-    private String toDisplayName(String slug) {
-        if (slug == null || slug.isBlank()) {
-            return "Plugin";
-        }
-        String[] parts = slug.replace('-', ' ').replace('_', ' ').split("\\s+");
-        StringBuilder builder = new StringBuilder();
-        for (String part : parts) {
-            if (part.isBlank()) {
-                continue;
-            }
-            builder.append(Character.toUpperCase(part.charAt(0)));
-            if (part.length() > 1) {
-                builder.append(part.substring(1));
-            }
-            builder.append(' ');
-        }
-        return builder.toString().trim();
-    }
-
-    private String normalize(String value) {
-        return value == null ? "" : value.replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
     }
 
     private record ConfigurationSnapshot(String data) {
@@ -2528,61 +1095,7 @@ public class QuickInstallCoordinator {
         }
     }
 
-    static final class CurseforgeProjectPath {
-        private final int slugIndex;
-        private final String slug;
-
-        CurseforgeProjectPath(int slugIndex, String slug) {
-            this.slugIndex = slugIndex;
-            this.slug = slug;
-        }
-
-        int slugIndex() {
-            return slugIndex;
-        }
-
-        String slug() {
-            return slug;
-        }
-    }
-
-    static final class OwnerSlug {
-        private final String owner;
-        private final String slug;
-
-        OwnerSlug(String owner, String slug) {
-            this.owner = owner;
-            this.slug = slug;
-        }
-
-        String owner() {
-            return owner;
-        }
-
-        String slug() {
-            return slug;
-        }
-    }
-
-    static final class SpigotResource {
-        private final long resourceId;
-        private final String slug;
-
-        SpigotResource(long resourceId, String slug) {
-            this.resourceId = resourceId;
-            this.slug = slug;
-        }
-
-        long resourceId() {
-            return resourceId;
-        }
-
-        String slug() {
-            return slug;
-        }
-    }
-
-    private final class InstallationPlan {
+    final class InstallationPlan {
         private final String originalUrl;
         private final String providerLabel;
         private final String host;
@@ -2613,7 +1126,7 @@ public class QuickInstallCoordinator {
             this.providerLabel = providerLabel;
             this.host = host;
             this.fetcherType = fetcherType;
-            this.suggestedName = sanitizeKey(suggestedName);
+            this.suggestedName = InstallationPlanner.sanitizeKey(suggestedName);
             this.displayName = displayName;
             this.targetDirectory = targetDirectory;
             this.options = options;
