@@ -13,6 +13,8 @@ import eu.nurkert.neverUp2Late.update.UpdateCompletionListener;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
+import eu.nurkert.neverUp2Late.util.ChatMessages;
+import net.kyori.adventure.text.Component;
 import org.bukkit.ChatColor;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
@@ -195,9 +197,11 @@ public class InstallationHandler implements Listener, UpdateCompletionListener {
             return;
         }
         String name = event.getSource() != null ? event.getSource().getName() : "a plugin";
-        String message = ChatColor.GRAY + "[" + ChatColor.AQUA + "nu2l" + ChatColor.GRAY + "] "
-                + ChatColor.YELLOW + "An update for " + ChatColor.WHITE + name + ChatColor.YELLOW
-                + " is ready. The server restarts to apply it once everyone has left.";
+        String version = event.getLatestVersion().map(v -> " " + v).orElse("");
+        Component message = ChatMessages.PREFIX
+                .append(ChatMessages.legacy(ChatColor.YELLOW + "An update for " + ChatColor.WHITE + name + version
+                        + ChatColor.YELLOW + " is ready. The server restarts to apply it once everyone has left. "))
+                .append(ChatMessages.command("[Status]", "/nu2l status", "Show every managed plugin and its version"));
         try {
             for (Player online : server.getOnlinePlayers()) {
                 if (online.hasPermission(Permissions.GUI_OPEN) || online.hasPermission(Permissions.INSTALL)) {

@@ -12,11 +12,13 @@ import eu.nurkert.neverUp2Late.handlers.PersistentPluginHandler;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.TargetDirectory;
 import eu.nurkert.neverUp2Late.update.UpdateSourceRegistry.UpdateSource;
+import eu.nurkert.neverUp2Late.util.ChatMessages;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils;
 import eu.nurkert.neverUp2Late.util.ArchiveUtils.ArchiveEntry;
 import eu.nurkert.neverUp2Late.util.FileNameSanitizer;
 import eu.nurkert.neverUp2Late.net.HttpClient;
 import org.bukkit.Bukkit;
+import net.kyori.adventure.text.Component;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
@@ -894,10 +896,12 @@ public class QuickInstallCoordinator {
         send(sender, ChatColor.GOLD + "The archive contains multiple jar files:");
         for (int i = 0; i < entries.size(); i++) {
             ArchiveEntry entry = entries.get(i);
-            send(sender, ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
-                    + ChatColor.AQUA + entry.fullPath());
+            send(sender, ChatMessages.choice(i + 1,
+                    ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
+                            + ChatColor.AQUA + entry.fullPath(),
+                    "/nu2l select " + (i + 1)));
         }
-        send(sender, ChatColor.YELLOW + "Please use /nu2l select <number> to choose the desired file.");
+        send(sender, ChatColor.YELLOW + "Click the file you want, or use /nu2l select <number>.");
     }
 
     private String extractFileNameForArchive(ArchiveEntry entry) {
@@ -928,10 +932,12 @@ public class QuickInstallCoordinator {
             AssetSelectionRequiredException.ReleaseAsset asset = assets.get(i);
             String label = assetLabel(asset);
             String suffix = asset.archive() ? ChatColor.YELLOW + " (archive)" : "";
-            send(sender, ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
-                    + ChatColor.AQUA + label + suffix);
+            send(sender, ChatMessages.choice(i + 1,
+                    ChatColor.GRAY + String.valueOf(i + 1) + ChatColor.DARK_GRAY + ". "
+                            + ChatColor.AQUA + label + suffix,
+                    "/nu2l select " + (i + 1)));
         }
-        send(sender, ChatColor.YELLOW + "Please use /nu2l select <number> to choose the desired asset.");
+        send(sender, ChatColor.YELLOW + "Click the file you want, or use /nu2l select <number>.");
         if (selection.getAssetType() == AssetSelectionRequiredException.AssetType.ARCHIVE
                 || assets.stream().anyMatch(AssetSelectionRequiredException.ReleaseAsset::archive)) {
             send(sender, ChatColor.GOLD + "Note: Archives are extracted automatically; please choose the desired file.");
@@ -1958,6 +1964,17 @@ public class QuickInstallCoordinator {
             if (!preferred.equals(current)) {
                 plan.setSourceName(preferred);
             }
+        }
+    }
+
+    private void send(CommandSender sender, Component message) {
+        if (sender == null) {
+            return;
+        }
+        Component text = ChatMessages.PREFIX.append(message);
+        if (!runOnMainThread(() -> sender.sendMessage(text))
+                && sender instanceof org.bukkit.command.ConsoleCommandSender) {
+            sender.sendMessage(text);
         }
     }
 
