@@ -304,7 +304,8 @@ public class NeverUp2LateCommand implements CommandExecutor, TabCompleter {
                     case UPDATED -> {
                         waiting++;
                         icon = Theme.WARNING + Theme.UP;
-                        state = Theme.SUCCESS + value.latestVersion() + Theme.MUTED + " · restart pending";
+                        // The version is already in the line; what matters is that it is not live yet.
+                        state = Theme.WARNING + "restart pending";
                     }
                     case HELD -> {
                         held++;
